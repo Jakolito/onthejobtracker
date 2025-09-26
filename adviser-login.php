@@ -18,8 +18,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($email) || empty($password)) {
         $error_message = 'Please fill in all fields.';
     } else {
-        // Check if user is an Academic Adviser
-        $adviser_query = "SELECT * FROM Academic_Adviser WHERE email = ?";
+        // Check if user is an Academic Adviser - FIXED: lowercase table name
+        $adviser_query = "SELECT * FROM academic_adviser WHERE email = ?";
         $adviser_stmt = mysqli_prepare($conn, $adviser_query);
         mysqli_stmt_bind_param($adviser_stmt, "s", $email);
         mysqli_stmt_execute($adviser_stmt);

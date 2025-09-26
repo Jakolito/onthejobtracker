@@ -248,7 +248,7 @@ try {
 }
 // Fetch adviser profile picture
 try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
+    $adviser_query = "SELECT profile_picture FROM academic_adviser WHERE id = ?";
     $adviser_stmt = mysqli_prepare($conn, $adviser_query);
     mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
     mysqli_stmt_execute($adviser_stmt);

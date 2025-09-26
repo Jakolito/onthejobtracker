@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Company Supervisor Dashboard</title>
+  <link rel="stylesheet" href="supervisordash.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <h2 class="logo">OnTheJobTracker</h2>
+    <nav>
+      <ul>
+        <li class="active">Dashboard</li>
+        <li>Student Management</li>
+        <li>Attendance Tracking</li>
+        <li>Reports</li>
+        <li>Schedule Management</li>
+        <li>Messages</li>
+        <li>Settings</li>
+      </ul>
+    </nav>
+    <div class="user-section">
+      <span>Company Supervisor</span>
+      <small>TechCorp Inc.</small>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <header>
+      <h1>Company Supervisor Dashboard</h1>
+      <div class="profile">
+        <span class="notif-bell">🔔</span>
+        <div class="avatar">CS</div>
+      </div>
+    </header>
+
+    <!-- Metrics Section -->
+    <section class="metrics">
+      <div class="card">
+        <h3>Total Students</h3>
+        <p>12 <small>+2 since last month</small></p>
+      </div>
+      <div class="card">
+        <h3>Attendance Rate</h3>
+        <p>92% <small>+3% from previous week</small></p>
+      </div>
+      <div class="card">
+        <h3>Today's Attendance</h3>
+        <p>10/12 <small class="absent">2 students absent</small></p>
+      </div>
+    </section>
+
+    <!-- Attendance Table -->
+    <section class="attendance">
+      <div class="attendance-header">
+        <h2>Today's Attendance</h2>
+      <div class="right-controls">
+  <input type="date" id="attendanceDate" />
+  <button id="exportBtn">Export</button>
+  <button id="clearBtn" style="background-color: #e53935; color: white;">Reset</button>
+</div>
+
+      </div>
+      
+      <div class="table-controls">
+        <input type="text" placeholder="Search students..." />
+        <label>
+          Auto-verify:
+          <input type="checkbox" checked />
+        </label>
+        <button>Filter</button>
+        <button id="markAllBtn">Mark All Present</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+            <th>Status</th>
+            <th>Hours</th>
+            <th>Remarks</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="attendanceTableBody">
+          <!-- Dynamic rows -->
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Attendance Graph Section -->
+    <section class="graph-section">
+      <h2>Attendance Overview</h2>
+      <canvas id="attendanceChart"></canvas>
+    </section>
+
+    <!-- Weekly Attendance Overview and Distribution -->
+    <section class="charts-section">
+      <div class="chart-card">
+        <h3>Weekly Attendance Overview</h3>
+        <canvas id="weeklyLineChart"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Attendance Distribution</h3>
+        <canvas id="attendanceDonutChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Recent Activity -->
+    <section class="activity-section">
+      <h3>Recent Activity</h3>
+      <ul class="activity-list" id="activityList"></ul>
+    </section>
+
+  </main>
+
+  <script src="supervisordash.js"></script>
+</body>
+</html>

@@ -13,106 +13,186 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     exit;
 }
 
-// Get adviser information
+// Get adviser information with default values
 $adviser_id = $_SESSION['adviser_id'];
-$adviser_name = $_SESSION['name'];
-$adviser_email = $_SESSION['email'];
+$adviser_name = $_SESSION['name'] ?? 'Academic Adviser';
+$adviser_email = $_SESSION['email'] ?? '';
 
-// Get dashboard statistics
+// Initialize all variables with default values
+$total_students = 0;
+$total_supervisors = 0;
+$prev_month_students = 0;
+$prev_month_supervisors = 0;
+$student_growth = 0;
+$supervisor_growth = 0;
+$active_students = 0;
+$completed_ojt = 0;
+$unread_messages_count = 0;
+$pending_documents_count = 0;
+$profile_picture = '';
+$error_message = '';
+
+// Get dashboard statistics with individual try-catch blocks
 try {
-    // Total OJT Students
-    $total_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1 AND status != 'Blocked'";
+    // Total OJT Students - simplified query
+    $total_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1";
     $total_students_result = mysqli_query($conn, $total_students_query);
-    $total_students = mysqli_fetch_assoc($total_students_result)['total'];
-
-    // Total OJT Company Supervisors
-    $total_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE account_status = 'Active'";
-    $total_supervisors_result = mysqli_query($conn, $total_supervisors_query);
-    $total_supervisors = mysqli_fetch_assoc($total_supervisors_result)['total'];
-
-    // Get previous month's student count for comparison
-    $prev_month_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1 AND status != 'Blocked' AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
-    $prev_month_students_result = mysqli_query($conn, $prev_month_students_query);
-    $prev_month_students = mysqli_fetch_assoc($prev_month_students_result)['total'];
-    $student_growth = $total_students - $prev_month_students;
-
-    // Get previous month's supervisor count for comparison
-    $prev_month_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE account_status = 'Active' AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
-    $prev_month_supervisors_result = mysqli_query($conn, $prev_month_supervisors_query);
-    $prev_month_supervisors = mysqli_fetch_assoc($prev_month_supervisors_result)['total'];
-    $supervisor_growth = $total_supervisors - $prev_month_supervisors;
-
-    // Get active students count from student_deployments
-    $active_students_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE status = 'Active' OR ojt_status = 'Active'";
-    $active_students_result = mysqli_query($conn, $active_students_query);
-    $active_students = mysqli_fetch_assoc($active_students_result)['total'];
-
-    // Get completed OJT count from student_deployments
-    $completed_ojt_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE (status = 'Completed' OR ojt_status = 'Completed') AND updated_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)";
-    $completed_ojt_result = mysqli_query($conn, $completed_ojt_query);
-    $completed_ojt = mysqli_fetch_assoc($completed_ojt_result)['total'];
-
-    // Get recent messages sent to adviser
-    $recent_messages_query = "SELECT 
-        m.id, m.message, m.sent_at, m.is_read, m.message_type,
-        s.first_name, s.last_name, s.student_id, s.program 
-        FROM messages m 
-        JOIN students s ON m.sender_id = s.id 
-        WHERE m.recipient_type = 'adviser' AND m.sender_type = 'student' 
-        AND m.is_deleted_by_recipient = 0 
-        ORDER BY m.sent_at DESC 
-        LIMIT 10";
-    $recent_messages_result = mysqli_query($conn, $recent_messages_query);
-
-    // Get notification counts
-    $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
-    $unread_messages_result = mysqli_query($conn, $unread_messages_query);
-    $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
-
-    $pending_documents_query = "SELECT COUNT(*) as count FROM student_documents sd JOIN students s ON sd.student_id = s.id WHERE sd.status = 'pending' AND s.verified = 1";
-    $pending_documents_result = mysqli_query($conn, $pending_documents_query);
-    $pending_documents_count = mysqli_fetch_assoc($pending_documents_result)['count'];
-
-    // Get recent document submissions
-    $recent_documents_query = "SELECT 
-        sd.id, sd.original_filename, sd.status, sd.submitted_at, sd.name as doc_name,
-        s.first_name, s.last_name, s.student_id, s.program 
-        FROM student_documents sd 
-        JOIN students s ON sd.student_id = s.id 
-        WHERE s.verified = 1 
-        ORDER BY sd.submitted_at DESC 
-        LIMIT 10";
-    $recent_documents_result = mysqli_query($conn, $recent_documents_query);
-
-    // Get students for evaluation
-    $students_for_evaluation_query = "SELECT 
-        s.id, s.first_name, s.last_name, s.student_id, s.program, s.year_level, s.section, s.status, s.last_login 
-        FROM students s 
-        WHERE s.verified = 1 AND s.status IN ('Active', 'Completed') 
-        ORDER BY s.last_login DESC 
-        LIMIT 10";
-    $students_for_evaluation_result = mysqli_query($conn, $students_for_evaluation_query);
-
+    if ($total_students_result) {
+        $row = mysqli_fetch_assoc($total_students_result);
+        $total_students = (int)$row['total'];
+    }
 } catch (Exception $e) {
-    $error_message = "Error fetching dashboard data: " . $e->getMessage();
+    $total_students = 0;
 }
 
 try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
-    $adviser_stmt = mysqli_prepare($conn, $adviser_query);
-    mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
-    mysqli_stmt_execute($adviser_stmt);
-    $adviser_result = mysqli_stmt_get_result($adviser_stmt);
-    
-    if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
-        $adviser_data = mysqli_fetch_assoc($adviser_result);
-        $profile_picture = $adviser_data['profile_picture'] ?? '';
-    } else {
-        $profile_picture = '';
+    // Total Company Supervisors - simplified query
+    $total_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors";
+    $total_supervisors_result = mysqli_query($conn, $total_supervisors_query);
+    if ($total_supervisors_result) {
+        $row = mysqli_fetch_assoc($total_supervisors_result);
+        $total_supervisors = (int)$row['total'];
+    }
+} catch (Exception $e) {
+    $total_supervisors = 0;
+}
+
+try {
+    // Previous month calculations - only if tables exist
+    if (mysqli_query($conn, "DESCRIBE students")) {
+        $prev_month_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1 AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
+        $prev_month_students_result = mysqli_query($conn, $prev_month_students_query);
+        if ($prev_month_students_result) {
+            $row = mysqli_fetch_assoc($prev_month_students_result);
+            $prev_month_students = (int)$row['total'];
+            $student_growth = $total_students - $prev_month_students;
+        }
+    }
+} catch (Exception $e) {
+    $prev_month_students = 0;
+    $student_growth = 0;
+}
+
+try {
+    // Previous month supervisors
+    if (mysqli_query($conn, "DESCRIBE company_supervisors")) {
+        $prev_month_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
+        $prev_month_supervisors_result = mysqli_query($conn, $prev_month_supervisors_query);
+        if ($prev_month_supervisors_result) {
+            $row = mysqli_fetch_assoc($prev_month_supervisors_result);
+            $prev_month_supervisors = (int)$row['total'];
+            $supervisor_growth = $total_supervisors - $prev_month_supervisors;
+        }
+    }
+} catch (Exception $e) {
+    $prev_month_supervisors = 0;
+    $supervisor_growth = 0;
+}
+
+try {
+    // Active students - check if table exists first
+    if (mysqli_query($conn, "DESCRIBE student_deployments")) {
+        $active_students_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE status = 'Active'";
+        $active_students_result = mysqli_query($conn, $active_students_query);
+        if ($active_students_result) {
+            $row = mysqli_fetch_assoc($active_students_result);
+            $active_students = (int)$row['total'];
+        }
+    }
+} catch (Exception $e) {
+    $active_students = 0;
+}
+
+try {
+    // Completed OJT
+    if (mysqli_query($conn, "DESCRIBE student_deployments")) {
+        $completed_ojt_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE status = 'Completed'";
+        $completed_ojt_result = mysqli_query($conn, $completed_ojt_query);
+        if ($completed_ojt_result) {
+            $row = mysqli_fetch_assoc($completed_ojt_result);
+            $completed_ojt = (int)$row['total'];
+        }
+    }
+} catch (Exception $e) {
+    $completed_ojt = 0;
+}
+
+// Initialize empty result sets for messages and documents
+$recent_messages_result = null;
+$recent_documents_result = null;
+
+try {
+    // Recent messages - check if table exists
+    if (mysqli_query($conn, "DESCRIBE messages")) {
+        $recent_messages_query = "SELECT 
+            m.id, m.message, m.sent_at, m.is_read, m.message_type,
+            s.first_name, s.last_name, s.student_id, s.program 
+            FROM messages m 
+            JOIN students s ON m.sender_id = s.id 
+            WHERE m.recipient_type = 'adviser' AND m.sender_type = 'student' 
+            ORDER BY m.sent_at DESC 
+            LIMIT 10";
+        $recent_messages_result = mysqli_query($conn, $recent_messages_query);
+        
+        // Get unread count
+        $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0";
+        $unread_messages_result = mysqli_query($conn, $unread_messages_query);
+        if ($unread_messages_result) {
+            $row = mysqli_fetch_assoc($unread_messages_result);
+            $unread_messages_count = (int)$row['count'];
+        }
+    }
+} catch (Exception $e) {
+    $recent_messages_result = null;
+    $unread_messages_count = 0;
+}
+
+try {
+    // Recent documents - check if table exists
+    if (mysqli_query($conn, "DESCRIBE student_documents")) {
+        $pending_documents_query = "SELECT COUNT(*) as count FROM student_documents sd JOIN students s ON sd.student_id = s.id WHERE sd.status = 'pending' AND s.verified = 1";
+        $pending_documents_result = mysqli_query($conn, $pending_documents_query);
+        if ($pending_documents_result) {
+            $row = mysqli_fetch_assoc($pending_documents_result);
+            $pending_documents_count = (int)$row['count'];
+        }
+
+        $recent_documents_query = "SELECT 
+            sd.id, sd.original_filename, sd.status, sd.submitted_at, sd.name as doc_name,
+            s.first_name, s.last_name, s.student_id, s.program 
+            FROM student_documents sd 
+            JOIN students s ON sd.student_id = s.id 
+            WHERE s.verified = 1 
+            ORDER BY sd.submitted_at DESC 
+            LIMIT 10";
+        $recent_documents_result = mysqli_query($conn, $recent_documents_query);
+    }
+} catch (Exception $e) {
+    $recent_documents_result = null;
+    $pending_documents_count = 0;
+}
+
+try {
+    // Get adviser profile picture
+    if (mysqli_query($conn, "DESCRIBE Academic_Adviser")) {
+        $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
+        $adviser_stmt = mysqli_prepare($conn, $adviser_query);
+        if ($adviser_stmt) {
+            mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+            mysqli_stmt_execute($adviser_stmt);
+            $adviser_result = mysqli_stmt_get_result($adviser_stmt);
+            
+            if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
+                $adviser_data = mysqli_fetch_assoc($adviser_result);
+                $profile_picture = $adviser_data['profile_picture'] ?? '';
+            }
+            mysqli_stmt_close($adviser_stmt);
+        }
     }
 } catch (Exception $e) {
     $profile_picture = '';
 }
+
 // Create adviser initials
 $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
 ?>
@@ -129,23 +209,22 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <script>
+    <script>
 tailwind.config = {
     theme: {
         extend: {
             colors: {
-                'bulsu-maroon': '#800000',     // Primary Maroon
-                'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                'bulsu-gold': '#DAA520',       // Official Gold
-                'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                'bulsu-white': '#FFFFFF'       // Supporting White
+                'bulsu-maroon': '#800000',
+                'bulsu-dark-maroon': '#6B1028',
+                'bulsu-gold': '#DAA520',
+                'bulsu-light-gold': '#F4E4BC',
+                'bulsu-white': '#FFFFFF'
             }
         }
     }
 }
 </script>
     <style>
-        /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
         }
@@ -170,6 +249,22 @@ tailwind.config = {
 
         .notification-badge {
             animation: pulse 2s infinite;
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: linear-gradient(135deg, #ff4757, #ff3742);
+            color: white;
+            border-radius: 50%;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            min-width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+            z-index: 10;
         }
 
         @keyframes pulse {
@@ -191,97 +286,95 @@ tailwind.config = {
     <!-- Mobile Sidebar Overlay -->
     <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden hidden sidebar-overlay"></div>
 
-<div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
-    <!-- Close button for mobile -->
-    <div class="flex justify-end p-4 lg:hidden">
-        <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
-            <i class="fas fa-times text-xl"></i>
-        </button>
-    </div>
+    <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
+        <!-- Close button for mobile -->
+        <div class="flex justify-end p-4 lg:hidden">
+            <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
 
-    <!-- Logo Section with BULSU Branding -->
-    <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
-        <div class="flex items-center">
-            <!-- BULSU Logos -->
-             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
-            <!-- Brand Name -->
-            <div class="flex items-center font-bold text-lg text-white">
-                <span>OnTheJob</span>
-                <span class="ml-1">Tracker</span>
+        <!-- Logo Section with BULSU Branding -->
+        <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
+            <div class="flex items-center">
+                <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
+                <div class="flex items-center font-bold text-lg text-white">
+                    <span>OnTheJob</span>
+                    <span class="ml-1">Tracker</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Navigation -->
+        <div class="px-4 py-6">
+            <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
+            <nav class="space-y-2">
+                <a href="AdviserDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md relative">
+                    <i class="fas fa-th-large mr-3 text-bulsu-gold"></i>
+                    Dashboard
+                </a>
+                <a href="ViewOJTCoordinators.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-users-cog mr-3"></i>
+                    View OJT Company Supervisor
+                </a>
+                <a href="StudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-user-graduate mr-3"></i>
+                    Student Accounts
+                </a>
+                <a href="StudentDeployment.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-paper-plane mr-3"></i>
+                    Student Deployment
+                </a>
+                <a href="StudentPerformance.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-chart-line mr-3"></i>
+                    Student Performance
+                </a>
+                <a href="StudentRecords.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-folder-open mr-3"></i>
+                    Student Records
+                </a>
+                <a href="GenerateReports.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-file-alt mr-3"></i>
+                    Generate Reports
+                </a>
+                <a href="AdminAlerts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-bell mr-3"></i>
+                    Administrative Alerts
+                </a>
+                <a href="academicAdviserMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-envelope mr-3"></i>
+                    Messages
+                    <?php if ($unread_messages_count > 0): ?>
+                        <span class="notification-badge" id="sidebar-notification-badge">
+                            <?php echo $unread_messages_count; ?>
+                        </span>
+                    <?php endif; ?>
+                </a>
+                <a href="academicAdviserEdit.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200 relative">
+                    <i class="fas fa-edit mr-3"></i>
+                    Edit Document
+                </a>
+            </nav>
+        </div>
+        
+        <!-- User Profile -->
+        <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
+            <div class="flex items-center space-x-3">
+                <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
+                    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                    <?php else: ?>
+                        <?php echo $adviser_initials; ?>
+                    <?php endif; ?>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
+                    <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- Navigation -->
-    <div class="px-4 py-6">
-        <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
-        <nav class="space-y-2">
-            <a href="AdviserDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
-                <i class="fas fa-th-large mr-3 text-bulsu-gold"></i>
-                Dashboard
-            </a>
-            <a href="ViewOJTCoordinators.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-users-cog mr-3"></i>
-                View OJT Company Supervisor
-            </a>
-            <a href="StudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-user-graduate mr-3"></i>
-                Student Accounts
-            </a>
-            <a href="StudentDeployment.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-paper-plane mr-3"></i>
-                Student Deployment
-            </a>
-            <a href="StudentPerformance.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-chart-line mr-3"></i>
-                Student Performance
-            </a>
-            <a href="StudentRecords.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-folder-open mr-3"></i>
-                Student Records
-            </a>
-            <a href="GenerateReports.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-file-alt mr-3"></i>
-                Generate Reports
-            </a>
-            <a href="AdminAlerts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-bell mr-3"></i>
-                Administrative Alerts
-            </a>
-            <a href="academicAdviserMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-envelope mr-3"></i>
-                Messages
-                <?php if ($unread_messages_count > 0): ?>
-                    <span class="notification-badge" id="sidebar-notification-badge">
-                        <?php echo $unread_messages_count; ?>
-                    </span>
-                <?php endif; ?>
-            </a>
-            <a href="academicAdviserEdit.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-edit mr-3"></i>
-                Edit Document
-            </a>
-        </nav>
-    </div>
-    
-    <!-- User Profile -->
-    <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
-        <div class="flex items-center space-x-3">
-            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
-            </div>
-        </div>
-    </div>
-</div>
-    
+        
     <!-- Main Content -->
     <div class="lg:ml-64 min-h-screen">
         <!-- Header -->
@@ -302,23 +395,23 @@ tailwind.config = {
                 <div class="relative">
                     <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
                         <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
+                            <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                                <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                            <?php else: ?>
+                                <?php echo $adviser_initials; ?>
+                            <?php endif; ?>
+                        </div>
                     </button>
                     <div id="profileDropdown" class="hidden absolute right-0 mt-2 w-48 sm:w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                         <div class="p-4 border-b border-gray-200">
                             <div class="flex items-center space-x-3">
-                               <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
+                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
+                                    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                                    <?php else: ?>
+                                        <?php echo $adviser_initials; ?>
+                                    <?php endif; ?>
+                                </div>
                                 <div>
                                     <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
                                     <p class="text-sm text-gray-500">Academic Adviser</p>
@@ -342,7 +435,7 @@ tailwind.config = {
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
             <!-- Error Message Display -->
-            <?php if (isset($error_message)): ?>
+            <?php if (!empty($error_message)): ?>
                 <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                     <div class="flex items-start">
                         <i class="fas fa-exclamation-triangle text-red-600 mt-1 mr-3"></i>
@@ -463,7 +556,7 @@ tailwind.config = {
                     </div>
                     <div class="p-4 sm:p-6 max-h-80 overflow-y-auto">
                         <div class="space-y-3">
-                            <?php if (mysqli_num_rows($recent_documents_result) > 0): ?>
+                            <?php if ($recent_documents_result && mysqli_num_rows($recent_documents_result) > 0): ?>
                                 <?php while ($doc = mysqli_fetch_assoc($recent_documents_result)): ?>
                                     <?php 
                                     $student_initials = strtoupper(substr($doc['first_name'], 0, 1) . substr($doc['last_name'], 0, 1));
@@ -516,7 +609,7 @@ tailwind.config = {
                     </div>
                     <div class="p-4 sm:p-6 max-h-80 overflow-y-auto">
                         <div class="space-y-3">
-                            <?php if (mysqli_num_rows($recent_messages_result) > 0): ?>
+                            <?php if ($recent_messages_result && mysqli_num_rows($recent_messages_result) > 0): ?>
                                 <?php while ($message = mysqli_fetch_assoc($recent_messages_result)): ?>
                                     <?php 
                                     $student_initials = strtoupper(substr($message['first_name'], 0, 1) . substr($message['last_name'], 0, 1));
@@ -646,7 +739,7 @@ tailwind.config = {
         const ctx = document.getElementById('barChart').getContext('2d');
         let chart;
 
-        // Chart data based on your PHP variables
+        // Chart data with safe values
         const chartData = {
             current: {
                 labels: ['Total Students', 'Company Supervisors', 'Active Students', 'Completed OJT'],
@@ -741,22 +834,6 @@ tailwind.config = {
                 
                 // Create chart with selected view
                 createChart(button.dataset.view);
-            });
-        });
-
-        // Auto-refresh data every 30 seconds
-        setInterval(() => {
-            // You can implement AJAX calls here to refresh data
-            console.log('Auto-refreshing dashboard data...');
-        }, 30000);
-
-        // Add smooth scrolling to anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
             });
         });
     </script>

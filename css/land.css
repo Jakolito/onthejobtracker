@@ -1,0 +1,518 @@
+ /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        /* Header and Navigation */
+        header {
+            background-color: #10b981; /* Green */
+            color: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 5%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+
+        .logo-text {
+            display: flex;
+            align-items: center;
+        }
+
+        .logo-divider {
+            margin: 0 10px;
+            font-weight: bold;
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+        }
+
+        .nav-links li {
+            margin: 0 1rem;
+        }
+
+        .nav-links a {
+            color: white;
+            font-weight: 500;
+            transition: opacity 0.3s;
+        }
+
+        .nav-links a:hover {
+            opacity: 0.8;
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .login-btn, .signup-btn {
+            padding: 0.5rem 1.2rem;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .login-btn {
+            color: white;
+            border: 1px solid white;
+        }
+
+        .signup-btn {
+            background-color: white;
+            color: #10b981; /* Green */
+        }
+
+        .login-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .signup-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%); /* Green gradient */
+            color: white;
+            padding: 5rem 5%;
+            text-align: center;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: white;
+            color: #10b981; /* Green */
+            padding: 0.8rem 2rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            transition: all 0.3s;
+            margin-right: 1rem;
+        }
+
+        .cta-button:hover {
+            background-color: #f0f0f0;
+            transform: translateY(-2px);
+        }
+
+        .secondary-cta {
+            display: inline-block;
+            background-color: transparent;
+            border: 2px solid white;
+            color: white;
+            padding: 0.8rem 2rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            transition: all 0.3s;
+        }
+
+        .secondary-cta:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 5rem 5%;
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-title h2 {
+            font-size: 2rem;
+            color: #10b981; /* Green */
+            margin-bottom: 1rem;
+        }
+
+        .section-title p {
+            color: #666;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s;
+            border-top: 4px solid #10b981; /* Green border */
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-icon {
+            background-color: #e6f7f1; /* Light green background */
+            color: #10b981; /* Green icon */
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .feature-card h3 {
+            margin-bottom: 1rem;
+            color: #10b981; /* Green */
+        }
+
+        /* Algorithm Section */
+        .algorithms {
+            background-color: #f0f9f5; /* Light green background */
+            padding: 5rem 5%;
+        }
+
+        .algorithm-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .algorithm-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .algorithm-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .algorithm-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 5px;
+            height: 100%;
+            background-color: #10b981; /* Green */
+        }
+
+        .algorithm-card h3 {
+            color: #10b981; /* Green */
+            margin-bottom: 1rem;
+        }
+
+        .algorithm-steps {
+            margin-top: 1.5rem;
+        }
+
+        .algorithm-step {
+            margin-bottom: 1rem;
+        }
+
+        .algorithm-step h4 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: #444;
+        }
+
+        .algorithm-step p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        /* How It Works Section */
+        .how-it-works {
+            padding: 5rem 5%;
+            background-color: white;
+        }
+
+        .steps-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        .step {
+            background-color: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            flex: 1;
+            min-width: 250px;
+            max-width: 350px;
+            position: relative;
+            border: 1px solid #e6f7f1; /* Light green border */
+        }
+
+        .step-number {
+            position: absolute;
+            top: -20px;
+            left: -10px;
+            background-color: #10b981; /* Green */
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .step h3 {
+            color: #10b981; /* Green */
+            margin-bottom: 1rem;
+        }
+
+        /* Benefits Section */
+        .benefits {
+            background: linear-gradient(135deg, #f0f9f5 0%, #e6f7f1 100%); /* Light green gradient */
+            padding: 5rem 5%;
+        }
+
+        .benefits-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .benefits-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .benefit-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            text-align: center;
+        }
+
+        .benefit-icon {
+            font-size: 2.5rem;
+            color: #10b981; /* Green */
+            margin-bottom: 1rem;
+        }
+
+        .benefit-card h3 {
+            margin-bottom: 1rem;
+            color: #333;
+        }
+
+        /* Stakeholders Section */
+        .stakeholders {
+            padding: 5rem 5%;
+            background-color: white;
+        }
+
+        .stakeholders-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .stakeholders-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .stakeholder-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 4px solid #10b981; /* Green border */
+        }
+
+        .stakeholder-icon {
+            width: 80px;
+            height: 80px;
+            background-color: #e6f7f1; /* Light green background */
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: #10b981; /* Green */
+            margin-bottom: 1.5rem;
+        }
+
+        .stakeholder-card h3 {
+            margin-bottom: 1rem;
+            color: #10b981; /* Green */
+        }
+
+        .stakeholder-card ul {
+            list-style-type: none;
+            text-align: left;
+            width: 100%;
+        }
+
+        .stakeholder-card ul li {
+            margin-bottom: 0.5rem;
+            position: relative;
+            padding-left: 1.5rem;
+        }
+
+        .stakeholder-card ul li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #10b981; /* Green */
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%); /* Green gradient */
+            color: white;
+            padding: 5rem 5%;
+            text-align: center;
+        }
+
+        .cta-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .cta-content h2 {
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .cta-content p {
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+        }
+
+        /* Footer */
+        footer {
+            background-color: #064e3b; /* Dark green */
+            color: white;
+            padding: 3rem 5%;
+        }
+
+        .footer-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+        }
+
+        .footer-col h3 {
+            margin-bottom: 1.5rem;
+            font-size: 1.2rem;
+            color: #10b981; /* Light green */
+        }
+
+        .footer-col ul {
+            list-style: none;
+        }
+
+        .footer-col ul li {
+            margin-bottom: 0.8rem;
+        }
+
+        .footer-col a {
+            color: #d1fae5; /* Very light green */
+            transition: color 0.3s;
+        }
+
+        .footer-col a:hover {
+            color: white;
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            margin-top: 2rem;
+            border-top: 1px solid #065f46; /* Medium dark green */
+            color: #a7f3d0; /* Light green */
+            font-size: 0.9rem;
+        }
+
+        /* Responsive styles */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .cta-button, .secondary-cta {
+                display: block;
+                width: 100%;
+                margin-bottom: 1rem;
+            }
+        }

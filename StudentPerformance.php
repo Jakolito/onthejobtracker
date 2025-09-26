@@ -1849,10 +1849,170 @@ tailwind.config = {
         });
 
         // Logout confirmation
-        function confirmLogout() {
-            return confirm('Are you sure you want to logout?');
-        }
+       // Mobile menu functionality - FIXED VERSION
+document.addEventListener('DOMContentLoaded', function() {
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const closeSidebarBtn = document.getElementById('closeSidebar');
 
+    // Open sidebar function
+    function openSidebar() {
+        if (sidebar && sidebarOverlay) {
+            sidebar.classList.remove('-translate-x-full');
+            sidebarOverlay.classList.remove('hidden');
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+        }
+    }
+
+    // Close sidebar function
+    function closeSidebar() {
+        if (sidebar && sidebarOverlay) {
+            sidebar.classList.add('-translate-x-full');
+            sidebarOverlay.classList.add('hidden');
+            document.body.style.overflow = 'auto'; // Restore scrolling
+        }
+    }
+
+    // Event listeners with null checks
+    if (mobileMenuBtn) {
+        mobileMenuBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Mobile menu clicked'); // Debug log
+            openSidebar();
+        });
+    }
+
+    if (closeSidebarBtn) {
+        closeSidebarBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Close button clicked'); // Debug log
+            closeSidebar();
+        });
+    }
+
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Overlay clicked'); // Debug log
+            closeSidebar();
+        });
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (window.innerWidth >= 1024) {
+            // Desktop view - show sidebar
+            if (sidebar && sidebarOverlay) {
+                sidebar.classList.remove('-translate-x-full');
+                sidebarOverlay.classList.add('hidden');
+                document.body.style.overflow = 'auto';
+            }
+        }
+    });
+
+    // Handle escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
+            closeSidebar();
+        }
+    });
+
+    // Profile dropdown functionality
+    const profileBtn = document.getElementById('profileBtn');
+    const profileDropdown = document.getElementById('profileDropdown');
+
+    if (profileBtn && profileDropdown) {
+        profileBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            profileDropdown.classList.toggle('hidden');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!profileBtn.contains(e.target) && !profileDropdown.classList.contains('hidden')) {
+                profileDropdown.classList.add('hidden');
+            }
+        });
+    }
+
+    // Filter functionality
+    function applyFilters() {
+        const search = document.getElementById('searchInput')?.value || '';
+        const department = document.getElementById('departmentFilter')?.value || '';
+        const section = document.getElementById('sectionFilter')?.value || '';
+        const status = document.getElementById('statusFilter')?.value || '';
+        const company = document.getElementById('companyFilter')?.value || '';
+        
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (department) params.append('department', department);
+        if (section) params.append('section', section);
+        if (status) params.append('status', status);
+        if (company) params.append('company', company);
+        
+        window.location.href = `${window.location.pathname}?${params.toString()}`;
+    }
+
+    // Search input with Enter key support
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') {
+                applyFilters();
+            }
+        });
+    }
+
+    // All dropdown filters
+    const filters = ['departmentFilter', 'sectionFilter', 'statusFilter', 'companyFilter'];
+    filters.forEach(filterId => {
+        const filterElement = document.getElementById(filterId);
+        if (filterElement) {
+            filterElement.addEventListener('change', applyFilters);
+        }
+    });
+
+    // Clear filters functionality
+    const clearFiltersBtn = document.getElementById('clearFilters');
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', function() {
+            // Clear all form inputs
+            if (searchInput) searchInput.value = '';
+            filters.forEach(filterId => {
+                const element = document.getElementById(filterId);
+                if (element) element.value = '';
+            });
+            
+            // Submit the form to reload with cleared filters
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                filterForm.submit();
+            }
+        });
+    }
+
+    // Animate progress bars on page load
+    setTimeout(function() {
+        const progressBars = document.querySelectorAll('.progress-fill');
+        progressBars.forEach(function(bar) {
+            const width = bar.style.width;
+            if (width) {
+                bar.style.width = '0%';
+                setTimeout(function() {
+                    bar.style.width = width;
+                }, 100);
+            }
+        });
+    }, 500);
+});
+
+// Logout confirmation
+function confirmLogout() {
+    return confirm('Are you sure you want to logout?');
+}
       
 
        // Filter functionality

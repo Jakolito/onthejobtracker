@@ -2524,11 +2524,10 @@ textarea:focus {
                                 </div>
                             </div>
                         </div>
-
                         <!-- Form ID -->
                         <div style="margin: 15px; font-size: 9px; color: #666; text-align: center;">
                             BulSU-OP-OSI-16F7<br>
-                            Revision 0
+                            Revision 
                         </div>
 
                         <!-- Submit Button -->

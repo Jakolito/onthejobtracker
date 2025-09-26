@@ -190,7 +190,6 @@ try {
                 </a>
             </div>
         </div>
-
         <!-- Database Status -->
         <div class="bg-white rounded-lg shadow p-6">
             <h3 class="text-lg font-semibold mb-4 text-bulsu-maroon">Database Connection Status</h3>

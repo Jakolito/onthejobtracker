@@ -2,6 +2,11 @@
 include('connect.php');
 session_start();
 
+// Add these session configurations for hosting environments
+ini_set('session.cookie_httponly', 1);
+ini_set('session.use_only_cookies', 1);
+ini_set('session.cookie_secure', 0); // Set to 1 if using HTTPS
+
 // Initialize variables for form persistence
 $email_value = '';
 $error_message = '';
@@ -21,43 +26,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Check if user is a Company Supervisor
         $supervisor_query = "SELECT * FROM company_supervisors WHERE email = ?";
         $supervisor_stmt = mysqli_prepare($conn, $supervisor_query);
-        mysqli_stmt_bind_param($supervisor_stmt, "s", $email);
-        mysqli_stmt_execute($supervisor_stmt);
-        $supervisor_result = mysqli_stmt_get_result($supervisor_stmt);
         
-        if (mysqli_num_rows($supervisor_result) > 0) {
-            $supervisor = mysqli_fetch_assoc($supervisor_result);
+        if ($supervisor_stmt) {
+            mysqli_stmt_bind_param($supervisor_stmt, "s", $email);
+            mysqli_stmt_execute($supervisor_stmt);
+            $supervisor_result = mysqli_stmt_get_result($supervisor_stmt);
             
-            // Check if account is active
-            if ($supervisor['account_status'] !== 'Active') {
-                if ($supervisor['account_status'] === 'Pending') {
-                    $error_message = 'Your account is still pending approval. Please wait for administrator approval.';
+            if (mysqli_num_rows($supervisor_result) > 0) {
+                $supervisor = mysqli_fetch_assoc($supervisor_result);
+                
+                // Check if account is active
+                if ($supervisor['account_status'] !== 'Active') {
+                    if ($supervisor['account_status'] === 'Pending') {
+                        $error_message = 'Your account is still pending approval. Please wait for administrator approval.';
+                    } else {
+                        $error_message = 'Your account is inactive. Please contact support.';
+                    }
                 } else {
-                    $error_message = 'Your account is inactive. Please contact support.';
+                    // Verify password for supervisor
+                    if (password_verify($password, $supervisor['password'])) {
+                        // Regenerate session ID for security
+                        session_regenerate_id(true);
+                        
+                        // Login successful for supervisor
+                        $_SESSION['supervisor_id'] = $supervisor['supervisor_id'];
+                        $_SESSION['email'] = $supervisor['email'];
+                        $_SESSION['full_name'] = $supervisor['full_name'];
+                        $_SESSION['username'] = $supervisor['username'];
+                        $_SESSION['position'] = $supervisor['position'];
+                        $_SESSION['company_name'] = $supervisor['company_name'];
+                        $_SESSION['profile_picture'] = $supervisor['profile_picture'];
+                        $_SESSION['user_type'] = 'supervisor';
+                        $_SESSION['logged_in'] = true;
+                        
+                        // Make sure session is written before redirect
+                        session_write_close();
+                        
+                        // Use absolute URL for redirect (adjust domain as needed)
+                        $redirect_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . '/CompanyDashboard.php';
+                        
+                        // Redirect to company dashboard - FIXED FILENAME
+                        header("Location: CompanyDashboard.php");
+                        exit();
+                    } else {
+                        $error_message = 'Invalid password. Please check your credentials.';
+                    }
                 }
             } else {
-                // Verify password for supervisor
-                if (password_verify($password, $supervisor['password'])) {
-                    // Login successful for supervisor
-                    $_SESSION['supervisor_id'] = $supervisor['supervisor_id'];
-                    $_SESSION['email'] = $supervisor['email'];
-                    $_SESSION['full_name'] = $supervisor['full_name'];
-                    $_SESSION['username'] = $supervisor['username'];
-                    $_SESSION['position'] = $supervisor['position'];
-                    $_SESSION['company_name'] = $supervisor['company_name'];
-                    $_SESSION['profile_picture'] = $supervisor['profile_picture'];
-                    $_SESSION['user_type'] = 'supervisor';
-                    $_SESSION['logged_in'] = true;
-                    
-                    // Redirect to company dashboard
-                    header("Location: Companydashboard.php");
-                    exit;
-                } else {
-                    $error_message = 'Invalid password. Please check your credentials.';
-                }
+                $error_message = 'No company supervisor account found with this email address.';
             }
+            
+            mysqli_stmt_close($supervisor_stmt);
         } else {
-            $error_message = 'No company supervisor account found with this email address.';
+            $error_message = 'Database error: ' . mysqli_error($conn);
         }
     }
 }

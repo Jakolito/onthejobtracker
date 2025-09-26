@@ -5,6 +5,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BULSU AI-Powered OJT Performance Monitoring System</title>
+    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+    <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>

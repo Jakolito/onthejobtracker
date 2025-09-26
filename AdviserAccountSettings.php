@@ -24,7 +24,7 @@ $error_message = '';
 
 // Fetch current adviser data including profile picture
 try {
-    $stmt = $conn->prepare("SELECT * FROM Academic_Adviser WHERE id = ?");
+$stmt = $conn->prepare("SELECT * FROM academic_adviser WHERE id = ?");
     $stmt->bind_param("i", $adviser_id);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -76,7 +76,7 @@ if ($_POST) {
                         
                         // Update database
                         try {
-                            $stmt = $conn->prepare("UPDATE Academic_Adviser SET profile_picture = ? WHERE id = ?");
+$stmt = $conn->prepare("UPDATE academic_adviser SET profile_picture = ? WHERE id = ?");
                             $stmt->bind_param("si", $upload_path, $adviser_id);
                             
                             if ($stmt->execute()) {
@@ -107,7 +107,7 @@ if ($_POST) {
         }
         
         try {
-            $stmt = $conn->prepare("UPDATE Academic_Adviser SET profile_picture = NULL WHERE id = ?");
+$stmt = $conn->prepare("UPDATE academic_adviser SET profile_picture = NULL WHERE id = ?");
             $stmt->bind_param("i", $adviser_id);
             
             if ($stmt->execute()) {
@@ -139,7 +139,7 @@ if ($_POST) {
             $error_message = "Please enter a valid email address.";
         } else {
             // Check if email already exists (for other advisers)
-            $email_check_query = "SELECT id FROM Academic_Adviser WHERE email = ? AND id != ?";
+$email_check_query = "SELECT id FROM academic_adviser WHERE email = ? AND id != ?";
             $email_check_stmt = mysqli_prepare($conn, $email_check_query);
             mysqli_stmt_bind_param($email_check_stmt, "si", $new_email, $adviser_id);
             mysqli_stmt_execute($email_check_stmt);
@@ -149,7 +149,7 @@ if ($_POST) {
                 $error_message = "Email address is already in use by another adviser.";
             } else {
                 // Get current password from database for verification
-                $current_info_query = "SELECT password FROM Academic_Adviser WHERE id = ?";
+$current_info_query = "SELECT password FROM academic_adviser WHERE id = ?";
                 $current_info_stmt = mysqli_prepare($conn, $current_info_query);
                 mysqli_stmt_bind_param($current_info_stmt, "i", $adviser_id);
                 mysqli_stmt_execute($current_info_stmt);
@@ -169,7 +169,7 @@ if ($_POST) {
                     } else {
                         // Update name, email, and password
                         $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-                        $update_query = "UPDATE Academic_Adviser SET name = ?, email = ?, password = ? WHERE id = ?";
+$update_query = "UPDATE academic_adviser SET name = ?, email = ?, password = ? WHERE id = ?";
                         $update_stmt = mysqli_prepare($conn, $update_query);
                         mysqli_stmt_bind_param($update_stmt, "sssi", $new_name, $new_email, $hashed_password, $adviser_id);
                         
@@ -185,7 +185,7 @@ if ($_POST) {
                     }
                 } else {
                     // Update only name and email
-                    $update_query = "UPDATE Academic_Adviser SET name = ?, email = ? WHERE id = ?";
+$update_query = "UPDATE academic_adviser SET name = ?, email = ? WHERE id = ?";
                     $update_stmt = mysqli_prepare($conn, $update_query);
                     mysqli_stmt_bind_param($update_stmt, "ssi", $new_name, $new_email, $adviser_id);
                     

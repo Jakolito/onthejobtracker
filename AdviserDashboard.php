@@ -814,7 +814,6 @@ tailwind.config = {
                 }
             });
         }
-
         // Initialize chart
         createChart('current');
 

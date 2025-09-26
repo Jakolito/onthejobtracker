@@ -276,6 +276,8 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OnTheJob Tracker - View OJT Company Supervisors</title>
+    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+    <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">

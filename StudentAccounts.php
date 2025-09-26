@@ -592,6 +592,8 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OnTheJob Tracker - Student Accounts</title>
+    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+    <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
       <script>

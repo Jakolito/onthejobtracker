@@ -1806,105 +1806,76 @@ tailwind.config = {
     <!-- Mobile Menu Script -->
     
 
+<!-- Replace ALL your script tags with this single, clean version -->
 <script>
-
-     let currentStudentId = null;
-       let currentDocumentId = null;
-       let currentAction = null;
-
-       // Mobile menu functionality
-       document.getElementById('mobileMenuBtn').addEventListener('click', function() {
-           document.getElementById('sidebar').classList.remove('-translate-x-full');
-           document.getElementById('sidebarOverlay').classList.remove('hidden');
-       });
-
-       document.getElementById('closeSidebar').addEventListener('click', closeSidebar);
-       document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
-
-       function closeSidebar() {
-           document.getElementById('sidebar').classList.add('-translate-x-full');
-           document.getElementById('sidebarOverlay').classList.add('hidden');
-       }
-
-        function toggleSidebar() {
-            sidebar.classList.toggle('-translate-x-full');
-            sidebarOverlay.classList.toggle('hidden');
-        }
-
-        mobileMenuBtn.addEventListener('click', toggleSidebar);
-        closeSidebar.addEventListener('click', toggleSidebar);
-        sidebarOverlay.addEventListener('click', toggleSidebar);
-
-        // Profile dropdown toggle
-        const profileBtn = document.getElementById('profileBtn');
-        const profileDropdown = document.getElementById('profileDropdown');
-
-        profileBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            profileDropdown.classList.toggle('hidden');
-        });
-
-        document.addEventListener('click', () => {
-            profileDropdown.classList.add('hidden');
-        });
-
-        // Logout confirmation
-       // Mobile menu functionality - FIXED VERSION
 document.addEventListener('DOMContentLoaded', function() {
+    // ===========================================
+    // INITIALIZE ALL VARIABLES
+    // ===========================================
     const mobileMenuBtn = document.getElementById('mobileMenuBtn');
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
     const closeSidebarBtn = document.getElementById('closeSidebar');
+    const profileBtn = document.getElementById('profileBtn');
+    const profileDropdown = document.getElementById('profileDropdown');
+    const searchInput = document.getElementById('searchInput');
+    const clearFiltersBtn = document.getElementById('clearFilters');
+    const filterForm = document.getElementById('filterForm');
+    
+    // Global variables
+    let currentStudentId = null;
+    let currentDocumentId = null;
+    let currentAction = null;
 
-    // Open sidebar function
+    // ===========================================
+    // MOBILE SIDEBAR FUNCTIONALITY
+    // ===========================================
+    
     function openSidebar() {
         if (sidebar && sidebarOverlay) {
             sidebar.classList.remove('-translate-x-full');
             sidebarOverlay.classList.remove('hidden');
-            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+            document.body.style.overflow = 'hidden';
         }
     }
 
-    // Close sidebar function
     function closeSidebar() {
         if (sidebar && sidebarOverlay) {
             sidebar.classList.add('-translate-x-full');
             sidebarOverlay.classList.add('hidden');
-            document.body.style.overflow = 'auto'; // Restore scrolling
+            document.body.style.overflow = 'auto';
         }
     }
 
-    // Event listeners with null checks
+    // Mobile menu button
     if (mobileMenuBtn) {
         mobileMenuBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('Mobile menu clicked'); // Debug log
             openSidebar();
         });
     }
 
+    // Close button
     if (closeSidebarBtn) {
         closeSidebarBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('Close button clicked'); // Debug log
             closeSidebar();
         });
     }
 
+    // Overlay click
     if (sidebarOverlay) {
         sidebarOverlay.addEventListener('click', function(e) {
             e.preventDefault();
-            console.log('Overlay clicked'); // Debug log
             closeSidebar();
         });
     }
 
-    // Handle window resize
+    // Window resize handling
     window.addEventListener('resize', function() {
         if (window.innerWidth >= 1024) {
-            // Desktop view - show sidebar
             if (sidebar && sidebarOverlay) {
                 sidebar.classList.remove('-translate-x-full');
                 sidebarOverlay.classList.add('hidden');
@@ -1913,19 +1884,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Handle escape key
+    // Escape key handling
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
             closeSidebar();
         }
     });
 
-    // Profile dropdown functionality
-    const profileBtn = document.getElementById('profileBtn');
-    const profileDropdown = document.getElementById('profileDropdown');
-
+    // ===========================================
+    // PROFILE DROPDOWN FUNCTIONALITY
+    // ===========================================
+    
     if (profileBtn && profileDropdown) {
         profileBtn.addEventListener('click', function(e) {
+            e.preventDefault();
             e.stopPropagation();
             profileDropdown.classList.toggle('hidden');
         });
@@ -1938,9 +1910,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Filter functionality
+    // ===========================================
+    // FILTER FUNCTIONALITY
+    // ===========================================
+    
     function applyFilters() {
-        const search = document.getElementById('searchInput')?.value || '';
+        const search = searchInput?.value || '';
         const department = document.getElementById('departmentFilter')?.value || '';
         const section = document.getElementById('sectionFilter')?.value || '';
         const status = document.getElementById('statusFilter')?.value || '';
@@ -1956,8 +1931,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = `${window.location.pathname}?${params.toString()}`;
     }
 
-    // Search input with Enter key support
-    const searchInput = document.getElementById('searchInput');
+    // Search input Enter key
     if (searchInput) {
         searchInput.addEventListener('keyup', function(e) {
             if (e.key === 'Enter') {
@@ -1966,7 +1940,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // All dropdown filters
+    // Filter dropdowns
     const filters = ['departmentFilter', 'sectionFilter', 'statusFilter', 'companyFilter'];
     filters.forEach(filterId => {
         const filterElement = document.getElementById(filterId);
@@ -1975,26 +1949,54 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Clear filters functionality
-    const clearFiltersBtn = document.getElementById('clearFilters');
+    // Clear filters
     if (clearFiltersBtn) {
-        clearFiltersBtn.addEventListener('click', function() {
-            // Clear all form inputs
+        clearFiltersBtn.addEventListener('click', function(e) {
+            e.preventDefault();
             if (searchInput) searchInput.value = '';
             filters.forEach(filterId => {
                 const element = document.getElementById(filterId);
                 if (element) element.value = '';
             });
-            
-            // Submit the form to reload with cleared filters
-            const filterForm = document.getElementById('filterForm');
             if (filterForm) {
                 filterForm.submit();
             }
         });
     }
 
-    // Animate progress bars on page load
+    // ===========================================
+    // LOADING STATES - FIXED TO AVOID CONFLICTS
+    // ===========================================
+    
+    // Add loading states only for navigation links, not controls
+    document.querySelectorAll('a[href]:not([href^="#"]):not(.no-loading)').forEach(element => {
+        // Skip sidebar controls, profile dropdown, and filter controls
+        if (element.id === 'profileBtn' || 
+            element.id === 'mobileMenuBtn' || 
+            element.id === 'closeSidebar' ||
+            element.closest('.sidebar') ||
+            element.closest('#profileDropdown') ||
+            element.classList.contains('no-loading')) {
+            return;
+        }
+
+        element.addEventListener('click', function(e) {
+            const originalText = this.innerHTML;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Loading...';
+            this.style.pointerEvents = 'none';
+            
+            // Reset after 3 seconds if page doesn't navigate
+            setTimeout(() => {
+                this.innerHTML = originalText;
+                this.style.pointerEvents = 'auto';
+            }, 3000);
+        });
+    });
+
+    // ===========================================
+    // PROGRESS BAR ANIMATIONS
+    // ===========================================
+    
     setTimeout(function() {
         const progressBars = document.querySelectorAll('.progress-fill');
         progressBars.forEach(function(bar) {
@@ -2007,195 +2009,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }, 500);
-});
 
-// Logout confirmation
-function confirmLogout() {
-    return confirm('Are you sure you want to logout?');
-}
-      
-
-       // Filter functionality
-       document.getElementById('searchInput').addEventListener('keyup', function(e) {
-           if (e.key === 'Enter') {
-               applyFilters();
-           }
-       });
-
-       document.getElementById('departmentFilter').addEventListener('change', applyFilters);
-       document.getElementById('statusFilter').addEventListener('change', applyFilters);
-
-      // Updated filter functionality for risk levels
-function applyFilters() {
-    const search = document.getElementById('searchInput').value;
-    const department = document.getElementById('departmentFilter').value;
-    const section = document.getElementById('sectionFilter').value;
-    const status = document.getElementById('statusFilter').value; // Now contains risk levels
-    const company = document.getElementById('companyFilter') ? document.getElementById('companyFilter').value : '';
+    // ===========================================
+    // SMOOTH SCROLLING FOR ANCHOR LINKS
+    // ===========================================
     
-    const params = new URLSearchParams();
-    if (search) params.append('search', search);
-    if (department) params.append('department', department);
-    if (section) params.append('section', section);
-    if (status) params.append('status', status); // This will now be risk level values
-    if (company) params.append('company', company);
-    
-    window.location.href = `${window.location.pathname}?${params.toString()}`;
-}
-
-// Event listeners for all filters
-document.addEventListener('DOMContentLoaded', function() {
-    // Search input with Enter key support
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-        searchInput.addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                applyFilters();
-            }
-        });
-    }
-
-    // All dropdown filters
-    const filters = ['departmentFilter', 'sectionFilter', 'statusFilter', 'companyFilter'];
-    filters.forEach(filterId => {
-        const filterElement = document.getElementById(filterId);
-        if (filterElement) {
-            filterElement.addEventListener('change', applyFilters);
-        }
-    });
-});
-
-// Add event listener for section filter
-document.getElementById('sectionFilter').addEventListener('change', applyFilters);
-    // Mobile menu functionality - Fixed version
-    document.addEventListener('DOMContentLoaded', function() {
-        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-        const sidebar = document.getElementById('sidebar');
-        const sidebarOverlay = document.getElementById('sidebarOverlay');
-        const closeSidebarBtn = document.getElementById('closeSidebar');
-
-        // Open sidebar function
-        function openSidebar() {
-            sidebar.classList.remove('-translate-x-full');
-            sidebarOverlay.classList.remove('hidden');
-            document.body.style.overflow = 'hidden'; // Prevent background scrolling
-        }
-
-        // Close sidebar function
-        function closeSidebar() {
-            sidebar.classList.add('-translate-x-full');
-            sidebarOverlay.classList.add('hidden');
-            document.body.style.overflow = 'auto'; // Restore scrolling
-        }
-
-        // Event listeners
-        if (mobileMenuBtn) {
-            mobileMenuBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                openSidebar();
-            });
-        }
-
-        if (closeSidebarBtn) {
-            closeSidebarBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                closeSidebar();
-            });
-        }
-
-        if (sidebarOverlay) {
-            sidebarOverlay.addEventListener('click', function(e) {
-                e.preventDefault();
-                closeSidebar();
-            });
-        }
-        
-
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', function(event) {
-            const isClickInsideSidebar = sidebar && sidebar.contains(event.target);
-            const isClickOnMenuBtn = mobileMenuBtn && mobileMenuBtn.contains(event.target);
-            const isClickOnCloseBtn = closeSidebarBtn && closeSidebarBtn.contains(event.target);
-            
-            if (!isClickInsideSidebar && !isClickOnMenuBtn && !isClickOnCloseBtn && window.innerWidth < 1024) {
-                if (!sidebarOverlay.classList.contains('hidden')) {
-                    closeSidebar();
-                }
-            }
-        });
-
-        // Handle window resize
-        window.addEventListener('resize', function() {
-            if (window.innerWidth >= 1024) {
-                // Desktop view - show sidebar
-                sidebar.classList.remove('-translate-x-full');
-                sidebarOverlay.classList.add('hidden');
-                document.body.style.overflow = 'auto';
-            } else {
-                // Mobile view - hide sidebar by default
-                sidebar.classList.add('-translate-x-full');
-                sidebarOverlay.classList.add('hidden');
-                document.body.style.overflow = 'auto';
-            }
-        });
-
-        // Handle escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && !sidebarOverlay.classList.contains('hidden')) {
-                closeSidebar();
-            }
-        });
-
-        // Profile dropdown functionality
-        const profileBtn = document.getElementById('profileBtn');
-        const profileDropdown = document.getElementById('profileDropdown');
-
-        if (profileBtn && profileDropdown) {
-            profileBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                profileDropdown.classList.toggle('hidden');
-            });
-
-            // Close dropdown when clicking outside
-            document.addEventListener('click', function(e) {
-                if (!profileBtn.contains(e.target) && !profileDropdown.classList.contains('hidden')) {
-                    profileDropdown.classList.add('hidden');
-                }
-            });
-        }
-
-        // Animate progress bars on page load
-        setTimeout(function() {
-            const progressBars = document.querySelectorAll('.progress-fill');
-            progressBars.forEach(function(bar) {
-                const width = bar.style.width;
-                if (width) {
-                    bar.style.width = '0%';
-                    setTimeout(function() {
-                        bar.style.width = width;
-                    }, 100);
-                }
-            });
-        }, 500);
-    });
-
-    // Logout confirmation
-    function confirmLogout() {
-        return confirm('Are you sure you want to logout?');
-    }
-
-    // Auto-refresh data every 5 minutes for real-time updates
-    setInterval(function() {
-        // Only refresh if we're viewing a specific student and page is focused
-        if (window.location.search.includes('view_student=') && document.hasFocus()) {
-            // Uncomment the line below if you want auto-refresh
-            // window.location.reload();
-        }
-    }, 300000); // 5 minutes
-
-    // Add smooth scrolling for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function (e) {
             e.preventDefault();
@@ -2208,84 +2026,27 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
             }
         });
     });
-</script>
-
-    <!-- Additional Scripts for Enhanced Functionality -->
-    <script>
-        // Auto-refresh data every 5 minutes for real-time updates
-        setInterval(function() {
-            // Only refresh if we're viewing a specific student
-            if (window.location.search.includes('view_student=')) {
-                // Uncomment the line below if you want auto-refresh
-                // window.location.reload();
-            }
-        }, 300000); // 5 minutes
-
-        // Add smooth scrolling for anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }
-            });
-        });
-
-        // Add loading states for buttons and links
-        document.querySelectorAll('a, button').forEach(element => {
-            element.addEventListener('click', function() {
-                if (!this.classList.contains('no-loading')) {
-                    const originalText = this.innerHTML;
-                    this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Loading...';
-                    this.disabled = true;
-                    
-                    // Reset after 3 seconds if page doesn't navigate
-                    setTimeout(() => {
-                        this.innerHTML = originalText;
-                        this.disabled = false;
-                    }, 3000);
-                }
-            });
-        });
-
-        document.addEventListener('DOMContentLoaded', function() {
-    // Clear filters functionality
-    document.getElementById('clearFilters').addEventListener('click', function() {
-        // Clear all form inputs
-        document.getElementById('searchInput').value = '';
-        document.getElementById('departmentFilter').value = '';
-        document.getElementById('sectionFilter').value = '';
-        document.getElementById('statusFilter').value = '';
-        document.getElementById('companyFilter').value = '';
-        
-        // Submit the form to reload with cleared filters
-        document.getElementById('filterForm').submit();
-    });
-
-    // Auto-submit on filter change (optional - you can remove this if you prefer manual apply)
-    const filterElements = ['departmentFilter', 'sectionFilter', 'statusFilter', 'companyFilter'];
-    filterElements.forEach(function(filterId) {
-        const element = document.getElementById(filterId);
-        if (element) {
-            element.addEventListener('change', function() {
-                // Auto-submit form when dropdown changes
-                document.getElementById('filterForm').submit();
-            });
-        }
-    });
-
-    // Search on Enter key
-    document.getElementById('searchInput').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            document.getElementById('filterForm').submit();
-        }
-    });
 });
-    </script>
+
+// ===========================================
+// GLOBAL FUNCTIONS
+// ===========================================
+
+function confirmLogout() {
+    return confirm('Are you sure you want to logout?');
+}
+
+// ===========================================
+// AUTO-REFRESH (Optional)
+// ===========================================
+
+setInterval(function() {
+    if (window.location.search.includes('view_student=') && document.hasFocus()) {
+        // Uncomment next line if you want auto-refresh
+        // window.location.reload();
+    }
+}, 300000); // 5 minutes
+
+</script>
 </body>
 </html>

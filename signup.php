@@ -72,9 +72,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Passwords do not match.";
     }
     
-    // Check password strength
+    // Check password strength - Enhanced validation
     if (strlen($form_data['password']) < 8) {
         $errors[] = "Password must be at least 8 characters long.";
+    }
+    
+    // Check if password contains at least one letter
+    if (!preg_match('/[a-zA-Z]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one letter.";
+    }
+    
+    // Check if password contains at least one number
+    if (!preg_match('/[0-9]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one number.";
+    }
+    
+    // Check if password contains at least one special character
+    if (!preg_match('/[!@#$%^&*(),.?":{}|<>]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>).";
     }
     
     // Validate email format
@@ -310,11 +325,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         theme: {
             extend: {
                 colors: {
-                    'bulsu-maroon': '#800000',     // Primary Maroon
-                    'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                    'bulsu-gold': '#DAA520',       // Official Gold
-                    'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                    'bulsu-white': '#FFFFFF'       // Supporting White
+                    'bulsu-maroon': '#800000',
+                    'bulsu-dark-maroon': '#6B1028',
+                    'bulsu-gold': '#DAA520',
+                    'bulsu-light-gold': '#F4E4BC',
+                    'bulsu-white': '#FFFFFF'
                 }
             }
         }
@@ -325,25 +340,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <header class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white shadow-lg">
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
-                <!-- BULSU Logos -->
-                         <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
-    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
-</a>
-
-                <!-- Brand Name -->
+                <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+                    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+                </a>
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
                     <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
-            <!-- Hamburger Button (Mobile) -->
             <button id="menu-btn" class="md:hidden block focus:outline-none z-50">
                 <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
             </button>
-            <!-- Navigation Links (Desktop only) -->
             <ul id="nav-links" class="hidden md:flex space-x-8 font-medium">
                 <li><a href="index.php#features" class="hover:text-bulsu-gold transition">Features</a></li>  
                 <li><a href="index.php#stakeholders" class="hover:text-bulsu-gold transition">Stakeholders</a></li>
@@ -351,9 +361,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </ul>
             <div class="hidden md:flex space-x-4">
                 <a href="login.php" class="bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 rounded px-4 py-2 font-medium hover:bg-opacity-30 transition text-bulsu-gold">Login</a>
-                <a href="signup.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition">Sign Up</a>
+                <a href="signuplanding.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition">Sign Up</a>
             </div>
-            <!-- Mobile Menu -->
             <div id="mobile-menu" class="md:hidden hidden absolute top-full left-0 w-full bg-bulsu-maroon z-50 px-4 pb-4 shadow-lg">
                 <ul class="flex flex-col space-y-2 font-medium pt-4">
                     <li><a href="index.php#features" class="hover:text-bulsu-gold block py-2 text-white transition">Features</a></li>
@@ -362,7 +371,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </ul>
                 <div class="flex flex-col space-y-2 mt-4">
                     <a href="login.php" class="bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 rounded px-4 py-2 font-medium text-bulsu-gold hover:bg-opacity-30 transition">Login</a>
-                    <a href="signup.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition text-center">Sign Up</a>
+                    <a href="signuplanding.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition text-center">Sign Up</a>
                 </div>
             </div>
         </nav>
@@ -534,16 +543,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label for="password" class="block text-gray-700 font-medium mb-1">Password <span class="text-red-500">*</span></label>
-                                <input type="password" id="password" name="password" placeholder="Enter your password"
-                                    minlength="8" required
-                                    class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
-                                <small class="text-gray-400 text-xs">Password must be at least 8 characters long</small>
+                                <div class="relative">
+                                    <input type="password" id="password" name="password" placeholder="Enter your password"
+                                        minlength="8" required
+                                        class="w-full px-4 py-2 pr-10 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                    <button type="button" onclick="togglePassword('password', 'eyeIcon1')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none">
+                                        <svg id="eyeIcon1" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <!-- Password Requirements Indicator -->
+                                <div id="password-requirements" class="mt-2 text-xs space-y-1">
+                                    <div id="req-length" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>At least 8 characters</span>
+                                    </div>
+                                    <div id="req-letter" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a letter</span>
+                                    </div>
+                                    <div id="req-number" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a number</span>
+                                    </div>
+                                    <div id="req-special" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a special character (!@#$%^&*)</span>
+                                    </div>
+                                </div>
                             </div>
                             <div>
                                 <label for="confirm_password" class="block text-gray-700 font-medium mb-1">Confirm Password <span class="text-red-500">*</span></label>
-                                <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password"
-                                    minlength="8" required
-                                    class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                <div class="relative">
+                                    <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password"
+                                        minlength="8" required
+                                        class="w-full px-4 py-2 pr-10 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                    <button type="button" onclick="togglePassword('confirm_password', 'eyeIcon2')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none">
+                                        <svg id="eyeIcon2" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <!-- Password Match Indicator -->
+                                <div id="password-match" class="mt-2 text-xs hidden">
+                                    <div class="flex items-center">
+                                        <span id="match-icon" class="mr-2">✗</span>
+                                        <span id="match-text">Passwords match</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -607,6 +657,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 
     <script>
+        // Toggle password visibility
+        function togglePassword(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerHTML = `
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                `;
+            } else {
+                input.type = 'password';
+                icon.innerHTML = `
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                `;
+            }
+        }
+
         // Mobile menu toggle
         const menuBtn = document.getElementById('menu-btn');
         const mobileMenu = document.getElementById('mobile-menu');
@@ -636,34 +705,122 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (this.value.length >= 11) e.preventDefault();
         });
 
-        // Form validation
+        // Real-time password validation
+        document.getElementById('password').addEventListener('input', function() {
+            const password = this.value;
+            
+            // Check length
+            const reqLength = document.getElementById('req-length');
+            if (password.length >= 8) {
+                reqLength.classList.remove('text-gray-400', 'text-red-500');
+                reqLength.classList.add('text-green-500');
+                reqLength.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqLength.classList.remove('text-gray-400', 'text-green-500');
+                reqLength.classList.add('text-red-500');
+                reqLength.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            // Check letter
+            const reqLetter = document.getElementById('req-letter');
+            if (/[a-zA-Z]/.test(password)) {
+                reqLetter.classList.remove('text-gray-400', 'text-red-500');
+                reqLetter.classList.add('text-green-500');
+                reqLetter.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqLetter.classList.remove('text-gray-400', 'text-green-500');
+                reqLetter.classList.add('text-red-500');
+                reqLetter.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            // Check number
+            const reqNumber = document.getElementById('req-number');
+            if (/[0-9]/.test(password)) {
+                reqNumber.classList.remove('text-gray-400', 'text-red-500');
+                reqNumber.classList.add('text-green-500');
+                reqNumber.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqNumber.classList.remove('text-gray-400', 'text-green-500');
+                reqNumber.classList.add('text-red-500');
+                reqNumber.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            // Check special character
+            const reqSpecial = document.getElementById('req-special');
+            if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+                reqSpecial.classList.remove('text-gray-400', 'text-red-500');
+                reqSpecial.classList.add('text-green-500');
+                reqSpecial.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqSpecial.classList.remove('text-gray-400', 'text-green-500');
+                reqSpecial.classList.add('text-red-500');
+                reqSpecial.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            // Check password match if confirm password has value
+            checkPasswordMatch();
+        });
+
+        // Real-time password match validation
+        document.getElementById('confirm_password').addEventListener('input', checkPasswordMatch);
+
+        function checkPasswordMatch() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const matchIndicator = document.getElementById('password-match');
+            const matchIcon = document.getElementById('match-icon');
+            const matchText = document.getElementById('match-text');
+            
+            if (confirmPassword.length > 0) {
+                matchIndicator.classList.remove('hidden');
+                
+                if (password === confirmPassword) {
+                    matchIndicator.classList.remove('text-red-500');
+                    matchIndicator.classList.add('text-green-500');
+                    matchIcon.textContent = '✓';
+                } else {
+                    matchIndicator.classList.remove('text-green-500');
+                    matchIndicator.classList.add('text-red-500');
+                    matchIcon.textContent = '✗';
+                }
+            } else {
+                matchIndicator.classList.add('hidden');
+            }
+        }
+
+        // Silent form validation (no alerts)
         document.getElementById('signupForm').addEventListener('submit', function(event) {
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm_password').value;
             const agreeTerms = document.getElementById('agree_terms').checked;
             const contactNumber = document.getElementById('contact_number').value;
             
+            let isValid = true;
+            
+            // Check terms
             if (!agreeTerms) {
-                alert('You must agree to the Terms and Conditions!');
-                event.preventDefault();
-                return false;
+                isValid = false;
             }
             
+            // Check contact number
             if (contactNumber.length !== 11 || !contactNumber.startsWith('09')) {
-                alert('Contact number must be exactly 11 digits and start with 09!');
-                document.getElementById('contact_number').focus();
-                event.preventDefault();
-                return false;
+                isValid = false;
             }
             
+            // Check password requirements
+            if (password.length < 8 || 
+                !/[a-zA-Z]/.test(password) || 
+                !/[0-9]/.test(password) || 
+                !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+                isValid = false;
+            }
+            
+            // Check passwords match
             if (password !== confirmPassword) {
-                alert('Passwords do not match!');
-                event.preventDefault();
-                return false;
+                isValid = false;
             }
             
-            if (password.length < 8) {
-                alert('Password must be at least 8 characters long!');
+            if (!isValid) {
                 event.preventDefault();
                 return false;
             }

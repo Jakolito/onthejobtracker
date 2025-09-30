@@ -12,10 +12,16 @@ if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
+
+
+
 $user_id = $_SESSION['user_id'];
 include_once('notification_functions.php');
 $unread_count = getUnreadNotificationCount($conn, $user_id);
 
+
+$verification_success_message = isset($_SESSION['verification_success_message']) ? $_SESSION['verification_success_message'] : null;
+unset($_SESSION['verification_success_message']);
 // Check for upload messages
 $upload_success = isset($_SESSION['upload_success']) ? $_SESSION['upload_success'] : null;
 $upload_error = isset($_SESSION['upload_error']) ? $_SESSION['upload_error'] : null;
@@ -411,12 +417,30 @@ tailwind.config = {
                             <h3 class="font-medium text-yellow-800">Account Not Verified</h3>
                             <p class="text-sm text-yellow-700 mt-1">
                                 You need to verify your account before you can upload documents. 
-                                <a href="verification.php" class="font-medium underline hover:no-underline text-bulsu-maroon">Click here to verify your account</a>
+<a href="verification.php?from=dashboard" class="font-medium underline hover:no-underline text-bulsu-maroon">Click here to verify your account</a>
                             </p>
                         </div>
                     </div>
                 </div>
             <?php endif; ?>
+
+            <?php if ($verification_success_message): ?>
+    <div id="verificationSuccessAlert" class="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+        <div class="flex items-start justify-between">
+            <div class="flex items-start">
+                <i class="fas fa-check-circle text-green-600 mt-1 mr-3"></i>
+                <div>
+                    <h3 class="font-medium text-green-800">Account Verified!</h3>
+                    <p class="text-green-700"><?php echo htmlspecialchars($verification_success_message); ?> You can now upload documents.</p>
+                </div>
+            </div>
+            <button onclick="closeAlert('verificationSuccessAlert')" class="text-green-400 hover:text-green-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+<?php endif; ?>
+
 
             <!-- Alert Messages -->
             <?php if ($upload_success): ?>

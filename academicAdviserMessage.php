@@ -34,6 +34,9 @@ try {
     echo "Error: " . $e->getMessage();
     exit();
 }
+ $message = '';
+$message_type = '';
+
  $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
     $unread_messages_result = mysqli_query($conn, $unread_messages_query);
     $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];

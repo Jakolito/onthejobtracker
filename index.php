@@ -56,7 +56,7 @@
             </ul>
             <div class="hidden md:flex space-x-4">
                 <a href="login.php" class="bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 rounded px-4 py-2 font-medium hover:bg-opacity-30 transition text-bulsu-gold">Login</a>
-                <a href="signup.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition">Sign Up</a>
+                <a href="signuplanding.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition">Sign Up</a>
             </div>
             <!-- Mobile Menu -->
             <div id="mobile-menu" class="md:hidden hidden absolute top-full left-0 w-full bg-bulsu-maroon z-50 px-4 pb-4 shadow-lg">
@@ -68,7 +68,8 @@
                 </ul>
                 <div class="flex flex-col space-y-2 mt-4">
                     <a href="login.php" class="bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 rounded px-4 py-2 font-medium text-bulsu-gold hover:bg-opacity-30 transition">Login</a>
-                    <a href="signup.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition text-center">Sign Up</a>
+                    <a href="signuplanding.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition text-center">Sign Up</a>
+
                 </div>
             </div>
         </nav>
@@ -85,7 +86,7 @@
                 <h1 class="text-3xl md:text-5xl font-bold mb-4 leading-tight">An OJT Performance Monitoring System</h1>
                 <p class="text-lg md:text-xl mb-8 text-gray-100">Enhancing Student Progress Tracking through Predictive Analytics</p>
                 <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                    <a href="signup.php" class="inline-block bg-bulsu-gold text-bulsu-maroon font-bold px-8 py-3 rounded-lg shadow-lg hover:bg-yellow-400 transition transform hover:scale-105">Get Started</a>
+                    <a href="signuplanding.php" class="inline-block bg-bulsu-gold text-bulsu-maroon font-bold px-8 py-3 rounded-lg shadow-lg hover:bg-yellow-400 transition transform hover:scale-105">Get Started</a>
                     <a href="#features" class="inline-block border-2 border-bulsu-gold text-bulsu-gold font-bold px-8 py-3 rounded-lg hover:bg-bulsu-gold hover:text-bulsu-maroon transition">Learn More</a>
                 </div>
             </div>

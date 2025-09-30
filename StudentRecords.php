@@ -796,7 +796,7 @@ tailwind.config = {
                     <div id="modalContent" style="display: none;">
                         <!-- Tab Navigation -->
                         <div class="border-b border-gray-200">
-    <nav class="flex space-x-8 px-4 sm:px-6" aria-label="Tabs">
+         <nav class="flex space-x-8 px-4 sm:px-6" aria-label="Tabs">
         <button type="button" class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600">
             Personal Info
         </button>
@@ -809,74 +809,149 @@ tailwind.config = {
         <button type="button" class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
             Documents
         </button>
-    </nav>
-</div>
+         </nav>
+            </div>
                         
                         <div class="p-4 sm:p-6">
                             <!-- Personal Information Tab -->
                             <div id="personalTab" class="tab-content">
                                 <div class="space-y-6">
                                     <div>
-                                        <h4 class="text-lg font-medium text-gray-900 mb-4">Basic Information</h4>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Student ID</div>
-                                                <div class="text-sm font-medium text-gray-900" id="studentId">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Full Name</div>
-                                                <div class="text-sm font-medium text-gray-900" id="fullName">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Email</div>
-                                                <div class="text-sm font-medium text-gray-900" id="email">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Contact Number</div>
-                                                <div class="text-sm font-medium text-gray-900" id="contactNumber">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Address</div>
-                                                <div class="text-sm font-medium text-gray-900" id="address">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Department</div>
-                                                <div class="text-sm font-medium text-gray-900" id="department">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Program</div>
-                                                <div class="text-sm font-medium text-gray-900" id="program">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Year Level</div>
-                                                <div class="text-sm font-medium text-gray-900" id="yearLevel">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Section</div>
-                                                <div class="text-sm font-medium text-gray-900" id="section">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Ready for Deployment</div>
-                                                <div class="text-sm font-medium text-gray-900" id="readyForDeployment">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Date Registered</div>
-                                                <div class="text-sm font-medium text-gray-900" id="dateRegistered">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Last Login</div>
-                                                <div class="text-sm font-medium text-gray-900" id="lastLogin">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Gender</div>
-                                                <div class="text-sm font-medium text-gray-900" id="gender">-</div>
-                                            </div>
-                                            <div class="bg-gray-50 rounded-lg p-4">
-                                                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Date of Birth</div>
-                                                <div class="text-sm font-medium text-gray-900" id="dateOfBirth">-</div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                        <div class="flex items-center justify-between mb-4">
+                <h4 class="text-lg font-medium text-gray-900">Basic Information</h4>
+                <button id="editPersonalInfoBtn" onclick="toggleEditMode()" 
+                        class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-bulsu-gold transition-colors">
+                    <i class="fas fa-edit mr-1"></i>
+                    Edit Information
+                </button>
+                <button id="savePersonalInfoBtn" onclick="savePersonalInfo()" style="display: none;"
+                        class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-bulsu-gold transition-colors">
+                    <i class="fas fa-save mr-1"></i>
+                    Save Changes
+                </button>
+                <button id="cancelEditBtn" onclick="cancelEdit()" style="display: none;"
+                        class="ml-2 inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
+                    <i class="fas fa-times mr-1"></i>
+                    Cancel
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 <!-- Student ID (now editable) -->
+            <div class="bg-gray-50 rounded-lg p-4">
+                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Student ID</div>
+                <div class="text-sm font-medium text-gray-900 view-mode" id="studentId">-</div>
+                <input type="text" id="studentId_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+            </div>
+                
+                                <!-- First Name -->
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">First Name</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="firstName">-</div>
+                        <input type="text" id="firstName_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Middle Name -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Middle Name</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="middleName">-</div>
+                        <input type="text" id="middleName_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Last Name -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Last Name</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="lastName">-</div>
+                        <input type="text" id="lastName_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Email -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Email</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="email">-</div>
+                        <input type="email" id="email_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Contact Number -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Contact Number</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="contactNumber">-</div>
+                        <input type="text" id="contactNumber_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Address -->
+                    <div class="bg-gray-50 rounded-lg p-4 md:col-span-2 lg:col-span-3">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Address</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="address">-</div>
+                        <textarea id="address_edit" rows="2" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;"></textarea>
+                    </div>
+                    
+                    <!-- Department -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Department</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="department">-</div>
+                        <input type="text" id="department_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Program -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Program</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="program">-</div>
+                        <input type="text" id="program_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Year Level -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Year Level</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="yearLevel">-</div>
+                        <select id="yearLevel_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Section -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Section</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="section">-</div>
+                        <input type="text" id="section_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Gender -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Gender</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="gender">-</div>
+                        <select id="gender_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                        </select>
+                    </div>
+    
+                    <!-- Date of Birth -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Date of Birth</div>
+                        <div class="text-sm font-medium text-gray-900 view-mode" id="dateOfBirth">-</div>
+                        <input type="date" id="dateOfBirth_edit" class="edit-mode w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-bulsu-maroon focus:border-bulsu-maroon" style="display: none;">
+                    </div>
+                    
+                    <!-- Non-editable fields -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Ready for Deployment</div>
+                        <div class="text-sm font-medium text-gray-900" id="readyForDeployment">-</div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Date Registered</div>
+                        <div class="text-sm font-medium text-gray-900" id="dateRegistered">-</div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Last Login</div>
+                        <div class="text-sm font-medium text-gray-900" id="lastLogin">-</div>
+                    </div>
+                     </div>
+                                     </div>
                                 </div>
                             </div>
                             
@@ -950,7 +1025,7 @@ tailwind.config = {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Error State -->
                     <div id="modalError" style="display: none;" class="p-6">
                         <div class="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -963,7 +1038,26 @@ tailwind.config = {
                 </div>
             </div>
         </div>
+     </div>
+    
+<!-- Success Modal - SEPARATE from main modal -->
+<div id="successModal" class="fixed inset-0 bg-black bg-opacity-50 z-[100] hidden">
+    <div class="min-h-screen px-4 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 transform transition-all">
+            <div class="text-center">
+                <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
+                    <i class="fas fa-check text-green-600 text-xl"></i>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">Success!</h3>
+                <p class="text-sm text-gray-500" id="successMessage">Student information updated successfully</p>
+                <button onclick="closeSuccessModal()" 
+                        class="mt-4 w-full inline-flex justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-bulsu-gold">
+                    Close
+                </button>
+            </div>
+        </div>
     </div>
+</div>
 
     <script>
         // Mobile menu functionality
@@ -1111,8 +1205,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 }
         
-        function populateStudentDetails(data) {
+       function populateStudentDetails(data) {
     const student = data.student;
+    
+    // Store student ID globally for updates
+    window.currentStudentId = student.id;
     
     // Helper function to safely set text content
     const safeSetText = (id, value, fallback = '-') => {
@@ -1120,12 +1217,25 @@ document.addEventListener('DOMContentLoaded', function() {
         if (element) {
             element.textContent = value || fallback;
         }
+        
+        // Also populate edit fields
+        const editElement = document.getElementById(id + '_edit');
+        if (editElement) {
+            if (editElement.tagName === 'SELECT') {
+                editElement.value = value || '';
+            } else {
+                editElement.value = value || '';
+            }
+        }
     };
     
     // Populate personal information with null checks
     safeSetText('studentId', student.student_id);
-    safeSetText('fullName', 
-        `${student.first_name || ''} ${student.middle_name || ''} ${student.last_name || ''}`.trim());
+// Store original student_id for reference
+window.originalStudentId = student.student_id;
+    safeSetText('firstName', student.first_name);
+    safeSetText('middleName', student.middle_name);
+    safeSetText('lastName', student.last_name);
     safeSetText('email', student.email);
     safeSetText('contactNumber', student.contact_number);
     safeSetText('address', student.address);
@@ -1133,23 +1243,140 @@ document.addEventListener('DOMContentLoaded', function() {
     safeSetText('program', student.program);
     safeSetText('yearLevel', student.year_level);
     safeSetText('section', student.section);
-    safeSetText('status', student.status);
-    safeSetText('readyForDeployment', student.ready_for_deployment ? 'Yes' : 'No');
+    safeSetText('gender', student.gender);
     
-    // Format and set dates safely
-    safeSetText('dateRegistered', 
-        student.created_at ? formatDate(student.created_at) : '-');
-    safeSetText('lastLogin', 
-        student.last_login ? formatDateTime(student.last_login) : 'Never');
-    safeSetText('dateOfBirth', 
-        student.date_of_birth ? formatDate(student.date_of_birth) : '-');
-    safeSetText('gender', 
-        student.gender ? capitalizeFirst(student.gender) : '-');
+    // Handle date of birth separately
+    const dobElement = document.getElementById('dateOfBirth');
+    const dobEditElement = document.getElementById('dateOfBirth_edit');
+    if (student.date_of_birth) {
+        if (dobElement) dobElement.textContent = formatDate(student.date_of_birth);
+        if (dobEditElement) dobEditElement.value = student.date_of_birth;
+    }
+    
+    safeSetText('readyForDeployment', student.ready_for_deployment ? 'Yes' : 'No');
+    safeSetText('dateRegistered', student.created_at ? formatDate(student.created_at) : '-');
+    safeSetText('lastLogin', student.last_login ? formatDateTime(student.last_login) : 'Never');
     
     // Populate other sections
     populateDeploymentHistory(data.deployments || []);
     populateAttendanceRecords(data.attendance || []);
     populateDocumentRequirements(data.documents || []);
+}
+// Toggle edit mode
+function toggleEditMode() {
+    const viewElements = document.querySelectorAll('.view-mode');
+    const editElements = document.querySelectorAll('.edit-mode');
+    const editBtn = document.getElementById('editPersonalInfoBtn');
+    const saveBtn = document.getElementById('savePersonalInfoBtn');
+    const cancelBtn = document.getElementById('cancelEditBtn');
+    
+    viewElements.forEach(el => el.style.display = 'none');
+    editElements.forEach(el => el.style.display = 'block');
+    
+    editBtn.style.display = 'none';
+    saveBtn.style.display = 'inline-flex';
+    cancelBtn.style.display = 'inline-flex';
+}
+
+// Cancel edit mode
+function cancelEdit() {
+    const viewElements = document.querySelectorAll('.view-mode');
+    const editElements = document.querySelectorAll('.edit-mode');
+    const editBtn = document.getElementById('editPersonalInfoBtn');
+    const saveBtn = document.getElementById('savePersonalInfoBtn');
+    const cancelBtn = document.getElementById('cancelEditBtn');
+    
+    viewElements.forEach(el => el.style.display = 'block');
+    editElements.forEach(el => el.style.display = 'none');
+    
+    editBtn.style.display = 'inline-flex';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+}
+
+// Save personal information
+function savePersonalInfo() {
+    if (!window.currentStudentId) {
+        alert('Error: Student ID not found');
+        return;
+    }
+    
+    // Gather data from edit fields
+    const formData = {
+    student_id: window.currentStudentId,
+    new_student_id: document.getElementById('studentId_edit').value.trim(), // New field
+    first_name: document.getElementById('firstName_edit').value.trim(),
+    middle_name: document.getElementById('middleName_edit').value.trim(),
+    last_name: document.getElementById('lastName_edit').value.trim(),
+    email: document.getElementById('email_edit').value.trim(),
+    contact_number: document.getElementById('contactNumber_edit').value.trim(),
+    address: document.getElementById('address_edit').value.trim(),
+    department: document.getElementById('department_edit').value.trim(),
+    program: document.getElementById('program_edit').value.trim(),
+    year_level: document.getElementById('yearLevel_edit').value,
+    section: document.getElementById('section_edit').value.trim(),
+    gender: document.getElementById('gender_edit').value,
+    date_of_birth: document.getElementById('dateOfBirth_edit').value
+};
+
+// Validate required fields
+if (!formData.first_name || !formData.last_name || !formData.email || !formData.new_student_id) {
+    alert('First name, last name, email, and student ID are required fields');
+    return;
+}
+    
+    // Show loading state
+    const saveBtn = document.getElementById('savePersonalInfoBtn');
+    const originalText = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Saving...';
+    
+    // Send update request
+    fetch('update_student_info.php', {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(formData)
+})
+    .then(response => response.json())
+    .then(data => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        
+        if (data.success) {
+    // Update view mode displays
+    document.getElementById('studentId').textContent = formData.new_student_id;
+    document.getElementById('firstName').textContent = formData.first_name;
+    document.getElementById('middleName').textContent = formData.middle_name || '-';
+    document.getElementById('lastName').textContent = formData.last_name;
+    document.getElementById('email').textContent = formData.email;
+    document.getElementById('contactNumber').textContent = formData.contact_number || '-';
+    document.getElementById('address').textContent = formData.address || '-';
+    document.getElementById('department').textContent = formData.department || '-';
+    document.getElementById('program').textContent = formData.program || '-';
+    document.getElementById('yearLevel').textContent = formData.year_level || '-';
+    document.getElementById('section').textContent = formData.section || '-';
+    document.getElementById('gender').textContent = formData.gender ? capitalizeFirst(formData.gender) : '-';
+    if (formData.date_of_birth) {
+        document.getElementById('dateOfBirth').textContent = formatDate(formData.date_of_birth);
+    }
+    
+    // Exit edit mode
+    cancelEdit();
+    
+    // Show success modal
+    showSuccessModal('Student information updated successfully!');
+} else {
+            alert('Error updating student information: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Save error:', error);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        alert('Network error: Unable to save changes. Please try again.');
+    });
 }
 function formatDate(dateString) {
     try {
@@ -1157,6 +1384,17 @@ function formatDate(dateString) {
     } catch (e) {
         return dateString;
     }
+}
+// Success modal functions
+function showSuccessModal(message) {
+    document.getElementById('successMessage').textContent = message;
+    document.getElementById('successModal').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSuccessModal() {
+    document.getElementById('successModal').classList.add('hidden');
+    document.body.style.overflow = 'auto';
 }
 
 function formatDateTime(dateString) {

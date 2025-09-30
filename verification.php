@@ -20,6 +20,10 @@ $email = $_SESSION['email'];
 $verification_message = '';
 $verification_error = '';
 
+if (isset($_GET['from']) && $_GET['from'] === 'dashboard' && isset($_SESSION['user_id'])) {
+    $_SESSION['redirect_after_verification'] = 'studentdashboard.php';
+    $_SESSION['keep_logged_in'] = true;
+}
 // Get student details from database for email
 $student_query = "SELECT student_id, first_name, last_name, program, department, year_level FROM students WHERE email = ?";
 $stmt = $conn->prepare($student_query);
@@ -140,13 +144,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['verification_success'] = true;
                 $_SESSION['verified_email'] = $email;
                 
+                // Check if user should stay logged in (came from dashboard)
+                $keep_logged_in = isset($_SESSION['keep_logged_in']) && $_SESSION['keep_logged_in'] === true;
+                
                 // Determine where to redirect based on source
-                if (isset($_SESSION['redirect_after_verification'])) {
+                if ($keep_logged_in && isset($_SESSION['redirect_after_verification'])) {
                     $redirect_url = $_SESSION['redirect_after_verification'];
                     unset($_SESSION['redirect_after_verification']);
+                    unset($_SESSION['keep_logged_in']);
+                    
+                    // Keep user_id intact, just add success message
+                    $_SESSION['verification_success_message'] = 'Your account has been successfully verified!';
                     header("Location: " . $redirect_url);
                 } else {
-                    // Default redirect to success page
+                    // User came from signup - show success page
                     header("Location: verification_success.php");
                 }
                 exit;

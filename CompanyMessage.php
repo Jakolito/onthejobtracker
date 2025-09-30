@@ -1027,26 +1027,20 @@ tailwind.config = {
         }
 
         // Start messages polling
-        function startMessagesPolling() {
-            // Clear existing interval
-            if (messagesPollingInterval) {
-                clearInterval(messagesPollingInterval);
-            }
-            
-            // Poll every 3 seconds
-            messagesPollingInterval = setInterval(() => {
-                if (currentContactId && currentContactType) {
-                    loadMessages();
-                }
-            }, 3000);
-        }
+        // Start messages polling - DISABLED (manual refresh only)
+function startMessagesPolling() {
+    // Auto-refresh disabled - use manual refresh only
+    if (messagesPollingInterval) {
+        clearInterval(messagesPollingInterval);
+    }
+}
 
         // Start unread count polling
-        function startUnreadCountPolling() {
-            updateUnreadCounts();
-            
-            unreadCountInterval = setInterval(updateUnreadCounts, 5000);
-        }
+       // Start unread count polling - DISABLED (manual refresh only)
+function startUnreadCountPolling() {
+    // Initial load only, no auto-refresh
+    updateUnreadCounts();
+}
 
         // Update unread counts
         async function updateUnreadCounts() {
@@ -1189,14 +1183,10 @@ tailwind.config = {
         });
 
         // Cleanup intervals when page unloads
-        window.addEventListener('beforeunload', function() {
-            if (messagesPollingInterval) {
-                clearInterval(messagesPollingInterval);
-            }
-            if (unreadCountInterval) {
-                clearInterval(unreadCountInterval);
-            }
-        });
+       // Cleanup intervals when page unloads (auto-refresh disabled)
+window.addEventListener('beforeunload', function() {
+    // No intervals to clear since auto-refresh is disabled
+});
     </script>
 </body>
 </html>

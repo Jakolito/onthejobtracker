@@ -448,9 +448,38 @@ if (!$deployment_notification_success) {
 }
 
 // Pagination settings
-$records_per_page = 5;
+$records_per_page = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $records_per_page;
+
+// Build where conditions for filtering statistics
+$stats_where_conditions = array();
+
+if (!empty($search)) {
+    $stats_where_conditions[] = "(first_name LIKE '%$search%' OR last_name LIKE '%$search%' OR email LIKE '%$search%' OR student_id LIKE '%$search%')";
+}
+
+if (!empty($department_filter)) {
+    $stats_where_conditions[] = "department = '$department_filter'";
+}
+
+if (!empty($section_filter)) {
+    $stats_where_conditions[] = "section = '$section_filter'";
+}
+
+// Base condition for deployment-eligible students
+$base_stats_condition = "(
+    (ready_for_deployment = 1 AND verified = 1 AND status != 'Deployed')
+    OR 
+    (status = 'Deployed' AND id IN (SELECT student_id FROM student_deployments WHERE status = 'Active'))
+)";
+
+// Combine base condition with filter conditions for statistics
+if (count($stats_where_conditions) > 0) {
+    $stats_where_clause = $base_stats_condition . " AND (" . implode(' AND ', $stats_where_conditions) . ")";
+} else {
+    $stats_where_clause = $base_stats_condition;
+}
 
 // Get statistics with filtering applied
 $stats_query = "SELECT 
@@ -458,12 +487,17 @@ $stats_query = "SELECT
      WHERE s.ready_for_deployment = 1 
      AND s.verified = 1 
      AND s.status != 'Deployed' 
-     AND s.id NOT IN (SELECT student_id FROM student_deployments WHERE status = 'Active')
+     AND s.id NOT IN (SELECT sd.student_id FROM student_deployments sd WHERE sd.status = 'Active')
+     " . (count($stats_where_conditions) > 0 ? " AND (" . implode(' AND ', $stats_where_conditions) . ")" : "") . "
     ) as ready_count,
-    (SELECT COUNT(*) FROM student_deployments WHERE status = 'Active') as deployed_count";
+    (SELECT COUNT(*) FROM students s2 
+     INNER JOIN student_deployments sd2 ON s2.id = sd2.student_id 
+     WHERE sd2.status = 'Active'
+     " . (count($stats_where_conditions) > 0 ? " AND (" . str_replace(array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'), array('s2.first_name', 's2.last_name', 's2.email', 's2.student_id', 's2.department', 's2.section'), implode(' AND ', $stats_where_conditions)) . ")" : "") . "
+    ) as deployed_count";
+
 $stats_result = mysqli_query($conn, $stats_query);
 $stats = mysqli_fetch_assoc($stats_result);
-
 // Get unique departments for filter dropdown
 $departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' ORDER BY department";
 $departments_result = mysqli_query($conn, $departments_query);
@@ -471,7 +505,6 @@ $departments_result = mysqli_query($conn, $departments_query);
 // Get unique sections for filter dropdown  
 $sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
-
 // Build where conditions
 $where_conditions = array();
 

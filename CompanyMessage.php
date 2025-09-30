@@ -523,18 +523,21 @@ tailwind.config = {
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" style="height: calc(100vh - 280px);">
                 <div class="grid grid-cols-1 lg:grid-cols-3 h-full">
                     <!-- Students Sidebar -->
-                    <div id="studentsSidebar" class="bg-gray-50 border-r border-gray-200 flex flex-col lg:block hidden lg:flex">
-                        <!-- Students Header -->
-                        <div class="p-4 sm:p-6 border-b border-gray-200 bg-white">
-                            <button class="lg:hidden mb-4 text-blue-600 hover:text-blue-800" onclick="hideMobileStudents()" id="mobileBackBtn">
-                                <i class="fas fa-arrow-left mr-2"></i>
-                                Back to Chat
-                            </button>
-                            <h3 class="text-lg font-medium text-gray-900 flex items-center">
-                                <i class="fas fa-graduation-cap mr-3 text-blue-600"></i>
-                                My Students
-                            </h3>
-                        </div>
+<!-- Students Sidebar -->
+<div id="studentsSidebar" class="bg-gray-50 border-r border-gray-200 flex flex-col lg:block hidden lg:flex" style="height: calc(100vh - 280px);">
+    <!-- Students Header -->
+    <div class="p-4 sm:p-6 border-b border-gray-200 bg-white flex-shrink-0">
+        <button class="lg:hidden mb-4 text-blue-600 hover:text-blue-800" onclick="hideMobileStudents()" id="mobileBackBtn">
+            <i class="fas fa-arrow-left mr-2"></i>
+            Back to Chat
+        </button>
+        <h3 class="text-lg font-medium text-gray-900 flex items-center">
+            <i class="fas fa-graduation-cap mr-3 text-blue-600"></i>
+            My Students
+        </h3>
+    </div>
+    
+    
                         
                         <!-- Students List -->
                         <div class="flex-1 overflow-y-auto students-list">

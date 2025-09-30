@@ -3,9 +3,9 @@ include('connect.php');
 session_start();
 
 // Add these session configurations for hosting environments
-ini_set('session.cookie_httponly', 1);
-ini_set('session.use_only_cookies', 1);
-ini_set('session.cookie_secure', 0); // Set to 1 if using HTTPS
+//ini_set('session.cookie_httponly', 1);
+//ini_set('session.use_only_cookies', 1);
+//ini_set('session.cookie_secure', 0); // Set to 1 if using HTTPS
 
 // Initialize variables for form persistence
 $email_value = '';
@@ -114,8 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
                 <!-- BULSU Logos -->
-                           <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
-
+                          <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+</a>
                 <!-- Brand Name -->
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>

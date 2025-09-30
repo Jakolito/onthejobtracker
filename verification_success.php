@@ -103,8 +103,9 @@ unset($_SESSION['verified_email']);
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
                 <!-- BULSU Logos -->
-                             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
-
+                            <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+</a>
                 <!-- Brand Name -->
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
@@ -154,13 +155,19 @@ unset($_SESSION['verified_email']);
                 </div>
             </div>
 
-            <!-- Success Icon -->
-            <div class="relative mx-auto mb-8">
-                <div class="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center animate-pulse-slow relative">
-                    <div class="absolute w-36 h-36 border-4 border-green-300 border-opacity-30 rounded-full animate-ripple"></div>
-                    <svg class="w-16 h-16 fill-white" viewBox="0 0 24 24">
-                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                    </svg>
+            <!-- Success Icon - Perfectly Centered -->
+            <div class="flex justify-center items-center mb-8">
+                <div class="relative">
+                    <!-- Ripple effect background -->
+                    <div class="absolute inset-0 w-36 h-36 border-4 border-green-300 border-opacity-30 rounded-full animate-ripple flex items-center justify-center"></div>
+                    
+                    <!-- Main checkmark circle -->
+                    <div class="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center animate-pulse-slow shadow-2xl">
+                        <!-- Checkmark icon - perfectly centered -->
+                        <svg class="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                        </svg>
+                    </div>
                 </div>
             </div>
 

@@ -166,6 +166,13 @@ function getActionUrl($notification) {
         case 'report_approved':
         case 'report_rejected':
             return "studentReport.php";
+
+        case 'self_assessment_alert':
+        case 'self_assessment_feedback':
+        case 'self_assessment_support':
+        case 'self_assessment_reminder':
+        case 'self_assessment_due':
+         return 'studentSelf-Assessment.php';
             
         default:
             return "studentdashboard.php";
@@ -588,6 +595,21 @@ tailwind.config = {
                                     $typeIcon = 'fa-book';
                                     $typeText = 'Report';
                                     break;
+                                case 'self_assessment_alert':
+        $typeClass = 'bg-red-100 text-red-800';
+        $typeIcon = 'fa-exclamation-triangle';
+        $typeText = 'High Stress Alert';
+        break;
+    case 'self_assessment_feedback':
+        $typeClass = 'bg-yellow-100 text-yellow-800';
+        $typeIcon = 'fa-user-check';
+        $typeText = 'Assessment Feedback';
+        break;
+    case 'self_assessment_support':
+        $typeClass = 'bg-blue-100 text-blue-800';
+        $typeIcon = 'fa-hands-helping';
+        $typeText = 'Support Requested';
+        break;
                                 default:
                                     $typeClass = 'bg-gray-100 text-gray-800';
                                     $typeIcon = 'fa-info-circle';

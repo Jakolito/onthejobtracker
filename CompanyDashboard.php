@@ -16,6 +16,11 @@ if (!isset($_SESSION['supervisor_id']) || $_SESSION['user_type'] !== 'supervisor
 // Get supervisor information
 $supervisor_id = $_SESSION['supervisor_id'];
 
+$completed_students_query = "SELECT COUNT(*) as total FROM student_deployments WHERE supervisor_id = ? AND ojt_status = 'Completed'";
+$stmt = $conn->prepare($completed_students_query);
+$stmt->bind_param("i", $supervisor_id);
+$stmt->execute();
+$completed_students = $stmt->get_result()->fetch_assoc()['total'];
 // Fetch complete supervisor data including profile picture
 try {
     $stmt = $conn->prepare("SELECT * FROM company_supervisors WHERE supervisor_id = ?");
@@ -87,8 +92,8 @@ $students_query = "SELECT COUNT(*) as total FROM student_deployments WHERE super
 
     // Metrics data for chart
     $metrics_students = $total_students;
-    $metrics_pending_evaluations = $pending_evaluations;
-
+$metrics_pending_evaluations = $pending_evaluations;
+$metrics_completed_students = $completed_students;
     // Get student overview (Top 10 students)
     $students_overview_query = "SELECT 
         s.id, s.first_name, s.last_name, s.program, s.profile_picture,
@@ -175,6 +180,8 @@ $students_query = "SELECT COUNT(*) as total FROM student_deployments WHERE super
 // Sanitize values for JavaScript (ensure they're numeric and safe)
 $metrics_students_safe = intval($metrics_students);
 $metrics_pending_evaluations_safe = intval($pending_evaluations);
+$metrics_completed_students_safe = intval($completed_students);  // ADD THIS LINE
+
 ?>
 
 <!DOCTYPE html>
@@ -385,7 +392,7 @@ tailwind.config = {
                 <p class="text-gray-500 text-sm">Here's your OJT supervision overview for today.</p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
     <!-- Total Students -->
     <div class="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-lg text-white">
         <div class="flex items-center justify-between">
@@ -395,6 +402,19 @@ tailwind.config = {
             </div>
             <div class="text-blue-200">
                 <i class="fas fa-user-graduate text-2xl"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed OJT Students -->
+    <div class="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-lg text-white">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-3xl font-bold mb-1"><?php echo $completed_students; ?></div>
+                <div class="text-green-100">Completed OJT</div>
+            </div>
+            <div class="text-green-200">
+                <i class="fas fa-check-circle text-2xl"></i>
             </div>
         </div>
     </div>
@@ -673,21 +693,23 @@ tailwind.config = {
             const ctx = document.getElementById('metricsChart').getContext('2d');
             
             const chartData = {
-                labels: ['OJT Students', 'Pending Evaluations'],
-                datasets: [{
-                    label: 'Count',
-                    data: [<?php echo $metrics_students_safe; ?>, <?php echo $metrics_pending_evaluations_safe; ?>],
-                    backgroundColor: [
-                        'rgba(59, 130, 246, 0.8)',   // Blue for OJT Students
-                        'rgba(251, 191, 36, 0.8)'    // Yellow for Pending Evaluations
-                    ],
-                    borderColor: [
-                        'rgba(59, 130, 246, 1)',
-                        'rgba(251, 191, 36, 1)'
-                    ],
-                    borderWidth: 2
-                }]
-            };
+    labels: ['OJT Students', 'Completed OJT', 'Pending Evaluations'],
+    datasets: [{
+        label: 'Count',
+        data: [<?php echo $metrics_students_safe; ?>, <?php echo $metrics_completed_students_safe; ?>, <?php echo $metrics_pending_evaluations_safe; ?>],
+        backgroundColor: [
+            'rgba(59, 130, 246, 0.8)',   // Blue for OJT Students
+            'rgba(34, 197, 94, 0.8)',    // Green for Completed OJT
+            'rgba(251, 191, 36, 0.8)'    // Yellow for Pending Evaluations
+        ],
+        borderColor: [
+            'rgba(59, 130, 246, 1)',
+            'rgba(34, 197, 94, 1)',
+            'rgba(251, 191, 36, 1)'
+        ],
+        borderWidth: 2
+    }]
+};
 
             const chartOptions = {
                 responsive: true,
@@ -758,24 +780,27 @@ tailwind.config = {
             let newStudentsData, newEvaluationsData;
             switch(timeFrame) {
                 case 'current':
-                    newStudentsData = <?php echo $metrics_students_safe; ?>;
-                    newEvaluationsData = <?php echo $metrics_pending_evaluations_safe; ?>;
-                    break;
-                case 'previous':
-                    newStudentsData = <?php echo max(0, $metrics_students_safe - 1); ?>; // Mock previous month data
-                    newEvaluationsData = <?php echo max(0, $metrics_pending_evaluations_safe + 2); ?>; // Mock data
-                    break;
-                case 'yearly':
-                    newStudentsData = <?php echo $metrics_students_safe * 10; ?>; // Mock yearly data
-                    newEvaluationsData = <?php echo $metrics_pending_evaluations_safe * 8; ?>; // Mock yearly data
-                    break;
+    newStudentsData = <?php echo $metrics_students_safe; ?>;
+    newCompletedData = <?php echo $metrics_completed_students_safe; ?>;
+    newEvaluationsData = <?php echo $metrics_pending_evaluations_safe; ?>;
+    break;
+case 'previous':
+    newStudentsData = <?php echo max(0, $metrics_students_safe - 1); ?>;
+    newCompletedData = <?php echo max(0, $metrics_completed_students_safe - 1); ?>;
+    newEvaluationsData = <?php echo max(0, $metrics_pending_evaluations_safe + 2); ?>;
+    break;
+case 'yearly':
+    newStudentsData = <?php echo $metrics_students_safe * 10; ?>;
+    newCompletedData = <?php echo $metrics_completed_students_safe * 10; ?>;
+    newEvaluationsData = <?php echo $metrics_pending_evaluations_safe * 8; ?>;
+    break;
                 default:
                     newStudentsData = <?php echo $metrics_students_safe; ?>;
                     newEvaluationsData = <?php echo $metrics_pending_evaluations_safe; ?>;
             }
 
             // Update chart
-            metricsChart.data.datasets[0].data = [newStudentsData, newEvaluationsData];
+metricsChart.data.datasets[0].data = [newStudentsData, newCompletedData, newEvaluationsData];
             metricsChart.update('active');
         }
 

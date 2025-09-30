@@ -297,7 +297,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
                 <!-- BULSU Logos -->
-                             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+                            <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+</a>
 
                 <!-- Brand Name -->
                 <div class="flex items-center font-bold text-xl">
@@ -482,17 +484,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                        value="<?php echo htmlspecialchars($form_data['students_needed']); ?>" required
                                        class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
                             </div>
-                            <div>
-                                <label for="internship_duration" class="block text-gray-700 font-medium mb-1">Internship Duration <span class="text-red-500">*</span></label>
-                                <select id="internship_duration" name="internship_duration" required
-                                        class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
-                                    <option value="">Select duration</option>
-                                    <option value="3 months" <?php echo ($form_data['internship_duration'] === '3 months') ? 'selected' : ''; ?>>3 months</option>
-                                    <option value="6 months" <?php echo ($form_data['internship_duration'] === '6 months') ? 'selected' : ''; ?>>6 months</option>
-                                    <option value="1 year" <?php echo ($form_data['internship_duration'] === '1 year') ? 'selected' : ''; ?>>1 year</option>
-                                    <option value="Other" <?php echo ($form_data['internship_duration'] === 'Other') ? 'selected' : ''; ?>>Other</option>
-                                </select>
-                            </div>
+                           <div>
+    <label for="internship_duration" class="block text-gray-700 font-medium mb-1">Internship Duration <span class="text-red-500">*</span></label>
+    <select id="internship_duration" name="internship_duration" required
+            class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+        <option value="">Select duration</option>
+        <option value="3 months" <?php echo ($form_data['internship_duration'] === '3 months') ? 'selected' : ''; ?>>3 months</option>
+        <option value="4 months" <?php echo ($form_data['internship_duration'] === '4 months') ? 'selected' : ''; ?>>4 months</option>
+        <option value="5 months" <?php echo ($form_data['internship_duration'] === '5 months') ? 'selected' : ''; ?>>5 months</option>
+        <option value="6 months" <?php echo ($form_data['internship_duration'] === '6 months') ? 'selected' : ''; ?>>6 months</option>
+    </select>
+</div>
                         </div>
                         <div class="mb-4">
                             <label for="role_position" class="block text-gray-700 font-medium mb-1">Role/Position for Interns <span class="text-red-500">*</span></label>

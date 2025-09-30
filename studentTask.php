@@ -716,21 +716,21 @@ tailwind.config = {
                                         </button>
                                     </div>
                                     
-                                    <div class="submission-content space-y-3">
-                                        <div class="flex items-center justify-between">
-                                            <div>
-                                                <span class="text-sm font-medium text-gray-600">Status:</span>
-                                                <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $status_classes[$task['submission_status']]; ?>">
-                                                    <?php echo $task['submission_status']; ?>
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span class="text-sm font-medium text-gray-600">Submitted:</span>
-                                                <span class="text-sm text-gray-900 ml-2">
-                                                    <?php echo date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])); ?>
-                                                </span>
-                                            </div>
-                                        </div>
+                                   <div class="submission-content space-y-3">
+    <div class="flex items-center justify-between">
+        <div>
+            <span class="text-sm font-medium text-gray-600">Status:</span>
+            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo isset($task['submission_status']) && isset($status_classes[$task['submission_status']]) ? $status_classes[$task['submission_status']] : 'bg-gray-100 text-gray-800'; ?>">
+                <?php echo isset($task['submission_status']) ? $task['submission_status'] : 'Pending'; ?>
+            </span>
+        </div>
+        <div>
+            <span class="text-sm font-medium text-gray-600">Submitted:</span>
+            <span class="text-sm text-gray-900 ml-2">
+                <?php echo isset($task['submitted_at']) ? date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])) : 'Not yet submitted'; ?>
+            </span>
+        </div>
+    </div>
 
                                         <?php if (!empty($task['submission_description'])): ?>
                                             <div>

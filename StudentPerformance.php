@@ -48,7 +48,7 @@ if (!$view_student) {
 $risk_filter = $status_filter;
 
 // PAGINATION SETTINGS
-$records_per_page = 5;
+$records_per_page = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $records_per_page;
 
@@ -834,7 +834,7 @@ try {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
      <script>
 tailwind.config = {
-    theme: {
+    theme: {        
         extend: {
             colors: {
                 'bulsu-maroon': '#800000',     // Primary Maroon
@@ -1213,19 +1213,18 @@ tailwind.config = {
 
             <?php if (!$view_student): ?>
                 <!-- Students Overview with Predictions -->
+              <!-- Students Overview with Predictions -->
                 <div class="bg-white shadow-sm rounded-lg overflow-hidden">
-    <!-- Header -->
-    <div class="px-4 py-5 sm:px-6 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon">
-        <h3 class="text-lg leading-6 font-medium text-white flex items-center">
-            <i class="fas fa-chart-line text-bulsu-gold mr-2"></i>
-            Students Performance Dashboard
-        </h3>
-        <p class="mt-1 max-w-2xl text-sm text-bulsu-light-gold">
-            AI-powered predictions for OJT success with detailed performance metrics
-        </p>
-    </div>
-</div>
-
+                    <!-- Header -->
+                    <div class="px-4 py-5 sm:px-6 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon">
+                        <h3 class="text-lg leading-6 font-medium text-white flex items-center">
+                            <i class="fas fa-chart-line text-bulsu-gold mr-2"></i>
+                            Students Performance Dashboard
+                        </h3>
+                        <p class="mt-1 max-w-2xl text-sm text-bulsu-light-gold">
+                            AI-powered predictions for OJT success with detailed performance metrics
+                        </p>
+                    </div>
 
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -1239,99 +1238,176 @@ tailwind.config = {
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
-<tbody class="bg-white divide-y divide-gray-200">
-    <?php if (!empty($students_data)): ?>
-        <?php foreach ($students_data as $student): ?>
-            <?php
-            $prediction = $student['prediction'];
-            $quick_probability = $prediction['pass_probability'];
-            $quick_risk = $prediction['risk_level'];
-            
-            // Set prediction class based on risk level
-            if ($quick_risk == 'very_low' || $quick_risk == 'low') {
-                $prediction_class = 'circle-success';
-            } elseif ($quick_risk == 'medium') {
-                $prediction_class = 'circle-warning';
-            } else {
-                $prediction_class = 'circle-danger';
-            }
-            
-            $progress_percentage = $student['required_hours'] > 0 ? 
-                min(100, ($student['completed_hours'] / $student['required_hours']) * 100) : 0;
-            ?>
-            <tr>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 h-10 w-10">
-                            <?php if (!empty($student['profile_picture'])): ?>
-                                <img class="h-10 w-10 rounded-full object-cover" 
-                                    src="<?php echo htmlspecialchars($student['profile_picture']); ?>" 
-                                    alt="Profile">
-                            <?php else: ?>
-                                <div class="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                                    <span class="text-sm font-medium text-gray-600">
-                                        <?php echo strtoupper(substr($student['first_name'], 0, 1) . substr($student['last_name'], 0, 1)); ?>
-                                    </span>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <?php if (!empty($students_data)): ?>
+                                    <?php foreach ($students_data as $student): ?>
+                                        <?php
+                                        $prediction = $student['prediction'];
+                                        $quick_probability = $prediction['pass_probability'];
+                                        $quick_risk = $prediction['risk_level'];
+                                        
+                                        // Set prediction class based on risk level
+                                        if ($quick_risk == 'very_low' || $quick_risk == 'low') {
+                                            $prediction_class = 'circle-success';
+                                        } elseif ($quick_risk == 'medium') {
+                                            $prediction_class = 'circle-warning';
+                                        } else {
+                                            $prediction_class = 'circle-danger';
+                                        }
+                                        
+                                        $progress_percentage = $student['required_hours'] > 0 ? 
+                                            min(100, ($student['completed_hours'] / $student['required_hours']) * 100) : 0;
+                                        ?>
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="flex-shrink-0 h-10 w-10">
+                                                        <?php if (!empty($student['profile_picture'])): ?>
+                                                            <img class="h-10 w-10 rounded-full object-cover" 
+                                                                src="<?php echo htmlspecialchars($student['profile_picture']); ?>" 
+                                                                alt="Profile">
+                                                        <?php else: ?>
+                                                            <div class="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                                                <span class="text-sm font-medium text-gray-600">
+                                                                    <?php echo strtoupper(substr($student['first_name'], 0, 1) . substr($student['last_name'], 0, 1)); ?>
+                                                                </span>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <div class="ml-4">
+                                                        <div class="text-sm font-medium text-gray-900">
+                                                            <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>
+                                                        </div>
+                                                        <div class="text-sm text-gray-500">
+                                                            <?php echo htmlspecialchars($student['student_id']); ?>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['program']); ?></div>
+                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['year_level']); ?> Year</div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['company_name'] ?? 'Not Assigned'); ?></div>
+                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['position'] ?? ''); ?></div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900"><?php echo round($progress_percentage, 1); ?>%</div>
+                                                <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                                    <div class="bg-blue-600 h-2 rounded-full progress-fill" style="width: <?php echo $progress_percentage; ?>%"></div>
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-1">
+                                                    <?php echo $student['completed_hours']; ?>/<?php echo $student['required_hours']; ?> hours
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="prediction-mini">
+                                                    <div class="prediction-circle <?php echo $prediction_class; ?>">
+                                                        <?php echo round($quick_probability); ?>%
+                                                    </div>
+                                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo getRiskBadgeClass($quick_risk); ?>">
+                                                        <?php echo getRiskLabel($quick_risk); ?>
+                                                    </span>
+                                                    <!-- Debug info (remove in production) -->
+                                                    <div class="text-xs text-gray-400 mt-1">
+                                                        Score: <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                <a href="?view_student=<?php echo $student['id']; ?>" 
+                                                  class="text-indigo-600 hover:text-indigo-900">
+                                                    View Details
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500">
+                                            No students found.
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination - Now positioned at the bottom of the table -->
+                    <!-- Pagination - Now positioned at the bottom of the table -->
+                    <?php if (isset($total_pages) && $total_pages > 1): ?>
+                        <div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
+                            <!-- Mobile pagination -->
+                            <div class="flex-1 flex justify-between sm:hidden">
+                                <?php if ($page > 1): ?>
+                                    <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                                       class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                        Previous
+                                    </a>
+                                <?php endif; ?>
+                                
+                                <?php if ($page < $total_pages): ?>
+                                    <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                                       class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                        Next
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <!-- Desktop pagination - CENTERED -->
+                            <div class="hidden sm:flex sm:flex-col sm:items-center sm:space-y-3">
+                                <!-- Results info -->
+                                <div>
+                                    <p class="text-sm text-gray-700">
+                                        Showing 
+                                        <span class="font-medium"><?php echo (($page - 1) * $records_per_page) + 1; ?></span>
+                                        to 
+                                        <span class="font-medium"><?php echo min($page * $records_per_page, $total_records); ?></span>
+                                        of 
+                                        <span class="font-medium"><?php echo $total_records; ?></span>
+                                        results
+                                    </p>
                                 </div>
-                            <?php endif; ?>
-                        </div>
-                        <div class="ml-4">
-                            <div class="text-sm font-medium text-gray-900">
-                                <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>
+                                
+                                <!-- Pagination controls - CENTERED -->
+                                <div>
+                                    <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                                        <!-- Previous Button -->
+                                        <?php if ($page > 1): ?>
+                                            <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                                               class="relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                                <i class="fas fa-chevron-left mr-1"></i>
+                                                Previous
+                                            </a>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Page Numbers -->
+                                        <?php
+                                        $start_page = max(1, $page - 2);
+                                        $end_page = min($total_pages, $page + 2);
+                                        
+                                        for ($i = $start_page; $i <= $end_page; $i++): ?>
+                                            <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                                               class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium <?php echo $i == $page ? 'text-blue-600 bg-blue-50 border-blue-500' : 'text-gray-700 hover:bg-gray-50'; ?>">
+                                                <?php echo $i; ?>
+                                            </a>
+                                        <?php endfor; ?>
+                                        
+                                        <!-- Next Button -->
+                                        <?php if ($page < $total_pages): ?>
+                                            <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                                               class="relative inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                                Next
+                                                <i class="fas fa-chevron-right ml-1"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                    </nav>
+                                </div>
                             </div>
-                            <div class="text-sm text-gray-500">
-                                <?php echo htmlspecialchars($student['student_id']); ?>
-                            </div>
                         </div>
-                    </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['program']); ?></div>
-                    <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['year_level']); ?> Year</div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['company_name'] ?? 'Not Assigned'); ?></div>
-                    <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['position'] ?? ''); ?></div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-gray-900"><?php echo round($progress_percentage, 1); ?>%</div>
-                    <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                        <div class="bg-blue-600 h-2 rounded-full progress-fill" style="width: <?php echo $progress_percentage; ?>%"></div>
-                    </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        <?php echo $student['completed_hours']; ?>/<?php echo $student['required_hours']; ?> hours
-                    </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="prediction-mini">
-                        <div class="prediction-circle <?php echo $prediction_class; ?>">
-                            <?php echo round($quick_probability); ?>%
-                        </div>
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo getRiskBadgeClass($quick_risk); ?>">
-                            <?php echo getRiskLabel($quick_risk); ?>
-                        </span>
-                        <!-- Debug info (remove in production) -->
-                        <div class="text-xs text-gray-400 mt-1">
-                            Score: <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
-                        </div>
-                    </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <a href="?view_student=<?php echo $student['id']; ?>" 
-                      class="text-indigo-600 hover:text-indigo-900">
-                        View Details
-                    </a>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-    <?php else: ?>
-        <tr>
-            <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500">
-                No students found.
-            </td>
-        </tr>
-    <?php endif; ?>
-</tbody>
+                    <?php endif; ?>
+                </div>
             <?php else: ?>
                 <!-- Individual Student Detailed View -->
                 <?php if (isset($student_details) && isset($prediction)): ?>
@@ -1768,43 +1844,7 @@ tailwind.config = {
         </div>
     </div>
 
-     <!-- Pagination -->
-            <!-- Pagination - Only show when viewing students list -->
-            <?php if (!$view_student && isset($total_pages) && $total_pages > 1): ?>
-                <div class="mt-6 flex items-center justify-center">
-                    <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                        <?php if ($page > 1): ?>
-                            <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&status=<?php echo urlencode($status_filter); ?>" 
-                               class="relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                                <i class="fas fa-chevron-left mr-1"></i>
-                                Previous
-                            </a>
-                        <?php endif; ?>
-                        
-                        <?php
-                        $start_page = max(1, $page - 2);
-                        $end_page = min($total_pages, $page + 2);
-                        
-                        for ($i = $start_page; $i <= $end_page; $i++): ?>
-                            <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&status=<?php echo urlencode($status_filter); ?>" 
-                               class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium <?php echo $i == $page ? 'text-blue-600 bg-blue-50 border-blue-500' : 'text-gray-700 hover:bg-gray-50'; ?>">
-                                <?php echo $i; ?>
-                            </a>
-                        <?php endfor; ?>
-                        
-                        <?php if ($page < $total_pages): ?>
-                            <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&status=<?php echo urlencode($status_filter); ?>" 
-                               class="relative inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                                Next
-                                <i class="fas fa-chevron-right ml-1"></i>
-                            </a>
-                        <?php endif; ?>
-                    </nav>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
+     
     <!-- Mobile Menu Script -->
     
 

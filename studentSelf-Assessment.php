@@ -369,6 +369,136 @@ function createAssessmentAlerts($conn, $assessment_id, $student_id, $ratings, $c
         ];
     }
     
+    // 2. LOW WORKPLACE SATISFACTION
+    if ($ratings['workplace_satisfaction'] <= 2) {
+        $severity = $ratings['workplace_satisfaction'] == 1 ? 'critical' : 'high';
+        
+        $challengeText = (!empty($challenges) && $challenges !== 'None') ? 
+            "\n\n📋 Challenges: " . $challenges : "";
+        $supportText = (!empty($support_needed) && $support_needed !== 'None') ? 
+            "\n🆘 Support Requested: " . $support_needed : "";
+        
+        $message = "⚠️ LOW WORKPLACE SATISFACTION: Student {$student_info['full_name']} ({$student_info['student_id']}) reported " . 
+                ($ratings['workplace_satisfaction'] == 1 ? "VERY LOW" : "LOW") . 
+                " workplace satisfaction (Level {$ratings['workplace_satisfaction']}/5)." .
+                $challengeText . $supportText .
+                "\n\n⚡ Student may be experiencing workplace issues affecting their OJT experience.";
+        
+        $alerts[] = [
+            'type' => 'low_workplace_satisfaction',
+            'message' => $message,
+            'severity' => $severity,
+            'immediate_action' => $ratings['workplace_satisfaction'] == 1 ? 1 : 0,
+            'suggested_actions' => 'Contact within 48hrs, Discuss workplace concerns, Consider supervisor meeting'
+        ];
+    }
+    
+    // 3. LOW CONFIDENCE LEVELS
+    if ($ratings['confidence_level'] <= 2) {
+        $severity = 'high';
+        
+        $supportText = (!empty($support_needed) && $support_needed !== 'None') ? 
+            "\n🆘 Support Requested: " . $support_needed : "";
+        
+        $message = "⚠️ LOW CONFIDENCE: Student {$student_info['full_name']} ({$student_info['student_id']}) reported " . 
+                "LOW confidence in their abilities (Level {$ratings['confidence_level']}/5)." .
+                $supportText .
+                "\n\n⚡ This may indicate need for additional mentoring or skill development support.";
+        
+        $alerts[] = [
+            'type' => 'low_confidence',
+            'message' => $message,
+            'severity' => $severity,
+            'immediate_action' => 0,
+            'suggested_actions' => 'Mentoring session, Skill assessment, Confidence-building activities'
+        ];
+    }
+    
+    // 4. POOR WORK-LIFE BALANCE
+    if ($ratings['work_life_balance'] <= 2) {
+        $severity = 'high';
+        
+        $challengeText = (!empty($challenges) && $challenges !== 'None') ? 
+            "\n📋 Challenges: " . $challenges : "";
+        
+        $message = "⚠️ POOR WORK-LIFE BALANCE: Student {$student_info['full_name']} ({$student_info['student_id']}) reported " . 
+                "POOR work-life balance (Level {$ratings['work_life_balance']}/5)." .
+                $challengeText .
+                "\n\n⚡ Student may be at risk of burnout. Time management or workload review recommended.";
+        
+        $alerts[] = [
+            'type' => 'poor_work_life_balance',
+            'message' => $message,
+            'severity' => $severity,
+            'immediate_action' => 0,
+            'suggested_actions' => 'Workload assessment, Time management training, Schedule review'
+        ];
+    }
+    
+    // 5. LOW ACADEMIC PERFORMANCE
+    if ($ratings['academic_performance'] <= 2) {
+        $severity = 'high';
+        
+        $message = "⚠️ LOW ACADEMIC PERFORMANCE: Student {$student_info['full_name']} ({$student_info['student_id']}) reported " . 
+                "LOW academic performance (Level {$ratings['academic_performance']}/5)." .
+                "\n\n⚡ Academic support may be needed to improve performance.";
+        
+        $alerts[] = [
+            'type' => 'low_academic_performance',
+            'message' => $message,
+            'severity' => $severity,
+            'immediate_action' => 0,
+            'suggested_actions' => 'Academic tutoring, Study skills workshop, Performance review'
+        ];
+    }
+    
+    // 6. MULTIPLE CONCERNING METRICS (Composite Alert)
+    $concerning_count = 0;
+    $concerning_areas = [];
+    
+    if ($ratings['stress_level'] >= 3) {
+        $concerning_count++;
+        $concerning_areas[] = "Elevated stress ({$ratings['stress_level']}/5)";
+    }
+    if ($ratings['workplace_satisfaction'] <= 3) {
+        $concerning_count++;
+        $concerning_areas[] = "Low satisfaction ({$ratings['workplace_satisfaction']}/5)";
+    }
+    if ($ratings['confidence_level'] <= 3) {
+        $concerning_count++;
+        $concerning_areas[] = "Low confidence ({$ratings['confidence_level']}/5)";
+    }
+    if ($ratings['work_life_balance'] <= 3) {
+        $concerning_count++;
+        $concerning_areas[] = "Poor balance ({$ratings['work_life_balance']}/5)";
+    }
+    if ($ratings['academic_performance'] <= 3) {
+        $concerning_count++;
+        $concerning_areas[] = "Low academic performance ({$ratings['academic_performance']}/5)";
+    }
+    
+    // Only create this alert if we have multiple concerns AND haven't already created individual alerts
+    if ($concerning_count >= 3 && count($alerts) == 0) {
+        $challengeText = (!empty($challenges) && $challenges !== 'None') ? 
+            "\n\n📋 Challenges: " . $challenges : "";
+        $supportText = (!empty($support_needed) && $support_needed !== 'None') ? 
+            "\n🆘 Support Requested: " . $support_needed : "";
+        
+        $message = "⚠️ MULTIPLE CONCERNS: Student {$student_info['full_name']} ({$student_info['student_id']}) " . 
+                "reported concerning levels in {$concerning_count} areas:\n\n" .
+                implode("\n", array_map(function($area) { return "• " . $area; }, $concerning_areas)) .
+                $challengeText . $supportText .
+                "\n\n⚡ Comprehensive check-in recommended to address multiple wellbeing concerns.";
+        
+        $alerts[] = [
+            'type' => 'multiple_wellbeing_concerns',
+            'message' => $message,
+            'severity' => 'critical',
+            'immediate_action' => 1,
+            'suggested_actions' => 'Urgent meeting, Holistic support assessment, Possible intervention needed'
+        ];
+    }
+    
     // Insert alerts and notify adviser
     if (!empty($alerts)) {
         foreach ($alerts as $alert) {
@@ -381,7 +511,6 @@ function createAssessmentAlerts($conn, $assessment_id, $student_id, $ratings, $c
     
     return $alerts;
 }
-
 // Enhanced notification system for weekly reminders
 function createWeeklyReminderNotifications($conn, $student_id) {
     try {
@@ -689,7 +818,7 @@ CREATE TABLE IF NOT EXISTS assessment_weekly_log (
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OnTheJob Tracker - Self Assessment</title>
-    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+     <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
     <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">

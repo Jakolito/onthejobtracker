@@ -113,6 +113,7 @@ $task_alerts = [];
 $performance_alerts = [];
 $system_alerts = [];
 $attendance_alerts = [];
+$assessment_alerts = [];  // ADD THIS LINE
 $all_alerts = [];
 
 try {
@@ -498,7 +499,167 @@ try {
             'action_needed' => 'Review evaluation and provide additional support'
         ];
     }
-    
+// Replace the assessment_alerts_query sa AdminAlerts.php
+$assessment_alerts_query = "
+    SELECT 
+        ssa.assessment_id,
+        ssa.student_id,
+        s.first_name,
+        s.last_name,
+        s.student_id as student_number,
+        s.email,
+        ssa.stress_level,
+        ssa.workplace_satisfaction,
+        ssa.confidence_level,
+        ssa.work_life_balance,
+        ssa.academic_performance,
+        ssa.challenges_faced,
+        ssa.support_needed,
+        ssa.additional_comments,
+        ssa.created_at,
+        CASE
+            WHEN ssa.stress_level >= 4 THEN 'high_stress'
+            WHEN ssa.workplace_satisfaction <= 2 THEN 'low_workplace_satisfaction'
+            WHEN ssa.confidence_level <= 2 THEN 'low_confidence'
+            WHEN ssa.work_life_balance <= 2 THEN 'poor_work_life_balance'
+            WHEN ssa.academic_performance <= 2 THEN 'low_academic_performance'
+            ELSE 'multiple_concerns'
+        END as alert_type,
+        CASE
+            WHEN ssa.stress_level = 5 THEN 'critical'
+            WHEN ssa.stress_level = 4 OR ssa.workplace_satisfaction = 1 THEN 'critical'
+            WHEN ssa.stress_level >= 3 OR ssa.workplace_satisfaction <= 2 
+                 OR ssa.confidence_level <= 2 OR ssa.work_life_balance <= 2 
+                 OR ssa.academic_performance <= 2 THEN 'high'
+            ELSE 'medium'
+        END as severity,
+        (CASE WHEN ssa.stress_level >= 3 THEN 1 ELSE 0 END +
+         CASE WHEN ssa.workplace_satisfaction <= 3 THEN 1 ELSE 0 END +
+         CASE WHEN ssa.confidence_level <= 3 THEN 1 ELSE 0 END +
+         CASE WHEN ssa.work_life_balance <= 3 THEN 1 ELSE 0 END +
+         CASE WHEN ssa.academic_performance <= 3 THEN 1 ELSE 0 END) as concern_count
+    FROM student_self_assessments ssa
+    JOIN students s ON ssa.student_id = s.id
+    JOIN student_deployments sd ON s.id = sd.student_id
+    LEFT JOIN resolved_alerts ra ON s.id = ra.student_id 
+        AND ra.alert_type LIKE CONCAT('%', 
+            CASE
+                WHEN ssa.stress_level >= 4 THEN 'stress'
+                WHEN ssa.workplace_satisfaction <= 2 THEN 'satisfaction'
+                WHEN ssa.confidence_level <= 2 THEN 'confidence'
+                WHEN ssa.work_life_balance <= 2 THEN 'balance'
+                WHEN ssa.academic_performance <= 2 THEN 'performance'
+                ELSE 'concern'
+            END, '%')
+        AND ra.resolved_at > ssa.created_at
+    WHERE sd.ojt_status = 'Active'
+    AND ra.id IS NULL
+    AND ssa.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    HAVING (
+        stress_level >= 3 
+        OR workplace_satisfaction <= 2 
+        OR confidence_level <= 2
+        OR work_life_balance <= 2
+        OR academic_performance <= 2
+        OR concern_count >= 3
+    )
+    ORDER BY 
+        CASE 
+            WHEN ssa.stress_level = 5 THEN 1
+            WHEN ssa.stress_level = 4 THEN 2
+            WHEN ssa.workplace_satisfaction = 1 THEN 3
+            ELSE 4
+        END,
+        ssa.created_at DESC
+";
+
+$assessment_result = mysqli_query($conn, $assessment_alerts_query);
+
+if (!$assessment_result) {
+    error_log("Assessment alerts query error: " . mysqli_error($conn));
+    $assessment_alerts = [];
+} else {
+    while ($row = mysqli_fetch_assoc($assessment_result)) {
+        $severity = ($row['severity'] === 'critical') ? 'critical' : 'warning';
+        
+        // Build alert message
+        $concerns = [];
+        
+        if ($row['stress_level'] >= 4) {
+            $concerns[] = "Stress Level: {$row['stress_level']}/5 " . 
+                         ($row['stress_level'] == 5 ? "(EXTREMELY HIGH)" : "(HIGH)");
+        }
+        if ($row['workplace_satisfaction'] <= 2) {
+            $concerns[] = "Workplace Satisfaction: {$row['workplace_satisfaction']}/5 (LOW)";
+        }
+        if ($row['confidence_level'] <= 2) {
+            $concerns[] = "Confidence: {$row['confidence_level']}/5 (LOW)";
+        }
+        if ($row['work_life_balance'] <= 2) {
+            $concerns[] = "Work-Life Balance: {$row['work_life_balance']}/5 (POOR)";
+        }
+        if ($row['academic_performance'] <= 2) {
+            $concerns[] = "Academic Performance: {$row['academic_performance']}/5 (LOW)";
+        }
+        
+        $alert_message = implode(' | ', $concerns);
+        
+        // Build additional info
+        $additional_info = 'Full Assessment: ';
+        $additional_info .= 'Stress: ' . $row['stress_level'] . '/5';
+        $additional_info .= ' | Satisfaction: ' . $row['workplace_satisfaction'] . '/5';
+        $additional_info .= ' | Confidence: ' . $row['confidence_level'] . '/5';
+        $additional_info .= ' | Balance: ' . $row['work_life_balance'] . '/5';
+        $additional_info .= ' | Academic: ' . $row['academic_performance'] . '/5';
+        
+        if (!empty($row['challenges_faced']) && $row['challenges_faced'] !== 'None') {
+            $additional_info .= ' | Challenges: ' . substr($row['challenges_faced'], 0, 50);
+            if (strlen($row['challenges_faced']) > 50) $additional_info .= '...';
+        }
+        
+        if (!empty($row['support_needed']) && $row['support_needed'] !== 'None') {
+            $additional_info .= ' | Support Needed: ' . substr($row['support_needed'], 0, 50);
+            if (strlen($row['support_needed']) > 50) $additional_info .= '...';
+        }
+        
+        // Determine alert type name
+        $type_name = 'Assessment Concerns';
+        if ($row['stress_level'] >= 4) {
+            $type_name = $row['stress_level'] == 5 ? 'Critical Stress Level' : 'High Stress Level';
+        } elseif ($row['workplace_satisfaction'] <= 2) {
+            $type_name = 'Low Workplace Satisfaction';
+        } elseif ($row['concern_count'] >= 3) {
+            $type_name = 'Multiple Wellbeing Concerns';
+        }
+        
+        $assessment_alerts[] = [
+            'student_name' => $row['first_name'] . ' ' . $row['last_name'],
+            'student_id' => $row['student_number'],
+            'student_email' => $row['email'],
+            'student_db_id' => $row['student_id'],
+            'type' => $type_name,
+            'severity' => $severity,
+            'details' => $alert_message,
+            'additional_info' => $additional_info,
+            'date_detected' => date('M j, Y', strtotime($row['created_at'])),
+            'raw_date' => $row['created_at'],
+            'action_needed' => $row['stress_level'] >= 4 ? 'URGENT: Contact immediately' : 'Contact within 48 hours',
+            'suggested_actions' => $row['stress_level'] >= 4 ? 
+                'Emergency support, Workload review, Mental health referral' : 
+                'Schedule meeting, Discuss concerns, Provide resources',
+            'assessment_data' => [
+                'stress_level' => $row['stress_level'],
+                'satisfaction' => $row['workplace_satisfaction'],
+                'confidence' => $row['confidence_level'],
+                'balance' => $row['work_life_balance'],
+                'academic' => $row['academic_performance'],
+                'challenges' => $row['challenges_faced'],
+                'support_needed' => $row['support_needed'],
+                'comments' => $row['additional_comments']
+            ]
+        ];
+    }
+}
     // 4. SYSTEM-RELATED ALERTS - Modified with resolved check
     $inactive_students_query = "
         SELECT 
@@ -537,7 +698,7 @@ try {
     }
 
     // Combine all alerts and sort
-    $all_alerts = array_merge($task_alerts, $attendance_alerts, $performance_alerts, $system_alerts);
+$all_alerts = array_merge($task_alerts, $attendance_alerts, $performance_alerts, $system_alerts, $assessment_alerts);
     
     // Sort by severity and date
     usort($all_alerts, function($a, $b) {
@@ -562,6 +723,7 @@ $task_count = count($task_alerts);
 $attendance_count = count($attendance_alerts);
 $performance_count = count($performance_alerts);
 $system_count = count($system_alerts);
+$assessment_count = count($assessment_alerts);  // ADD THIS LINE
 
 // Create adviser initials
 $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
@@ -591,7 +753,7 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OnTheJob Tracker - Administrative Alerts</title>
-    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+     <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
     <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
@@ -895,40 +1057,65 @@ tailwind.config = {
             <!-- Category Statistics -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
                 <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-tasks text-blue-600 text-xl"></i>
-                        </div>
-                        <div class="ml-4">
-                            <h4 class="text-lg font-semibold text-gray-900">Task Issues</h4>
-                            <p class="text-sm text-gray-600"><?php echo $task_count; ?> alerts</p>
-                        </div>
-                    </div>
-                </div>
+        <div class="flex items-center">
+            <div class="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-tasks text-blue-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h4 class="text-lg font-semibold text-gray-900">Task Issues</h4>
+                <p class="text-sm text-gray-600"><?php echo $task_count; ?> alerts</p>
+            </div>
+        </div>
+    </div>
 
-                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-calendar-check text-green-600 text-xl"></i>
-                        </div>
-                        <div class="ml-4">
-                            <h4 class="text-lg font-semibold text-gray-900">Attendance Issues</h4>
-                            <p class="text-sm text-gray-600"><?php echo $attendance_count; ?> alerts</p>
-                        </div>
-                    </div>
-                </div>
+    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-calendar-check text-green-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h4 class="text-lg font-semibold text-gray-900">Attendance Issues</h4>
+                <p class="text-sm text-gray-600"><?php echo $attendance_count; ?> alerts</p>
+            </div>
+        </div>
+    </div>
 
-                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-chart-line text-purple-600 text-xl"></i>
-                        </div>
-                        <div class="ml-4">
-                            <h4 class="text-lg font-semibold text-gray-900">Performance Issues</h4>
-                            <p class="text-sm text-gray-600"><?php echo $performance_count; ?> alerts</p>
-                        </div>
-                    </div>
-                </div>
+    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h4 class="text-lg font-semibold text-gray-900">Performance Issues</h4>
+                <p class="text-sm text-gray-600"><?php echo $performance_count; ?> alerts</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ADD THIS NEW CARD -->
+    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-heart-pulse text-red-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h4 class="text-lg font-semibold text-gray-900">Assessment Concerns</h4>
+                <p class="text-sm text-gray-600"><?php echo $assessment_count; ?> alerts</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-desktop text-orange-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h4 class="text-lg font-semibold text-gray-900">System Issues</h4>
+                <p class="text-sm text-gray-600"><?php echo $system_count; ?> alerts</p>
+            </div>
+        </div>
+    </div>
 
                 
             </div>
@@ -956,6 +1143,10 @@ tailwind.config = {
     <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="warning">
         <i class="fas fa-exclamation-circle mr-2"></i> Warning
     </button>
+    <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="assessment">
+    <i class="fas fa-heart-pulse mr-2"></i> Assessment
+</button>
+
 </div>
                     </div>
                     
@@ -993,13 +1184,15 @@ tailwind.config = {
                                 <?php foreach ($all_alerts as $index => $alert): 
                                     // Determine category for filtering
                                     $category = 'system';
-                                    if (strpos($alert['type'], 'Task') !== false || strpos($alert['type'], 'Submission') !== false || strpos($alert['type'], 'Rejection') !== false) {
-                                        $category = 'task';
-                                    } elseif (strpos($alert['type'], 'Attendance') !== false || strpos($alert['type'], 'Absence') !== false || strpos($alert['type'], 'Tardiness') !== false) {
-                                        $category = 'attendance';
-                                    } elseif (strpos($alert['type'], 'Performance') !== false || strpos($alert['type'], 'Evaluation') !== false) {
-                                        $category = 'performance';
-                                    }
+if (strpos($alert['type'], 'Task') !== false || strpos($alert['type'], 'Submission') !== false || strpos($alert['type'], 'Rejection') !== false) {
+    $category = 'task';
+} elseif (strpos($alert['type'], 'Attendance') !== false || strpos($alert['type'], 'Absence') !== false || strpos($alert['type'], 'Tardiness') !== false) {
+    $category = 'attendance';
+} elseif (strpos($alert['type'], 'Performance') !== false || strpos($alert['type'], 'Evaluation') !== false) {
+    $category = 'performance';
+} elseif (strpos($alert['type'], 'stress') !== false || strpos($alert['type'], 'Assessment') !== false) {
+    $category = 'assessment';
+}
                                     
                                     $severityColor = '';
                                     switch($alert['severity']) {
@@ -1217,10 +1410,10 @@ tailwind.config = {
         } else if (['critical', 'warning', 'info'].includes(filterType)) {
             // Show alerts of specific severity (both resolved and unresolved)
             shouldShow = severity === filterType;
-        } else if (['task', 'attendance', 'performance', 'system'].includes(filterType)) {
-            // Show alerts of specific category (both resolved and unresolved)
-            shouldShow = category === filterType;
-        }
+       } else if (['task', 'attendance', 'performance', 'system', 'assessment'].includes(filterType)) {
+    // Show alerts of specific category (both resolved and unresolved)
+    shouldShow = category === filterType;
+}
 
         if (shouldShow) {
             row.style.display = '';

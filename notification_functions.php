@@ -89,7 +89,27 @@ function cleanupOldNotifications($conn) {
     $stmt = $conn->prepare("DELETE FROM student_notifications WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
     return $stmt->execute();
 }
-
+/**
+ * Create self-assessment notification
+ */
+function createSelfAssessmentNotification($conn, $student_id, $assessment_id, $notification_type, $title, $message, $priority = 'medium') {
+    $stmt = $conn->prepare("
+        INSERT INTO student_notifications 
+        (student_id, type, title, message, priority, related_id, related_type, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, 'self_assessment', NOW())
+    ");
+    $stmt->bind_param("issssi", 
+        $student_id, 
+        $notification_type, 
+        $title, 
+        $message, 
+        $priority, 
+        $assessment_id
+    );
+    $result = $stmt->execute();
+    $stmt->close();
+    return $result;
+}
 /**
  * Create document status notification
  */

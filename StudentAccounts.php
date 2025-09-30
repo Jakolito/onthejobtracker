@@ -20,13 +20,18 @@ $department_filter = isset($_GET['department']) ? mysqli_real_escape_string($con
 $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : ''; // Added missing variable
 $status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
 
+$unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
+$unread_messages_result = mysqli_query($conn, $unread_messages_query);
+$unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+
+
 // Pagination settings
-$records_per_page = 5;
+$records_per_page = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $records_per_page;
 
 try {
-    // Get total counts for summary cards - INCLUDE ALL students
+   
 $total_students_query = "SELECT COUNT(*) as total FROM students";
 $total_students_result = mysqli_query($conn, $total_students_query);
 $total_students = mysqli_fetch_assoc($total_students_result)['total'];
@@ -51,6 +56,79 @@ $deployed_students = mysqli_fetch_assoc($deployed_students_result)['total'];
     $departments_result = mysqli_query($conn, $departments_query);
 
     // Build WHERE conditions - REMOVE the ready_for_deployment filter
+    $summary_where_conditions = array();
+    
+   if (!empty($search)) {
+    $summary_where_conditions[] = "(first_name LIKE '%$search%' OR last_name LIKE '%$search%' OR email LIKE '%$search%' OR student_id LIKE '%$search%')";
+}
+
+if (!empty($department_filter)) {
+    $summary_where_conditions[] = "department = '$department_filter'";
+}
+
+
+
+if (!empty($section_filter)) {
+    $summary_where_conditions[] = "section = '$section_filter'";
+}
+
+    // Build WHERE clause for summary cards
+    $summary_where_clause = count($summary_where_conditions) > 0 ? 'WHERE ' . implode(' AND ', $summary_where_conditions) : '';
+
+    // Get total filtered students count
+    $total_students_query = "SELECT COUNT(*) as total FROM students $summary_where_clause";
+    $total_students_result = mysqli_query($conn, $total_students_query);
+    $total_students = mysqli_fetch_assoc($total_students_result)['total'];
+
+    // Get blocked students count (with filters)
+    $blocked_where_conditions = $summary_where_conditions;
+    $blocked_where_conditions[] = "(status = 'Blocked' OR login_attempts >= 3)";
+    $blocked_where_clause = 'WHERE ' . implode(' AND ', $blocked_where_conditions);
+    
+    $blocked_students_query = "SELECT COUNT(*) as total FROM students $blocked_where_clause";
+    $blocked_students_result = mysqli_query($conn, $blocked_students_query);
+    $blocked_students = mysqli_fetch_assoc($blocked_students_result)['total'];
+
+    // Get unverified students count (with filters)
+    $unverified_where_conditions = $summary_where_conditions;
+    $unverified_where_conditions[] = "verified = 0";
+    $unverified_where_clause = 'WHERE ' . implode(' AND ', $unverified_where_conditions);
+    
+    $unverified_students_query = "SELECT COUNT(*) as total FROM students $unverified_where_clause";
+    $unverified_students_result = mysqli_query($conn, $unverified_students_query);
+    $unverified_students = mysqli_fetch_assoc($unverified_students_result)['total'];
+
+    // Get deployed students count (with filters) - using JOIN instead of subquery for better filtering
+    if (count($summary_where_conditions) > 0) {
+    $summary_where_conditions_with_alias = array();
+    foreach ($summary_where_conditions as $condition) {
+        // Add 's.' prefix to the condition
+        $condition_with_alias = str_replace(
+            array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
+            array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
+            $condition
+        );
+        $summary_where_conditions_with_alias[] = $condition_with_alias;
+    }
+    $deployed_where_clause = 'WHERE ' . implode(' AND ', $summary_where_conditions_with_alias);
+} else {
+    $deployed_where_clause = '';
+}
+
+$deployed_students_query = "
+    SELECT COUNT(DISTINCT s.id) as total 
+    FROM students s 
+    INNER JOIN student_deployments sd ON s.id = sd.student_id 
+    $deployed_where_clause
+";
+    $deployed_students_result = mysqli_query($conn, $deployed_students_query);
+    $deployed_students = mysqli_fetch_assoc($deployed_students_result)['total'];
+
+    // Get unique departments for filter dropdown - INCLUDE ALL students
+    $departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' ORDER BY department";
+    $departments_result = mysqli_query($conn, $departments_query);
+
+    // Build WHERE conditions - REMOVE the ready_for_deployment filter
     $where_conditions = array();
     
    if (!empty($search)) {
@@ -66,8 +144,9 @@ if (!empty($section_filter)) {
 }
 
 if (!empty($status_filter)) {
-    if ($status_filter === 'verified') {
-        $where_conditions[] = "s.verified = 1 AND s.ready_for_deployment = 0 AND s.id NOT IN (SELECT student_id FROM student_deployments WHERE student_id IS NOT NULL)";
+    if ($status_filter === 'active') {
+        // Active: verified, not blocked, not ready for deployment, not deployed
+        $where_conditions[] = "s.verified = 1 AND s.status = 'Active' AND (s.login_attempts < 3 OR s.login_attempts IS NULL) AND s.ready_for_deployment = 0 AND s.id NOT IN (SELECT student_id FROM student_deployments WHERE student_id IS NOT NULL)";
     } elseif ($status_filter === 'unverified') {
         $where_conditions[] = "s.verified = 0";
     } elseif ($status_filter === 'blocked') {
@@ -76,10 +155,9 @@ if (!empty($status_filter)) {
         $where_conditions[] = "s.id IN (SELECT student_id FROM student_deployments WHERE student_id IS NOT NULL)";
     } elseif ($status_filter === 'ready_for_deployment') {
         $where_conditions[] = "s.ready_for_deployment = 1 AND s.id NOT IN (SELECT student_id FROM student_deployments WHERE student_id IS NOT NULL)";
-    } else {
-        $where_conditions[] = "s.status = '$status_filter'";
     }
 }
+
 // Get unique sections for filter dropdown
 $sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
@@ -965,10 +1043,11 @@ tailwind.config = {
 
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
-                         <select id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                      <select id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
     <option value="">All Status</option>
-    <option value="blocked" <?php echo $status_filter === 'blocked' ? 'selected' : ''; ?>>Blocked</option>
+    <option value="active" <?php echo $status_filter === 'active' ? 'selected' : ''; ?>>Active</option>
     <option value="unverified" <?php echo $status_filter === 'unverified' ? 'selected' : ''; ?>>Unverified</option>
+    <option value="blocked" <?php echo $status_filter === 'blocked' ? 'selected' : ''; ?>>Blocked</option>
     <option value="ready_for_deployment" <?php echo $status_filter === 'ready_for_deployment' ? 'selected' : ''; ?>>Ready for Deployment</option>
     <option value="deployed" <?php echo $status_filter === 'deployed' ? 'selected' : ''; ?>>Deployed</option>
 </select>
@@ -1081,15 +1160,6 @@ tailwind.config = {
                                                             title="Block Student">
                                                         <i class="fas fa-ban mr-1"></i>
                                                         Block
-                                                    </button>
-                                                <?php endif; ?>
-                                                
-                                                <?php if ($student['status'] != 'Active'): ?>
-                                                    <button onclick="performAction(<?php echo $student['id']; ?>, 'activate')" 
-                                                            class="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
-                                                            title="Activate Student">
-                                                        <i class="fas fa-play mr-1"></i>
-                                                        Activate
                                                     </button>
                                                 <?php endif; ?>
                                             </div>

@@ -300,8 +300,9 @@ if (isset($_SESSION['student_id'])) {
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
                 <!-- BULSU Logos -->
-                             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
-
+                           <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+</a>
                 <!-- Brand Name -->
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>

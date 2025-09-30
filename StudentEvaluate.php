@@ -60,10 +60,22 @@ function calculateEvaluationScore($competency_scores) {
     
     foreach ($scoring_ranges as $range) {
         if ($total_score >= $range['min'] && $total_score <= $range['max']) {
-            $equivalent_rating = ($range['rating_min'] + $range['rating_max']) / 2;
+            // Use proportional calculation instead of averaging
+            $score_range = $range['max'] - $range['min'];
+            $rating_range = $range['rating_max'] - $range['rating_min'];
+            
+            if ($score_range == 0) {
+                // Handle single-value ranges (like 21-40 or 0-20)
+                $equivalent_rating = $range['rating_min'];
+            } else {
+                // Calculate proportional position within the range
+                $position_ratio = ($total_score - $range['min']) / $score_range;
+                $equivalent_rating = $range['rating_min'] + ($position_ratio * $rating_range);
+            }
+            
             return [
                 'total_score' => $total_score,
-                'equivalent_rating' => $equivalent_rating,
+                'equivalent_rating' => round($equivalent_rating, 1), // Round to 1 decimal
                 'verbal_interpretation' => $range['interpretation']
             ];
         }
@@ -558,7 +570,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_signature'])) 
         exit();
     }
 }
-
+$supervisor_signature = '';
+if (!empty($supervisor['signature_image']) && file_exists($supervisor['signature_image'])) {
+    $supervisor_signature = $supervisor['signature_image'];
+}
 // Check for signature messages
 $signature_success = isset($_SESSION['signature_success']) ? $_SESSION['signature_success'] : null;
 $signature_error = isset($_SESSION['signature_error']) ? $_SESSION['signature_error'] : null;
@@ -813,6 +828,7 @@ tailwind.config = {
     border: 1px solid #ccc;
 }
 
+/* Remarks Section - Updated for better visibility */
 .remarks-section {
     margin: 20px;
     padding: 15px;
@@ -820,10 +836,57 @@ tailwind.config = {
 }
 
 .remarks-section h4 {
-    font-size: 16px;
-    margin-bottom: 10px;
+    font-size: 18px; /* Increased from smaller size */
+    margin-bottom: 15px;
+    font-weight: bold;
 }
 
+.remarks-section textarea {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 16px !important; /* Increased from 14px */
+    line-height: 1.6;
+    border: 2px solid #ccc;
+    padding: 12px;
+    border-radius: 4px;
+    resize: vertical;
+    width: 100%;
+}
+
+.remarks-section textarea:focus {
+    outline: none;
+    border-color: #007cba;
+    box-shadow: 0 0 5px rgba(0, 124, 186, 0.3);
+}
+
+/* For viewing mode */
+.remarks-section div[style*="border"] {
+    font-size: 16px !important; /* Increased from 10px */
+    line-height: 1.6;
+    padding: 12px;
+}
+
+/* Print styles for remarks */
+@media print {
+    .remarks-section {
+        margin: 6px 8px !important;
+        padding: 4px !important;
+        page-break-inside: avoid;
+    }
+    
+    .remarks-section h4 {
+        font-size: 11px !important;
+        margin-bottom: 3px !important;
+    }
+    
+    .remarks-section textarea,
+    .remarks-section div[style*="border"] {
+        min-height: 30px !important;
+        font-size: 10px !important; /* Readable size for print */
+        padding: 4px !important;
+        border: 0.5px solid #000 !important;
+        line-height: 1.3 !important;
+    }
+}
 .signature-section {
     margin: 20px;
     padding: 15px;
@@ -1520,6 +1583,7 @@ textarea:focus {
             </div>
         </div>
 
+
        <!-- Dashboard Cards -->
         <div class="px-6 py-4">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 no-print">
@@ -1611,6 +1675,76 @@ textarea:focus {
     </div>
 </div>
 
+  <?php if (!$selected_student): ?>
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-4 p-4 no-print max-w-4xl mx-auto">
+    <h3 class="text-sm font-semibold text-gray-900 mb-3 flex items-center">
+        <i class="fas fa-signature text-blue-600 mr-2"></i>
+        Manage Your Signature
+    </h3>
+    
+    <?php if ($signature_success): ?>
+        <div class="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-xs">
+            <i class="fas fa-check-circle mr-1"></i><?php echo htmlspecialchars($signature_success); ?>
+        </div>
+    <?php endif; ?>
+    
+    <?php if ($signature_error): ?>
+        <div class="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+            <i class="fas fa-exclamation-triangle mr-1"></i><?php echo htmlspecialchars($signature_error); ?>
+        </div>
+    <?php endif; ?>
+    
+    <div class="grid grid-cols-2 gap-3">
+        <!-- Current Signature -->
+        <div class="border-2 border-dashed border-gray-300 rounded p-3 text-center">
+            <h4 class="font-medium text-gray-700 text-xs mb-2">Current Signature</h4>
+            <?php if (!empty($supervisor_signature)): ?>
+                <img src="<?php echo htmlspecialchars($supervisor_signature); ?>" 
+                     alt="Current Signature" 
+                     class="mx-auto mb-2"
+                     style="max-width: 130px; max-height: 50px; object-fit: contain;">
+                <form method="POST" action="" class="inline" onsubmit="return confirm('Are you sure you want to delete your signature?');">
+                    <button type="submit" name="delete_signature" 
+                            class="text-red-600 hover:text-red-800 text-xs">
+                        <i class="fas fa-trash mr-1"></i>Delete Signature
+                    </button>
+                </form>
+            <?php else: ?>
+                <div class="py-3">
+                    <i class="fas fa-signature text-gray-300 text-2xl"></i>
+                    <p class="text-gray-500 text-xs mt-1">No signature</p>
+                </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- Upload New -->
+        <div class="border-2 border-dashed border-blue-300 rounded p-3">
+            <h4 class="font-medium text-gray-700 text-xs mb-2">Upload New Signature</h4>
+            <form method="POST" action="" enctype="multipart/form-data">
+                <input type="file" 
+                       name="signature_file" 
+                       id="signature_file" 
+                       accept="image/jpeg,image/jpg,image/png,image/gif"
+                       class="block w-full text-xs text-gray-500 mb-2
+                              file:mr-2 file:py-1 file:px-2
+                              file:rounded file:border-0
+                              file:text-xs file:font-semibold
+                              file:bg-blue-50 file:text-blue-700
+                              hover:file:bg-blue-100"
+                       required>
+                <p class="text-xs text-gray-500 mb-2">
+                    <i class="fas fa-info-circle mr-1"></i>Max size: 2MB | Formats: JPG, PNG, GIF
+                </p>
+                <button type="submit" 
+                        name="upload_signature" 
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-1.5 px-3 rounded text-xs">
+                    <i class="fas fa-upload mr-1"></i>Upload Signature
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
@@ -2177,24 +2311,33 @@ textarea:focus {
                     </div>
 
                     <!-- Signature Section -->
-                    <div class="signature-section">
-                        <div>
-                            <div style="border-bottom: 1px solid #000; margin-bottom: 5px; height: 30px; display: flex; align-items: end; justify-content: center; padding-bottom: 5px;">
-                                <span style="font-size: 11px; font-weight: bold;"><?php echo htmlspecialchars($existing_evaluation['evaluator_name']); ?></span>
-                            </div>
-                            <div style="text-align: center; font-size: 10px;">
-                                <strong>Evaluator's Signature</strong>
-                            </div>
-                        </div>
-                        <div>
-                            <div style="border-bottom: 1px solid #000; margin-bottom: 5px; height: 30px; display: flex; align-items: end; justify-content: center; padding-bottom: 5px;">
-                                <span style="font-size: 11px;"><?php echo date('n/j/Y', strtotime($existing_evaluation['created_at'])); ?></span>
-                            </div>
-                            <div style="text-align: center; font-size: 10px;">
-                                <strong>Date</strong>
-                            </div>
-                        </div>
-                    </div>
+<!-- Signature Section -->
+<div class="signature-section">
+    <div>
+        <?php if (!empty($supervisor_signature)): ?>
+            <div style="text-align: center; margin-bottom: 5px;">
+                <img src="<?php echo htmlspecialchars($supervisor_signature); ?>" 
+                     alt="Signature" 
+                     class="signature-image-display"
+                     style="max-width: 150px; max-height: 60px; object-fit: contain; margin: 0 auto; display: block;">
+            </div>
+        <?php endif; ?>
+        <div style="border-bottom: 1px solid #000; margin-bottom: 5px; height: 30px; display: flex; align-items: end; justify-content: center; padding-bottom: 5px;">
+            <span style="font-size: 11px; font-weight: bold;"><?php echo htmlspecialchars($existing_evaluation['evaluator_name']); ?></span>
+        </div>
+        <div style="text-align: center; font-size: 10px;">
+            <strong>Evaluator's Signature</strong>
+        </div>
+    </div>
+    <div>
+        <div style="border-bottom: 1px solid #000; margin-bottom: 5px; height: 30px; display: flex; align-items: end; justify-content: center; padding-bottom: 5px;">
+            <span style="font-size: 11px;"><?php echo date('n/j/Y', strtotime($existing_evaluation['created_at'])); ?></span>
+        </div>
+        <div style="text-align: center; font-size: 10px;">
+            <strong>Date</strong>
+        </div>
+    </div>
+</div>
 
                     <!-- Form ID -->
                     <div style="margin: 15px; font-size: 9px; color: #666; text-align: center;">

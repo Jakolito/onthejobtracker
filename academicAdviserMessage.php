@@ -978,23 +978,9 @@ tailwind.config = {
             messagesArea.scrollTop = messagesArea.scrollHeight;
         }
 
-        function startPeriodicUpdates() {
-            // Update messages every 3 seconds when a contact is selected
-            messagesInterval = setInterval(() => {
-                if (currentContact) {
-                    loadMessages();
-                }
-            }, 3000);
-
-            // Update unread counts every 30 seconds
-            unreadInterval = setInterval(() => {
-                updateUnreadCounts();
-            }, 30000);
-
-            // Update contacts list every 60 seconds
-            contactsInterval = setInterval(() => {
-                refreshContacts();
-            }, 60000);
+       function startPeriodicUpdates() {
+            // Auto-refresh disabled - manual refresh only via button click
+            // Users can manually refresh using the refresh button in contacts sidebar
         }
 
         function updateUnreadCounts() {

@@ -1169,21 +1169,14 @@ tailwind.config = {
         }
 
         // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (messagesInterval) clearInterval(messagesInterval);
-            if (unreadInterval) clearInterval(unreadInterval);
-            if (contactsInterval) clearInterval(contactsInterval);
-        });
+       
 
         // Handle online/offline status
-        window.addEventListener('online', function() {
-            showToast('Connection restored', 'success');
-            if (currentContact) {
-                loadMessages();
-            }
-            updateUnreadCounts();
-            refreshContacts();
-        });
+        // Handle online/offline status
+window.addEventListener('online', function() {
+    showToast('Connection restored', 'success');
+    // Manual refresh required - auto-refresh disabled
+});
 
         window.addEventListener('offline', function() {
             showToast('Connection lost. Messages will be sent when connection is restored.', 'warning');

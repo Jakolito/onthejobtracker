@@ -42,7 +42,6 @@ try {
     }
 } catch (Exception $e) {
     $error_message = "Error fetching user data: " . $e->getMessage();
-    // Fallback to session data
     $supervisor_name = $_SESSION['full_name'];
     $supervisor_email = $_SESSION['email'];
     $company_name = $_SESSION['company_name'];
@@ -50,38 +49,104 @@ try {
     $initials = strtoupper(substr($supervisor_name, 0, 2));
 }
 
+// Get unread messages count
+$unread_messages_query = "SELECT COUNT(*) as count FROM messages 
+    WHERE recipient_type = 'supervisor' 
+    AND recipient_id = $supervisor_id
+    AND (sender_type = 'student' OR sender_type = 'adviser') 
+    AND is_read = 0 
+    AND is_deleted_by_recipient = 0";
+$unread_messages_result = mysqli_query($conn, $unread_messages_query);
+$unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+
 // Get students under this supervisor's supervision
-$supervised_students = [];
+$student_contacts = [];
 try {
     $students_stmt = $conn->prepare("
-        SELECT s.id, s.first_name, s.middle_name, s.last_name, s.email, s.student_id, 
-               s.department, s.program, s.year_level, s.profile_picture, s.verified,
-               sd.deployment_id, sd.position as deployment_position, sd.start_date, sd.end_date
+        SELECT DISTINCT 
+            s.id, s.first_name, s.middle_name, s.last_name, s.email, 
+            s.student_id, s.department, s.program, s.year_level, s.profile_picture,
+            (SELECT MAX(m.sent_at) 
+             FROM messages m 
+             WHERE (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                OR (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = s.id AND m.recipient_type = 'student')
+            ) as last_message_time,
+            (SELECT COUNT(*) 
+             FROM messages m 
+             WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'supervisor' 
+               AND m.sender_id = s.id AND m.sender_type = 'student'
+            ) as unread_count
         FROM students s
         INNER JOIN student_deployments sd ON s.id = sd.student_id
-        WHERE sd.supervisor_id = ? AND sd.status = 'Active'
-        ORDER BY s.first_name, s.last_name
+        WHERE sd.supervisor_id = ? AND sd.status = 'Active' AND s.verified = 1
+        ORDER BY 
+            CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+            last_message_time DESC,
+            s.first_name, s.last_name
     ");
-    $students_stmt->bind_param("i", $supervisor_id);
+    $students_stmt->bind_param("iiii", $supervisor_id, $supervisor_id, $supervisor_id, $supervisor_id);
     $students_stmt->execute();
     $students_result = $students_stmt->get_result();
     
     while ($row = $students_result->fetch_assoc()) {
         $full_name = trim($row['first_name'] . ' ' . $row['middle_name'] . ' ' . $row['last_name']);
-        $student_initials = strtoupper(substr($row['first_name'], 0, 1) . substr($row['last_name'], 0, 1));
-        
-        $supervised_students[] = [
+        $student_contacts[] = [
             'id' => 'student_' . $row['id'],
             'student_id' => $row['id'],
             'name' => $full_name,
-            'role' => $row['program'] . ' - ' . $row['year_level'] . ' (' . $row['student_id'] . ')',
+            'role' => $row['program'] . ' - ' . $row['year_level'],
             'email' => $row['email'],
-            'type' => 'student',
+            'student_number' => $row['student_id'],
+            'department' => $row['department'],
             'profile_picture' => $row['profile_picture'],
-            'initials' => $student_initials,
-            'deployment_position' => $row['deployment_position'],
-            'start_date' => $row['start_date'],
-            'end_date' => $row['end_date'],
+            'type' => 'student',
+            'last_message_time' => $row['last_message_time'],
+            'unread_count' => $row['unread_count'],
+            'available' => true
+        ];
+    }
+} catch (Exception $e) {
+    // Handle error silently
+}
+
+// Get adviser contacts
+$adviser_contacts = [];
+try {
+    $adviser_stmt = $conn->prepare("
+        SELECT DISTINCT 
+            aa.id, aa.name, aa.email, aa.profile_picture,
+            (SELECT MAX(m.sent_at) 
+             FROM messages m 
+             WHERE (m.sender_id = aa.id AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                OR (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = aa.id AND m.recipient_type = 'adviser')
+            ) as last_message_time,
+            (SELECT COUNT(*) 
+             FROM messages m 
+             WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'supervisor' 
+               AND m.sender_id = aa.id AND m.sender_type = 'adviser'
+            ) as unread_count
+        FROM academic_adviser aa
+        WHERE aa.status = 'active'
+        ORDER BY 
+            CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+            last_message_time DESC,
+            aa.name
+    ");
+    $adviser_stmt->bind_param("iii", $supervisor_id, $supervisor_id, $supervisor_id);
+    $adviser_stmt->execute();
+    $adviser_result = $adviser_stmt->get_result();
+    
+    while ($row = $adviser_result->fetch_assoc()) {
+        $adviser_contacts[] = [
+            'id' => 'adviser_' . $row['id'],
+            'adviser_id' => $row['id'],
+            'name' => $row['name'],
+            'role' => 'Academic Adviser',
+            'email' => $row['email'],
+            'profile_picture' => $row['profile_picture'],
+            'type' => 'adviser',
+            'last_message_time' => $row['last_message_time'],
+            'unread_count' => $row['unread_count'],
             'available' => true
         ];
     }
@@ -95,35 +160,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     switch ($_POST['action']) {
         case 'send_message':
-            $recipient_id_full = $_POST['recipient_id'];
+            $recipient_id = $_POST['recipient_id'];
             $message = trim($_POST['message']);
             $recipient_type = $_POST['recipient_type'];
-            
-            // Extract the actual student ID (remove prefix)
-            $student_id = str_replace('student_', '', $recipient_id_full);
             
             if (empty($message)) {
                 echo json_encode(['success' => false, 'error' => 'Message cannot be empty']);
                 exit();
             }
             
-            // Validate that this supervisor can message this student
-            $can_send = false;
-            if ($recipient_type === 'student') {
-                $verify_stmt = $conn->prepare("
-                    SELECT COUNT(*) as count 
-                    FROM student_deployments 
-                    WHERE supervisor_id = ? AND student_id = ? AND status = 'Active'
-                ");
-                $verify_stmt->bind_param("ii", $supervisor_id, $student_id);
-                $verify_stmt->execute();
-                $verify_result = $verify_stmt->get_result();
-                $verify_data = $verify_result->fetch_assoc();
-                $can_send = $verify_data['count'] > 0;
-            }
-            
-            if (!$can_send) {
-                echo json_encode(['success' => false, 'error' => 'You cannot send messages to this student']);
+            if (!in_array($recipient_type, ['student', 'adviser'])) {
+                echo json_encode(['success' => false, 'error' => 'Invalid recipient type']);
                 exit();
             }
             
@@ -132,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     INSERT INTO messages (sender_id, sender_type, recipient_id, recipient_type, message, sent_at) 
                     VALUES (?, 'supervisor', ?, ?, ?, NOW())
                 ");
-                $insert_stmt->bind_param("isss", $supervisor_id, $student_id, $recipient_type, $message);
+                $insert_stmt->bind_param("isss", $supervisor_id, $recipient_id, $recipient_type, $message);
                 
                 if ($insert_stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Message sent successfully']);
@@ -140,93 +187,208 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     echo json_encode(['success' => false, 'error' => 'Failed to send message']);
                 }
             } catch (Exception $e) {
-                echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+                echo json_encode(['success' => false, 'error' => 'Database error']);
             }
             exit();
             
         case 'get_messages':
-            $recipient_id_full = $_POST['recipient_id'];
+            $recipient_id = $_POST['recipient_id'];
             $recipient_type = $_POST['recipient_type'];
             
-            // Extract the actual student ID (remove prefix)
-            $student_id = str_replace('student_', '', $recipient_id_full);
-            
-            // Verify supervisor can access this student's messages
-            $verify_stmt = $conn->prepare("
-                SELECT COUNT(*) as count 
-                FROM student_deployments 
-                WHERE supervisor_id = ? AND student_id = ? AND status = 'Active'
-            ");
-            $verify_stmt->bind_param("ii", $supervisor_id, $student_id);
-            $verify_stmt->execute();
-            $verify_result = $verify_stmt->get_result();
-            $verify_data = $verify_result->fetch_assoc();
-            
-            if ($verify_data['count'] == 0) {
-                echo json_encode(['success' => false, 'error' => 'Unauthorized access to student messages']);
-                exit();
-            }
-            
             try {
-                // Get messages between supervisor and student
-                $messages_stmt = $conn->prepare("
-                    SELECT m.*, 
-                           CASE 
-                               WHEN m.sender_type = 'supervisor' AND m.sender_id = ? THEN ?
-                               WHEN m.sender_type = 'student' THEN CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name)
-                           END as sender_name,
-                           CASE 
-                               WHEN m.sender_type = 'supervisor' THEN NULL
-                               WHEN m.sender_type = 'student' THEN s.profile_picture
-                           END as sender_avatar
-                    FROM messages m
-                    LEFT JOIN students s ON m.sender_id = s.id AND m.sender_type = 'student'
-                    WHERE (
-                        -- Messages from supervisor to student
-                        (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'student')
-                        OR 
-                        -- Messages from student to supervisor
-                        (m.sender_id = ? AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
-                    )
-                    ORDER BY m.sent_at ASC
-                ");
+                // Clean the recipient_id
+                if (strpos($recipient_id, 'student_') === 0) {
+                    $recipient_id_clean = str_replace('student_', '', $recipient_id);
+                } elseif (strpos($recipient_id, 'adviser_') === 0) {
+                    $recipient_id_clean = str_replace('adviser_', '', $recipient_id);
+                } else {
+                    $recipient_id_clean = $recipient_id;
+                }
                 
-                $messages_stmt->bind_param("isiiii", 
-                    $supervisor_id, $supervisor_name,  // For displaying supervisor name
-                    $supervisor_id, $student_id,  // Supervisor to student messages
-                    $student_id, $supervisor_id   // Student to supervisor messages
-                );
+                if ($recipient_type === 'student') {
+                    $messages_stmt = $conn->prepare("
+                        SELECT m.*,
+                               CASE 
+                                   WHEN m.sender_type = 'student' THEN CONCAT(s.first_name, ' ', s.last_name)
+                                   WHEN m.sender_type = 'supervisor' THEN cs.full_name
+                               END as sender_name,
+                               CASE 
+                                   WHEN m.sender_type = 'student' THEN s.profile_picture
+                                   WHEN m.sender_type = 'supervisor' THEN NULL
+                               END as sender_avatar,
+                               CASE 
+                                   WHEN m.sender_type = 'supervisor' AND m.sender_id = ? THEN 1
+                                   ELSE 0
+                               END as is_own_message
+                        FROM messages m
+                        LEFT JOIN students s ON m.sender_id = s.id AND m.sender_type = 'student'
+                        LEFT JOIN company_supervisors cs ON m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor'
+                        WHERE (
+                            (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'student')
+                            OR 
+                            (m.sender_id = ? AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                        )
+                        ORDER BY m.sent_at ASC
+                    ");
+                    
+                    $messages_stmt->bind_param("iiiii", $supervisor_id, $supervisor_id, $recipient_id_clean, $recipient_id_clean, $supervisor_id);
+                    
+                    // Mark student messages as read
+                    $mark_read_stmt = $conn->prepare("
+                        UPDATE messages SET is_read = 1 
+                        WHERE recipient_id = ? AND recipient_type = 'supervisor' AND sender_id = ? AND sender_type = 'student'
+                    ");
+                    $mark_read_stmt->bind_param("ii", $supervisor_id, $recipient_id_clean);
+                    $mark_read_stmt->execute();
+                    
+                } else if ($recipient_type === 'adviser') {
+                    $messages_stmt = $conn->prepare("
+                        SELECT m.*,
+                               CASE 
+                                   WHEN m.sender_type = 'adviser' THEN aa.name
+                                   WHEN m.sender_type = 'supervisor' THEN cs.full_name
+                               END as sender_name,
+                               CASE 
+                                   WHEN m.sender_type = 'adviser' THEN aa.profile_picture
+                                   WHEN m.sender_type = 'supervisor' THEN NULL
+                               END as sender_avatar,
+                               CASE 
+                                   WHEN m.sender_type = 'supervisor' AND m.sender_id = ? THEN 1
+                                   ELSE 0
+                               END as is_own_message
+                        FROM messages m
+                        LEFT JOIN academic_adviser aa ON m.sender_id = aa.id AND m.sender_type = 'adviser'
+                        LEFT JOIN company_supervisors cs ON m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor'
+                        WHERE (
+                            (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                            OR 
+                            (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                        )
+                        ORDER BY m.sent_at ASC
+                    ");
+                    
+                    $messages_stmt->bind_param("iiiii", $supervisor_id, $supervisor_id, $recipient_id_clean, $recipient_id_clean, $supervisor_id);
+                    
+                    // Mark adviser messages as read
+                    $mark_read_stmt = $conn->prepare("
+                        UPDATE messages SET is_read = 1 
+                        WHERE recipient_id = ? AND recipient_type = 'supervisor' AND sender_id = ? AND sender_type = 'adviser'
+                    ");
+                    $mark_read_stmt->bind_param("ii", $supervisor_id, $recipient_id_clean);
+                    $mark_read_stmt->execute();
+                }
                 
                 $messages_stmt->execute();
                 $messages_result = $messages_stmt->get_result();
                 
                 $messages = [];
                 while ($row = $messages_result->fetch_assoc()) {
-                    $is_own_message = ($row['sender_type'] === 'supervisor' && $row['sender_id'] == $supervisor_id);
-                    
                     $messages[] = [
                         'id' => $row['id'],
                         'message' => $row['message'],
                         'sent_at' => $row['sent_at'],
                         'sender_name' => $row['sender_name'],
                         'sender_avatar' => $row['sender_avatar'],
-                        'is_own' => $is_own_message,
+                        'is_own' => ($row['is_own_message'] == 1),
                         'is_read' => $row['is_read'],
                         'sender_type' => $row['sender_type']
                     ];
                 }
                 
-                // Mark incoming messages as read
-                $mark_read_stmt = $conn->prepare("
-                    UPDATE messages SET is_read = 1 
-                    WHERE recipient_id = ? AND recipient_type = 'supervisor' AND sender_id = ? AND sender_type = 'student' AND is_read = 0
-                ");
-                $mark_read_stmt->bind_param("ii", $supervisor_id, $student_id);
-                $mark_read_stmt->execute();
-                
                 echo json_encode(['success' => true, 'messages' => $messages]);
             } catch (Exception $e) {
                 echo json_encode(['success' => false, 'error' => 'Failed to load messages: ' . $e->getMessage()]);
+            }
+            exit();
+            
+        case 'get_student_contacts':
+            try {
+                $contacts_stmt = $conn->prepare("
+                    SELECT DISTINCT 
+                        s.id, s.first_name, s.middle_name, s.last_name, s.email, 
+                        s.student_id, s.department, s.program, s.year_level, s.profile_picture,
+                        (SELECT MAX(m.sent_at) 
+                         FROM messages m 
+                         WHERE (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                            OR (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = s.id AND m.recipient_type = 'student')
+                        ) as last_message_time,
+                        (SELECT COUNT(*) 
+                         FROM messages m 
+                         WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'supervisor' 
+                           AND m.sender_id = s.id AND m.sender_type = 'student'
+                        ) as unread_count
+                    FROM students s
+                    INNER JOIN student_deployments sd ON s.id = sd.student_id
+                    WHERE sd.supervisor_id = ? AND sd.status = 'Active' AND s.verified = 1
+                    ORDER BY 
+                        CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+                        last_message_time DESC,
+                        s.first_name, s.last_name
+                ");
+                $contacts_stmt->bind_param("iiii", $supervisor_id, $supervisor_id, $supervisor_id, $supervisor_id);
+                $contacts_stmt->execute();
+                $contacts_result = $contacts_stmt->get_result();
+                
+                $contacts = [];
+                while ($row = $contacts_result->fetch_assoc()) {
+                    $full_name = trim($row['first_name'] . ' ' . $row['middle_name'] . ' ' . $row['last_name']);
+                    $contacts[] = [
+                        'id' => 'student_' . $row['id'],
+                        'student_id' => $row['id'],
+                        'name' => $full_name,
+                        'role' => $row['program'] . ' - ' . $row['year_level'],
+                        'unread_count' => $row['unread_count'],
+                        'last_message_time' => $row['last_message_time']
+                    ];
+                }
+                
+                echo json_encode(['success' => true, 'contacts' => $contacts]);
+            } catch (Exception $e) {
+                echo json_encode(['success' => false, 'error' => 'Failed to get contacts']);
+            }
+            exit();
+            
+        case 'get_adviser_contacts':
+            try {
+                $contacts_stmt = $conn->prepare("
+                    SELECT DISTINCT 
+                        aa.id, aa.name, aa.email, aa.profile_picture,
+                        (SELECT MAX(m.sent_at) 
+                         FROM messages m 
+                         WHERE (m.sender_id = aa.id AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                            OR (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = aa.id AND m.recipient_type = 'adviser')
+                        ) as last_message_time,
+                        (SELECT COUNT(*) 
+                         FROM messages m 
+                         WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'supervisor' 
+                           AND m.sender_id = aa.id AND m.sender_type = 'adviser'
+                        ) as unread_count
+                    FROM academic_adviser aa
+                    WHERE aa.status = 'active'
+                    ORDER BY 
+                        CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+                        last_message_time DESC,
+                        aa.name
+                ");
+                $contacts_stmt->bind_param("iii", $supervisor_id, $supervisor_id, $supervisor_id);
+                $contacts_stmt->execute();
+                $contacts_result = $contacts_stmt->get_result();
+                
+                $contacts = [];
+                while ($row = $contacts_result->fetch_assoc()) {
+                    $contacts[] = [
+                        'id' => 'adviser_' . $row['id'],
+                        'adviser_id' => $row['id'],
+                        'name' => $row['name'],
+                        'role' => 'Academic Adviser',
+                        'unread_count' => $row['unread_count'],
+                        'last_message_time' => $row['last_message_time']
+                    ];
+                }
+                
+                echo json_encode(['success' => true, 'contacts' => $contacts]);
+            } catch (Exception $e) {
+                echo json_encode(['success' => false, 'error' => 'Failed to get contacts']);
             }
             exit();
             
@@ -247,33 +409,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success' => false, 'error' => 'Failed to get unread count']);
             }
             exit();
-            
-        case 'get_individual_unread_count':
-            $recipient_id_full = $_POST['recipient_id'];
-            $recipient_type = $_POST['recipient_type'];
-            $student_id = str_replace('student_', '', $recipient_id_full);
-            
-            try {
-                $individual_unread_stmt = $conn->prepare("
-                    SELECT COUNT(*) as unread_count 
-                    FROM messages 
-                    WHERE recipient_id = ? AND recipient_type = 'supervisor' 
-                    AND sender_id = ? AND sender_type = 'student' AND is_read = 0
-                ");
-                $individual_unread_stmt->bind_param("ii", $supervisor_id, $student_id);
-                $individual_unread_stmt->execute();
-                $individual_unread_result = $individual_unread_stmt->get_result();
-                $individual_unread_data = $individual_unread_result->fetch_assoc();
-                
-                echo json_encode([
-                    'success' => true, 
-                    'count' => $individual_unread_data['unread_count'],
-                    'contact_id' => $recipient_id_full
-                ]);
-            } catch (Exception $e) {
-                echo json_encode(['success' => false, 'error' => 'Failed to get individual unread count']);
-            }
-            exit();
     }
 }
 ?>
@@ -283,7 +418,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OnTheJob Tracker - Messages</title>
+    <title>OnTheJob Tracker - Company Messages</title>
     <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
     <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -291,57 +426,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <meta http-equiv="Expires" content="0">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-tailwind.config = {
-    theme: {
-        extend: {
-            colors: {
-                'bulsu-maroon': '#800000',     // Primary Maroon
-                'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                'bulsu-gold': '#DAA520',       // Official Gold
-                'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                'bulsu-white': '#FFFFFF'       // Supporting White
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'bulsu-maroon': '#800000',
+                        'bulsu-dark-maroon': '#6B1028',
+                        'bulsu-gold': '#DAA520',
+                        'bulsu-light-gold': '#F4E4BC',
+                        'bulsu-white': '#FFFFFF'
+                    }
+                }
             }
         }
-    }
-}
-</script>
+    </script>
     <style>
-        /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
         }
-
+        
         .sidebar-overlay {
             transition: opacity 0.3s ease-in-out;
         }
-
+        
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        /* Custom scrollbar */
-        .messages-area::-webkit-scrollbar,
-        .students-list::-webkit-scrollbar {
+        
+        .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
         }
-
-        .messages-area::-webkit-scrollbar-track,
-        .students-list::-webkit-scrollbar-track {
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
             background: #f1f1f1;
         }
-
-        .messages-area::-webkit-scrollbar-thumb,
-        .students-list::-webkit-scrollbar-thumb {
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
             background: #c1c1c1;
             border-radius: 3px;
         }
-
-        .messages-area::-webkit-scrollbar-thumb:hover,
-        .students-list::-webkit-scrollbar-thumb:hover {
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
         }
+
+        .message-bubble {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        @media (max-width: 1023px) {
+    body {
+        position: fixed;
+        width: 100%;
+        height: 100vh;
+        overflow: hidden;
+    }
+    
+    .main-content-wrapper {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Landscape mode optimizations */
+    @media (orientation: landscape) {
+        .chat-header {
+            padding: 0.75rem 1rem !important;
+        }
+        
+        .message-input-area {
+            padding: 0.75rem 1rem !important;
+        }
+        
+        #messageInput {
+            max-height: 60px !important;
+        }
+        
+        #messagesArea {
+            max-height: calc(100vh - 200px) !important;
+        }
+    }
+}
+
+/* Improved message input on mobile */
+.message-input-area {
+    position: relative;
+    z-index: 10;
+}
+
+@media (max-width: 640px) {
+    #messageInput {
+        font-size: 16px; /* Prevents zoom on iOS */
+        max-height: 120px;
+    }
+}
     </style>
 </head>
 <body class="bg-gray-50">
@@ -350,101 +531,98 @@ tailwind.config = {
 
     <!-- Sidebar -->
     <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
-    <!-- Close button for mobile -->
-    <div class="flex justify-end p-4 lg:hidden">
-        <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
-            <i class="fas fa-times text-xl"></i>
-        </button>
-    </div>
+        <div class="flex justify-end p-4 lg:hidden">
+            <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
 
-    <!-- Logo Section with BULSU Branding -->
-    <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
-        <div class="flex items-center">
-            <!-- BULSU Logos -->
-             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
-            <!-- Brand Name -->
-            <div class="flex items-center font-bold text-lg text-white">
-                <span>OnTheJob</span>
-                <span class="ml-1">Tracker</span>
+        <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
+            <div class="flex items-center">
+                <img src="reqsample/bulsu12.png" alt="BULSU Logo" class="w-14 h-14 mr-2">
+                <div class="flex items-center font-bold text-lg text-white">
+                    <span>OnTheJob</span>
+                    <span class="ml-1">Tracker</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="px-4 py-6">
+            <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
+            <nav class="space-y-2">
+                <a href="CompanyDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-th-large mr-3"></i>
+                    Dashboard
+                </a>
+                <a href="CompanyTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-tasks mr-3"></i>
+                    Tasks
+                </a>
+                <a href="CompanyTimeRecord.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-clock mr-3"></i>
+                    Student Time Record
+                </a>
+                <a href="ApproveTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-comment-dots mr-3"></i>
+                    Task Approval Management
+                </a>
+                <a href="CompanyProgressReport.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-chart-line mr-3"></i>
+                    Student Progress Report
+                </a>
+                <a href="StudentEvaluate.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-star mr-3"></i>
+                    Student Evaluation
+                </a>
+                <a href="CompanyMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
+                    <i class="fas fa-envelope mr-3 text-bulsu-gold"></i>
+                    Messages
+                    <?php if ($unread_messages_count > 0): ?>
+                        <span class="notification-badge ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                            <?php echo $unread_messages_count; ?>
+                        </span>
+                    <?php endif; ?>
+                </a>
+            </nav>
+        </div>
+        
+        <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
+            <div class="flex items-center space-x-3">
+                <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
+                    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                    <?php else: ?>
+                        <?php echo $initials; ?>
+                    <?php endif; ?>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($supervisor_name); ?></p>
+                    <p class="text-xs text-bulsu-light-gold">Company Supervisor</p>
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- Navigation -->
-    <div class="px-4 py-6">
-        <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
-        <nav class="space-y-2">
-            <a href="CompanyDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-th-large mr-3"></i>
-                Dashboard
-            </a>
-            <a href="CompanyTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-tasks mr-3"></i>
-                Tasks
-            </a>
-            <a href="CompanyTimeRecord.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-clock mr-3"></i>
-                Student Time Record
-            </a>
-            <a href="ApproveTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-comment-dots mr-3"></i>
-                Task Approval Management
-            </a>
-            <a href="CompanyProgressReport.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-chart-line mr-3"></i>
-                Student Progress Report
-            </a>
-            <a href="StudentEvaluate.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-star mr-3"></i>
-                Student Evaluation
-            </a>
-            <a href="CompanyMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
-                <i class="fas fa-envelope mr-3 text-bulsu-gold"></i>
-                Messages
-            </a>
-        </nav>
-    </div>
-    
-    <!-- User Profile -->
-    <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
-        <div class="flex items-center space-x-3">
-            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm">
-                <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-                    <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full rounded-full object-cover">
-                <?php else: ?>
-                    <?php echo $initials; ?>
-                <?php endif; ?>
-            </div>
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($supervisor_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Company Supervisor</p>
-            </div>
-        </div>
-    </div>
-</div>
     
     <!-- Main Content -->
-    <div class="lg:ml-64 min-h-screen">
+    <!-- Main Content -->
+<div class="lg:ml-64 min-h-screen main-content-wrapper">
         <!-- Header -->
         <div class="bg-white shadow-sm border-b border-gray-200">
             <div class="flex items-center justify-between px-4 sm:px-6 py-4">
-                <!-- Mobile Menu Button -->
                 <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                     <i class="fas fa-bars text-xl"></i>
                 </button>
 
-                <!-- Header Title -->
                 <div class="flex-1 lg:ml-0 ml-4">
                     <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Messages</h1>
-                    <p class="text-sm sm:text-base text-gray-500 hidden sm:block">Communicate with your supervised students</p>
+                    <p class="text-sm sm:text-base text-gray-500 hidden sm:block">Communicate with students and academic advisers</p>
                 </div>
                 
-                <!-- Profile Dropdown -->
                 <div class="relative">
                     <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
-                        <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
+                        <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm overflow-hidden">
                             <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-                                <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full rounded-full object-cover">
+                                <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
                             <?php else: ?>
                                 <?php echo $initials; ?>
                             <?php endif; ?>
@@ -453,9 +631,9 @@ tailwind.config = {
                     <div id="profileDropdown" class="hidden absolute right-0 mt-2 w-48 sm:w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                         <div class="p-4 border-b border-gray-200">
                             <div class="flex items-center space-x-3">
-                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
+                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
                                     <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-                                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full rounded-full object-cover">
+                                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
                                     <?php else: ?>
                                         <?php echo $initials; ?>
                                     <?php endif; ?>
@@ -463,7 +641,6 @@ tailwind.config = {
                                 <div>
                                     <p class="font-medium text-gray-900"><?php echo htmlspecialchars($supervisor_name); ?></p>
                                     <p class="text-sm text-gray-500">Company Supervisor</p>
-                                    <p class="text-xs text-gray-400"><?php echo htmlspecialchars($company_name); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -483,7 +660,6 @@ tailwind.config = {
 
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
-            <!-- Error Message Display -->
             <?php if (isset($error_message)): ?>
                 <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                     <div class="flex items-start">
@@ -493,89 +669,103 @@ tailwind.config = {
                 </div>
             <?php endif; ?>
 
-            <?php if (!empty($supervised_students)): ?>
-    <div class="mb-6 bg-white border border-bulsu-maroon rounded-lg shadow-sm overflow-hidden">
-        <!-- Header -->
-        <div class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon px-4 py-3">
-            <h4 class="text-white font-medium flex items-center">
-                <i class="fas fa-users text-bulsu-gold mr-2"></i>
-                Supervised Students
-            </h4>
-        </div>
-        <!-- Body -->
-        <div class="p-4">
-            <p class="text-gray-700 text-sm">
-                You are currently supervising 
-                <span class="font-semibold text-bulsu-maroon">
-                    <?php echo count($supervised_students); ?> student(s)
-                </span> 
-                at 
-                <strong class="text-bulsu-dark-maroon">
-                    <?php echo htmlspecialchars($company_name); ?>
-                </strong>
-            </p>
-        </div>
-    </div>
-<?php endif; ?>
-
-
             <!-- Messages Container -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" style="height: calc(100vh - 280px);">
-                <div class="grid grid-cols-1 lg:grid-cols-3 h-full">
-                    <!-- Students Sidebar -->
-<!-- Students Sidebar -->
-<div id="studentsSidebar" class="bg-gray-50 border-r border-gray-200 flex flex-col lg:block hidden lg:flex" style="height: calc(100vh - 280px);">
-    <!-- Students Header -->
-    <div class="p-4 sm:p-6 border-b border-gray-200 bg-white flex-shrink-0">
-        <button class="lg:hidden mb-4 text-blue-600 hover:text-blue-800" onclick="hideMobileStudents()" id="mobileBackBtn">
-            <i class="fas fa-arrow-left mr-2"></i>
-            Back to Chat
-        </button>
-        <h3 class="text-lg font-medium text-gray-900 flex items-center">
-            <i class="fas fa-graduation-cap mr-3 text-blue-600"></i>
-            My Students
-        </h3>
-    </div>
-    
-    
+            <!-- Messages Container -->
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 h-[calc(100vh-12rem)] lg:h-[calc(100vh-12rem)] overflow-hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-5 h-full relative">
+                    <!-- Contacts Sidebar -->
+<div id="contactsSidebar" class="lg:col-span-2 border-r border-gray-200 flex flex-col bg-gray-50 h-full overflow-hidden">
+                        <!-- Contacts Header -->
+                        <div class="p-4 sm:p-6 border-b border-gray-200 bg-white">
+                            <button class="lg:hidden mb-4 p-2 text-gray-500 hover:text-gray-700" onclick="hideMobileContacts()" id="mobileBackBtn">
+                                <i class="fas fa-arrow-left text-lg"></i>
+                            </button>
+                            
+                            <!-- Tab Buttons -->
+                            <div class="flex space-x-2 mb-4">
+                                <button onclick="switchToStudents()" id="studentsTab" class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-bulsu-maroon text-white">
+                                    <i class="fas fa-user-graduate mr-2"></i>Students
+                                    <?php if (count(array_filter($student_contacts, function($c) { return $c['unread_count'] > 0; })) > 0): ?>
+                                        <span class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                            <?php echo array_sum(array_column($student_contacts, 'unread_count')); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </button>
+                                <button onclick="switchToAdvisers()" id="advisersTab" class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300">
+                                    <i class="fas fa-chalkboard-teacher mr-2"></i>Advisers
+                                    <?php if (count(array_filter($adviser_contacts, function($c) { return $c['unread_count'] > 0; })) > 0): ?>
+                                        <span class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                            <?php echo array_sum(array_column($adviser_contacts, 'unread_count')); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </button>
+                            </div>
+                            
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <i class="fas fa-users text-blue-600 mr-3"></i>
+                                    <div>
+                                        <h3 class="text-lg font-medium text-gray-900" id="contactsTitle">Student Conversations</h3>
+                                        <p class="text-sm text-gray-500" id="contactsCount"><?php echo count($student_contacts); ?> conversations</p>
+                                    </div>
+                                </div>
+                                <button class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors" onclick="refreshContacts()" title="Refresh contacts">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
+                        </div>
                         
-                        <!-- Students List -->
-                        <div class="flex-1 overflow-y-auto students-list">
-                            <?php if (empty($supervised_students)): ?>
-                                <div class="p-6 text-center">
-                                    <i class="fas fa-user-graduate text-gray-400 text-4xl mb-4"></i>
-                                    <h3 class="text-lg font-medium text-gray-900 mb-2">No students assigned yet</h3>
-                                    <p class="text-gray-600 text-sm">Students will appear here once they are deployed under your supervision</p>
+                        <!-- Contacts List -->
+                        <div class="overflow-y-auto custom-scrollbar" id="contactsList" style="max-height: 640px;">
+                            <?php if (empty($student_contacts)): ?>
+                                <div class="flex flex-col items-center justify-center h-64 text-center p-6">
+                                    <i class="fas fa-comments text-gray-300 text-5xl mb-4"></i>
+                                    <h4 class="text-lg font-medium text-gray-900 mb-2">No Messages Yet</h4>
+                                    <p class="text-gray-500">Students will appear here when they send you a message</p>
                                 </div>
                             <?php else: ?>
-                                <?php foreach ($supervised_students as $student): ?>
-                                    <div class="p-4 cursor-pointer hover:bg-white border-b border-gray-100 transition-colors duration-200 student-item relative" 
-                                         data-contact-id="<?php echo $student['id']; ?>"
-                                         data-contact-name="<?php echo htmlspecialchars($student['name']); ?>"
-                                         data-contact-role="<?php echo htmlspecialchars($student['role']); ?>"
-                                         data-contact-type="<?php echo $student['type']; ?>"
-                                         data-student-id="<?php echo $student['student_id']; ?>"
-                                         data-profile-picture="<?php echo htmlspecialchars($student['profile_picture'] ?? ''); ?>"
-                                         data-initials="<?php echo $student['initials']; ?>"
-                                         onclick="selectStudent(this)">
+                                <?php foreach ($student_contacts as $contact): ?>
+                                    <div class="contact-item p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative" 
+                                         data-contact-id="<?php echo $contact['id']; ?>"
+                                         data-contact-name="<?php echo htmlspecialchars($contact['name']); ?>"
+                                         data-contact-role="<?php echo htmlspecialchars($contact['role']); ?>"
+                                         data-contact-type="<?php echo $contact['type']; ?>"
+                                         data-student-id="<?php echo $contact['student_id']; ?>"
+                                         onclick="selectContact(this)">
                                         <div class="flex items-center space-x-3">
-                                            <div class="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold">
-                                                <?php if (!empty($student['profile_picture']) && file_exists($student['profile_picture'])): ?>
-                                                    <img src="<?php echo htmlspecialchars($student['profile_picture']); ?>" alt="Profile Picture" class="w-full h-full rounded-full object-cover">
-                                                <?php else: ?>
-                                                    <?php echo $student['initials']; ?>
-                                                <?php endif; ?>
+                                            <div class="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                                <?php 
+                                                $name_parts = explode(' ', $contact['name']);
+                                                echo strtoupper(substr($name_parts[0], 0, 1) . (isset($name_parts[1]) ? substr($name_parts[1], 0, 1) : ''));
+                                                ?>
                                             </div>
                                             <div class="flex-1 min-w-0">
-                                                <p class="text-sm font-medium text-gray-900 truncate"><?php echo htmlspecialchars($student['name']); ?></p>
-                                                <p class="text-xs text-gray-500 truncate"><?php echo htmlspecialchars($student['role']); ?></p>
-                                                <div class="flex items-center mt-1">
-                                                    <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                                                    <p class="text-xs text-green-600"><?php echo htmlspecialchars($student['deployment_position']); ?></p>
-                                                </div>
+                                                <p class="text-sm font-medium text-gray-900 truncate"><?php echo htmlspecialchars($contact['name']); ?></p>
+                                                <p class="text-sm text-gray-600 truncate"><?php echo htmlspecialchars($contact['role']); ?></p>
+                                                <p class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($contact['student_number']); ?></p>
+                                                <p class="text-xs text-gray-500">
+                                                    <?php 
+                                                    if ($contact['last_message_time']) {
+                                                        $time_diff = time() - strtotime($contact['last_message_time']);
+                                                        if ($time_diff < 60) {
+                                                            echo "Just now";
+                                                        } elseif ($time_diff < 3600) {
+                                                            echo floor($time_diff / 60) . " minutes ago";
+                                                        } elseif ($time_diff < 86400) {
+                                                            echo floor($time_diff / 3600) . " hours ago";
+                                                        } else {
+                                                            echo date('M j', strtotime($contact['last_message_time']));
+                                                        }
+                                                    }
+                                                    ?>
+                                                </p>
                                             </div>
-                                            <div class="unread-badge absolute top-4 right-4 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold hidden">0</div>
                                         </div>
+                                        <?php if ($contact['unread_count'] > 0): ?>
+                                            <div class="absolute top-2 right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                                <?php echo $contact['unread_count']; ?>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>
                             <?php endif; ?>
@@ -583,610 +773,718 @@ tailwind.config = {
                     </div>
 
                     <!-- Chat Area -->
-                    <div class="col-span-2 flex flex-col h-full">
+<div id="chatArea" class="lg:col-span-3 flex flex-col h-full hidden lg:flex">
                         <!-- Chat Header -->
-                        <div id="chatHeader" class="p-4 sm:p-6 border-b border-gray-200 bg-white hidden">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <button class="lg:hidden text-blue-600 hover:text-blue-800" onclick="showMobileStudents()" id="mobileStudentsBtn">
-                                        <i class="fas fa-arrow-left mr-2"></i>
-                                    </button>
-                                    <div id="chatAvatar" class="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold">
-                                        <!-- Avatar will be populated by JavaScript -->
-                                    </div>
-                                    <div>
-                                        <h3 id="chatName" class="text-lg font-medium text-gray-900">Select a student</h3>
-                                        <p id="chatRole" class="text-sm text-gray-500">Choose a student to start messaging</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center space-x-2">
-                                    <div class="flex items-center text-green-600">
-                                        <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                                        <span class="text-xs font-medium">Active</span>
-                                    </div>
+                        <div class="chat-header p-4 sm:p-6 border-b border-gray-200 bg-white hidden" id="chatHeader">
+                            <button class="lg:hidden mr-4 p-2 text-gray-500 hover:text-gray-700" onclick="showMobileContacts()" id="mobileContactsBtn">
+                                <i class="fas fa-arrow-left text-lg"></i>
+                            </button>
+                            <div class="flex items-center space-x-4">
+                                <div class="chat-header-avatar w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold" id="chatAvatar"></div>
+                                <div>
+                                    <h3 class="text-lg font-medium text-gray-900" id="chatName"></h3>
+                                    <p class="text-sm text-gray-500" id="chatRole"></p>
                                 </div>
                             </div>
                         </div>
-
+                        
                         <!-- Messages Area -->
-                        <div id="messagesArea" class="flex-1 overflow-y-auto p-4 sm:p-6 messages-area bg-gray-50">
-                            <!-- Welcome State -->
-                            <div id="welcomeState" class="flex flex-col items-center justify-center h-full text-center">
-                                <div class="bg-white rounded-lg p-8 max-w-md mx-auto shadow-sm border border-gray-200">
-                                    <i class="fas fa-comments text-gray-400 text-6xl mb-6"></i>
-                                    <h3 class="text-xl font-semibold text-gray-900 mb-4">Welcome to Messages</h3>
-                                    <p class="text-gray-600 mb-6">Select a student from the sidebar to start a conversation. You can communicate with all students under your supervision.</p>
-                                    <button class="lg:hidden bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors" onclick="showMobileStudents()">
-                                        <i class="fas fa-user-graduate mr-2"></i>
-                                        View Students
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Messages Container -->
-                            <div id="messagesContainer" class="space-y-4 hidden">
-                                <!-- Messages will be loaded here via JavaScript -->
-                            </div>
-
-                            <!-- Loading State -->
-                            <div id="loadingMessages" class="flex justify-center items-center py-8 hidden">
-                                <div class="text-center">
-                                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-                                    <p class="text-gray-600">Loading messages...</p>
-                                </div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 bg-gray-50 touch-pan-y" id="messagesArea" style="overscroll-behavior: contain;">
+                            <div class="flex flex-col items-center justify-center h-full text-center">
+                                <i class="fas fa-comments text-gray-300 text-6xl mb-4"></i>
+                                <h3 class="text-xl font-medium text-gray-900 mb-2">Select a Contact</h3>
+                                <p class="text-gray-500">Choose a student or adviser from the sidebar to view your conversation</p>
                             </div>
                         </div>
-
-                        <!-- Message Input -->
-                        <div id="messageInput" class="p-4 sm:p-6 bg-white border-t border-gray-200 hidden">
-                            <form id="messageForm" class="flex space-x-4">
-                                <div class="flex-1">
-                                    <textarea id="messageText" 
-                                              placeholder="Type your message here..." 
-                                              class="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                              rows="1"
-                                              style="min-height: 44px; max-height: 120px;"></textarea>
-                                </div>
-                                <button type="submit" 
-                                        id="sendButton"
-                                        class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center justify-center min-w-[100px]"
+                        
+                        <!-- Message Input Area -->
+                        <div class="message-input-area p-4 sm:p-6 border-t border-gray-200 bg-white hidden flex-shrink-0" id="messageInputArea">
+    <div class="flex items-end space-x-3">
+        <textarea class="flex-1 resize-none border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" 
+                  id="messageInput" 
+                  placeholder="Type your reply..." 
+                  rows="1" 
+                  onkeypress="handleKeyPress(event)"
+                  oninput="adjustTextareaHeight(this)"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="sentences"></textarea>
+                                <button class="w-12 h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg flex items-center justify-center transition-colors" 
+                                        id="sendButton" 
+                                        onclick="sendMessage()" 
                                         disabled>
-                                    <span class="send-text">
-                                        <i class="fas fa-paper-plane mr-2"></i>
-                                        Send
-                                    </span>
-                                    <span class="sending-text hidden">
-                                        <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
-                                        Sending...
-                                    </span>
+                                    <i class="fas fa-paper-plane"></i>
                                 </button>
-                            </form>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Success/Error Toast -->
-    <div id="toast" class="fixed top-4 right-4 z-50 hidden">
-        <div class="bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm">
-            <div class="flex items-center">
-                <div id="toastIcon" class="flex-shrink-0 w-6 h-6 mr-3">
-                    <!-- Icon will be set by JavaScript -->
-                </div>
-                <div class="flex-1">
-                    <p id="toastMessage" class="text-sm font-medium text-gray-900"></p>
-                </div>
-                <button onclick="hideToast()" class="ml-4 text-gray-400 hover:text-gray-600">
-                    <i class="fas fa-times"></i>
-                </button>
             </div>
         </div>
     </div>
 
     <script>
         // Global variables
-        let currentContactId = null;
-        let currentContactType = null;
-        let messagesPollingInterval = null;
-        let unreadCountInterval = null;
+        let currentContact = null;
+        let currentTab = 'students';
 
-        // DOM elements
-        const sidebar = document.getElementById('sidebar');
-        const sidebarOverlay = document.getElementById('sidebarOverlay');
-        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-        const closeSidebar = document.getElementById('closeSidebar');
-        const profileBtn = document.getElementById('profileBtn');
-        const profileDropdown = document.getElementById('profileDropdown');
-        const messageForm = document.getElementById('messageForm');
-        const messageText = document.getElementById('messageText');
-        const sendButton = document.getElementById('sendButton');
-        const messagesContainer = document.getElementById('messagesContainer');
-        const loadingMessages = document.getElementById('loadingMessages');
-        const welcomeState = document.getElementById('welcomeState');
-        const chatHeader = document.getElementById('chatHeader');
-        const messageInput = document.getElementById('messageInput');
-        const studentsSidebar = document.getElementById('studentsSidebar');
-
-        // Initialize page
+        // Initialize the messaging system
         document.addEventListener('DOMContentLoaded', function() {
-            setupEventListeners();
-            startUnreadCountPolling();
-            autoResizeTextarea();
+            initializeMessaging();
+            updateUnreadCounts();
         });
 
-        // Event listeners setup
-        function setupEventListeners() {
-            // Mobile menu toggle
-            mobileMenuBtn?.addEventListener('click', () => {
-                sidebar.classList.remove('-translate-x-full');
-                sidebarOverlay.classList.remove('hidden');
-                sidebarOverlay.classList.add('opacity-50');
-            });
+        // Mobile menu functionality
+        document.getElementById('mobileMenuBtn').addEventListener('click', function() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.remove('-translate-x-full');
+            overlay.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        });
 
-            // Close sidebar
-            closeSidebar?.addEventListener('click', closeMobileSidebar);
-            sidebarOverlay?.addEventListener('click', closeMobileSidebar);
+        document.getElementById('closeSidebar').addEventListener('click', closeSidebar);
+        document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
-            // Profile dropdown
-            profileBtn?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                profileDropdown.classList.toggle('hidden');
-            });
-
-            // Close dropdown when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!profileBtn?.contains(e.target)) {
-                    profileDropdown?.classList.add('hidden');
-                }
-            });
-
-            // Message form
-            messageForm?.addEventListener('submit', sendMessage);
-            
-            // Auto-resize textarea
-            messageText?.addEventListener('input', autoResizeTextarea);
-            messageText?.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage(e);
-                }
-            });
-        }
-
-        // Close mobile sidebar
-        function closeMobileSidebar() {
+        function closeSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
             sidebar.classList.add('-translate-x-full');
-            sidebarOverlay.classList.add('hidden');
-            sidebarOverlay.classList.remove('opacity-50');
+            overlay.classList.add('hidden');
+            document.body.style.overflow = 'auto';
         }
 
-        // Auto-resize textarea
-        function autoResizeTextarea() {
-            if (messageText) {
-                messageText.style.height = 'auto';
-                messageText.style.height = Math.min(messageText.scrollHeight, 120) + 'px';
-                
-                // Enable/disable send button
-                sendButton.disabled = messageText.value.trim() === '';
+        // Profile dropdown functionality
+        document.getElementById('profileBtn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const dropdown = document.getElementById('profileDropdown');
+            dropdown.classList.toggle('hidden');
+        });
+
+        document.addEventListener('click', function(e) {
+            const profileDropdown = document.getElementById('profileDropdown');
+            if (!e.target.closest('#profileBtn') && !profileDropdown.classList.contains('hidden')) {
+                profileDropdown.classList.add('hidden');
             }
-        }
+        });
 
-        // Select student
-        function selectStudent(element) {
-            // Remove active class from all students
-            document.querySelectorAll('.student-item').forEach(item => {
-                item.classList.remove('bg-blue-50', 'border-l-4', 'border-blue-600');
+        function initializeMessaging() {
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            
+            messageInput.addEventListener('input', function() {
+                const hasText = this.value.trim().length > 0;
+                sendButton.disabled = !hasText;
             });
-            
-            // Add active class to selected student
-            element.classList.add('bg-blue-50', 'border-l-4', 'border-blue-600');
-            
-            // Get student data
-            const contactId = element.dataset.contactId;
-            const contactName = element.dataset.contactName;
-            const contactRole = element.dataset.contactRole;
-            const contactType = element.dataset.contactType;
-            const profilePicture = element.dataset.profilePicture;
-            const initials = element.dataset.initials;
-            
-            // Update global variables
-            currentContactId = contactId;
-            currentContactType = contactType;
-            
-            // Update chat header
-            updateChatHeader(contactName, contactRole, profilePicture, initials);
-            
-            // Show chat interface
-            showChatInterface();
-            
-            // Load messages
-            loadMessages();
-            
-            // Start polling for new messages
-            startMessagesPolling();
-            
-            // Hide mobile students sidebar on mobile
+
+            messageInput.addEventListener('input', function() {
+                adjustTextareaHeight(this);
+            });
+        }
+
+function selectContact(contactElement) {
+    if (contactElement.classList.contains('disabled')) {
+        showToast('Cannot select this contact', 'warning');
+        return;
+    }
+
+    document.querySelectorAll('.contact-item').forEach(item => {
+        item.classList.remove('bg-blue-50', 'border-l-4', 'border-l-blue-500');
+    });
+
+    contactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
+
+    const contactType = contactElement.dataset.contactType;
+    
+    currentContact = {
+        id: contactElement.dataset.contactId,
+        name: contactElement.dataset.contactName,
+        role: contactElement.dataset.contactRole,
+        type: contactType
+    };
+
+    if (contactType === 'student') {
+        currentContact.student_id = contactElement.dataset.studentId;
+    } else if (contactType === 'adviser') {
+        currentContact.adviser_id = contactElement.dataset.adviserId;
+    }
+
+    updateChatHeader(currentContact);
+    loadMessages();
+
+    document.getElementById('chatHeader').classList.remove('hidden');
+    document.getElementById('messageInputArea').classList.remove('hidden');
+
+    const unreadBadge = contactElement.querySelector('.absolute');
+    if (unreadBadge && unreadBadge.classList.contains('bg-red-500')) {
+        unreadBadge.classList.add('hidden');
+    }
+
+    // Switch to chat view on mobile
+    if (window.innerWidth < 1024) {
+        hideMobileContacts();
+        setTimeout(() => {
+            const messagesArea = document.getElementById('messagesArea');
+            messagesArea.scrollTop = 0;
+        }, 100);
+    }
+}
+
+        function hideMobileContacts() {
             if (window.innerWidth < 1024) {
-                hideMobileStudents();
+                const contactsSidebar = document.getElementById('contactsSidebar');
+                const chatArea = document.getElementById('chatArea');
+                contactsSidebar.classList.add('hidden');
+                chatArea.classList.remove('hidden');
+                chatArea.classList.add('flex');
             }
         }
 
-        // Update chat header
-        function updateChatHeader(name, role, profilePicture, initials) {
+        function updateChatHeader(contact) {
+            const chatAvatar = document.getElementById('chatAvatar');
             const chatName = document.getElementById('chatName');
             const chatRole = document.getElementById('chatRole');
-            const chatAvatar = document.getElementById('chatAvatar');
-            
-            if (chatName) chatName.textContent = name;
-            if (chatRole) chatRole.textContent = role;
-            
-            if (chatAvatar) {
-                if (profilePicture && profilePicture.trim() !== '') {
-                    chatAvatar.innerHTML = `<img src="${profilePicture}" alt="Profile Picture" class="w-full h-full rounded-full object-cover">`;
-                } else {
-                    chatAvatar.innerHTML = initials;
-                }
+
+            const initials = contact.name.split(' ')
+                .map(word => word.charAt(0))
+                .join('')
+                .toUpperCase()
+                .substring(0, 2);
+
+            chatAvatar.textContent = initials;
+            chatName.textContent = contact.name;
+            chatRole.textContent = contact.role;
+        }
+
+        function loadMessages() {
+            if (!currentContact) return;
+
+            const messagesArea = document.getElementById('messagesArea');
+            messagesArea.innerHTML = `
+                <div class="flex items-center justify-center h-full">
+                    <div class="flex items-center space-x-3 text-gray-500">
+                        <i class="fas fa-spinner animate-spin"></i>
+                        <span>Loading messages...</span>
+                    </div>
+                </div>
+            `;
+
+            let recipientId;
+            if (currentContact.type === 'student') {
+                recipientId = currentContact.student_id || currentContact.id.replace('student_', '');
+            } else if (currentContact.type === 'adviser') {
+                recipientId = currentContact.adviser_id || currentContact.id.replace('adviser_', '');
             }
-        }
 
-        // Show chat interface
-        function showChatInterface() {
-            welcomeState?.classList.add('hidden');
-            chatHeader?.classList.remove('hidden');
-            messageInput?.classList.remove('hidden');
-            messagesContainer?.classList.remove('hidden');
-        }
+            const formData = new FormData();
+            formData.append('action', 'get_messages');
+            formData.append('recipient_id', recipientId);
+            formData.append('recipient_type', currentContact.type);
 
-        // Mobile functions
-        function showMobileStudents() {
-            studentsSidebar.classList.remove('hidden');
-            studentsSidebar.classList.add('block');
-        }
-
-        function hideMobileStudents() {
-            if (window.innerWidth < 1024) {
-                studentsSidebar.classList.add('hidden');
-                studentsSidebar.classList.remove('block');
-            }
-        }
-
-        // Load messages
-        async function loadMessages() {
-            if (!currentContactId || !currentContactType) return;
-            
-            try {
-                showLoadingMessages();
-                
-                const formData = new FormData();
-                formData.append('action', 'get_messages');
-                formData.append('recipient_id', currentContactId);
-                formData.append('recipient_type', currentContactType);
-                
-                const response = await fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
                 if (data.success) {
                     displayMessages(data.messages);
+                    scrollToBottom();
                 } else {
-                    showToast('Error loading messages: ' + (data.error || 'Unknown error'), 'error');
+                    messagesArea.innerHTML = `
+                        <div class="flex items-center justify-center h-full">
+                            <div class="text-center text-red-500">
+                                <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+                                <p>Failed to load messages</p>
+                                <p class="text-sm mt-2">${data.error || 'Unknown error'}</p>
+                            </div>
+                        </div>
+                    `;
                 }
-            } catch (error) {
-                console.error('Error loading messages:', error);
-                showToast('Failed to load messages', 'error');
-            } finally {
-                hideLoadingMessages();
-            }
+            })
+            .catch(error => {
+                messagesArea.innerHTML = `
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center text-red-500">
+                            <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+                            <p>Error loading messages</p>
+                        </div>
+                    </div>
+                `;
+            });
         }
 
-        // Display messages
         function displayMessages(messages) {
-            if (!messagesContainer) return;
-            
-            messagesContainer.innerHTML = '';
+            const messagesArea = document.getElementById('messagesArea');
             
             if (messages.length === 0) {
-                messagesContainer.innerHTML = `
-                    <div class="text-center py-8">
-                        <i class="fas fa-comments text-gray-400 text-4xl mb-4"></i>
-                        <p class="text-gray-600">No messages yet. Start the conversation!</p>
+                messagesArea.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-center">
+                        <i class="fas fa-comment-slash text-gray-300 text-6xl mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-900 mb-2">No messages yet</h3>
+                        <p class="text-gray-500">This is the beginning of your conversation</p>
                     </div>
                 `;
                 return;
             }
-            
+
+            let messagesHTML = '';
+            let currentDate = '';
+
             messages.forEach(message => {
-                const messageElement = createMessageElement(message);
-                messagesContainer.appendChild(messageElement);
+                const messageDate = new Date(message.sent_at).toDateString();
+                
+                if (messageDate !== currentDate) {
+                    messagesHTML += createDateSeparator(messageDate);
+                    currentDate = messageDate;
+                }
+
+                messagesHTML += createMessageHTML(message);
             });
-            
-            // Scroll to bottom
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            messagesArea.innerHTML = messagesHTML;
         }
 
-        // Create message element
-        function createMessageElement(message) {
-            const messageDiv = document.createElement('div');
-            const isOwnMessage = message.is_own;
-            const timestamp = new Date(message.sent_at).toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
+        function createDateSeparator(dateString) {
+            const date = new Date(dateString);
+            const today = new Date().toDateString();
+            const yesterday = new Date(Date.now() - 86400000).toDateString();
             
-            messageDiv.className = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
-            
-            messageDiv.innerHTML = `
-                <div class="max-w-xs lg:max-w-md">
-                    ${!isOwnMessage ? `
-                        <div class="flex items-center mb-1">
-                            <div class="w-6 h-6 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white text-xs font-semibold mr-2">
-                                ${message.sender_avatar && message.sender_avatar.trim() !== '' ? 
-                                    `<img src="${message.sender_avatar}" alt="Avatar" class="w-full h-full rounded-full object-cover">` : 
-                                    message.sender_name ? message.sender_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'ST'
-                                }
-                            </div>
-                            <span class="text-xs text-gray-600 font-medium">${message.sender_name || 'Student'}</span>
-                        </div>
-                    ` : ''}
-                    <div class="relative group">
-                        <div class="${isOwnMessage ? 
-                            'bg-blue-600 text-white rounded-l-lg rounded-br-lg' : 
-                            'bg-white text-gray-900 border border-gray-200 rounded-r-lg rounded-bl-lg'
-                        } px-4 py-3 shadow-sm">
-                            <p class="text-sm whitespace-pre-wrap break-words">${escapeHtml(message.message)}</p>
-                        </div>
-                        <div class="text-xs text-gray-500 mt-1 ${isOwnMessage ? 'text-right' : 'text-left'}">
-                            ${timestamp}
-                            ${isOwnMessage ? '<i class="fas fa-check ml-1 text-gray-400"></i>' : ''}
-                        </div>
+            let displayDate;
+            if (dateString === today) {
+                displayDate = 'Today';
+            } else if (dateString === yesterday) {
+                displayDate = 'Yesterday';
+            } else {
+                displayDate = date.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                });
+            }
+
+            return `
+                <div class="flex items-center justify-center my-6">
+                    <div class="flex-1 border-t border-gray-300"></div>
+                    <div class="px-4 py-2 bg-white border border-gray-300 rounded-full text-sm text-gray-500">
+                        ${displayDate}
                     </div>
+                    <div class="flex-1 border-t border-gray-300"></div>
                 </div>
             `;
-            
-            return messageDiv;
         }
 
-        // Send message
-        async function sendMessage(e) {
-            e.preventDefault();
+        function createMessageHTML(message) {
+            const time = new Date(message.sent_at).toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit',
+                hour12: true 
+            });
+
+            const avatarInitials = message.sender_name.split(' ').map(word => word.charAt(0)).join('').toUpperCase().substring(0, 2);
             
-            if (!currentContactId || !currentContactType) {
-                showToast('Please select a student first', 'error');
+            const avatarContent = message.sender_avatar && message.sender_avatar !== 'null' 
+                ? `<img src="${message.sender_avatar}" alt="Avatar" class="w-full h-full object-cover">` 
+                : avatarInitials;
+
+            if (message.is_own) {
+                return `
+                    <div class="flex items-end justify-end space-x-2 mb-4">
+                        <div class="flex flex-col items-end max-w-xs lg:max-w-md">
+                            <div class="bg-blue-600 text-white px-4 py-2 rounded-lg message-bubble">
+                                ${escapeHtml(message.message)}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">${time}</div>
+                        </div>
+                        <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+                            ${avatarInitials}
+                        </div>
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="flex items-end space-x-2 mb-4">
+                        <div class="w-8 h-8 bg-gradient-to-r from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 overflow-hidden">
+                            ${avatarContent}
+                        </div>
+                        <div class="flex flex-col max-w-xs lg:max-w-md">
+                            <div class="bg-white border border-gray-200 px-4 py-2 rounded-lg message-bubble shadow-sm">
+                                ${escapeHtml(message.message)}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">${time}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const message = messageInput.value.trim();
+
+            if (!message || !currentContact) return;
+
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+            sendButton.innerHTML = '<i class="fas fa-spinner animate-spin"></i>';
+
+            let recipientId;
+            if (currentContact.type === 'student') {
+                recipientId = currentContact.student_id || currentContact.id.replace('student_', '');
+            } else if (currentContact.type === 'adviser') {
+                recipientId = currentContact.adviser_id || currentContact.id.replace('adviser_', '');
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'send_message');
+            formData.append('recipient_id', recipientId);
+            formData.append('recipient_type', currentContact.type);
+            formData.append('message', message);
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageInput.value = '';
+                    adjustTextareaHeight(messageInput);
+                    loadMessages();
+                    showToast('Message sent successfully', 'success');
+                    
+                    setTimeout(refreshContacts, 1000);
+                } else {
+                    showToast(data.error || 'Failed to send message', 'error');
+                }
+            })
+            .catch(error => {
+                showToast('Error sending message', 'error');
+            })
+            .finally(() => {
+                messageInput.disabled = false;
+                sendButton.disabled = message.trim().length === 0;
+                sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+                messageInput.focus();
+            });
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                if (!event.target.disabled && event.target.value.trim()) {
+                    sendMessage();
+                }
+            }
+        }
+
+        function adjustTextareaHeight(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+        }
+
+        function scrollToBottom() {
+            const messagesArea = document.getElementById('messagesArea');
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+
+        function updateUnreadCounts() {
+            const formData = new FormData();
+            formData.append('action', 'get_unread_count');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update UI if needed
+                }
+            })
+            .catch(error => {
+                console.error('Error updating unread counts:', error);
+            });
+        }
+
+        function switchToStudents() {
+            currentTab = 'students';
+            
+            document.getElementById('studentsTab').classList.remove('bg-gray-200', 'text-gray-700');
+            document.getElementById('studentsTab').classList.add('bg-bulsu-maroon', 'text-white');
+            document.getElementById('advisersTab').classList.remove('bg-bulsu-maroon', 'text-white');
+            document.getElementById('advisersTab').classList.add('bg-gray-200', 'text-gray-700');
+            
+            document.getElementById('contactsTitle').textContent = 'Student Conversations';
+            
+            refreshStudentContacts();
+        }
+
+        function switchToAdvisers() {
+            currentTab = 'advisers';
+            
+            document.getElementById('advisersTab').classList.remove('bg-gray-200', 'text-gray-700');
+            document.getElementById('advisersTab').classList.add('bg-bulsu-maroon', 'text-white');
+            document.getElementById('studentsTab').classList.remove('bg-bulsu-maroon', 'text-white');
+            document.getElementById('studentsTab').classList.add('bg-gray-200', 'text-gray-700');
+            
+            document.getElementById('contactsTitle').textContent = 'Adviser Conversations';
+            
+            refreshAdviserContacts();
+        }
+
+        function refreshContacts() {
+            if (currentTab === 'students') {
+                refreshStudentContacts();
+            } else {
+                refreshAdviserContacts();
+            }
+        }
+
+        function refreshStudentContacts() {
+            const formData = new FormData();
+            formData.append('action', 'get_student_contacts');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateContactsList(data.contacts, 'student');
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing student contacts:', error);
+            });
+        }
+
+        function refreshAdviserContacts() {
+            const formData = new FormData();
+            formData.append('action', 'get_adviser_contacts');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateContactsList(data.contacts, 'adviser');
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing adviser contacts:', error);
+            });
+        }
+
+        function updateContactsList(contacts, type) {
+            const contactsList = document.getElementById('contactsList');
+            const contactsCount = document.getElementById('contactsCount');
+            
+            if (contacts.length === 0) {
+                const emptyMessage = type === 'student' ? 'Students' : 'Advisers';
+                contactsList.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-64 text-center p-6">
+                        <i class="fas fa-comments text-gray-300 text-5xl mb-4"></i>
+                        <h4 class="text-lg font-medium text-gray-900 mb-2">No Messages Yet</h4>
+                        <p class="text-gray-500">${emptyMessage} will appear here when they send you a message</p>
+                    </div>
+                `;
+                contactsCount.textContent = '0 conversations';
                 return;
             }
-            
-            const message = messageText.value.trim();
-            if (!message) return;
-            
-            try {
-                // Update UI
-                setSendingState(true);
+
+            let contactsHTML = '';
+            contacts.forEach(contact => {
+                const timeText = getTimeText(contact.last_message_time);
+                const unreadBadge = contact.unread_count > 0 ? 
+                    `<div class="absolute top-2 right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">${contact.unread_count}</div>` : '';
                 
-                const formData = new FormData();
-                formData.append('action', 'send_message');
-                formData.append('recipient_id', currentContactId);
-                formData.append('recipient_type', currentContactType);
-                formData.append('message', message);
-                
-                const response = await fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    messageText.value = '';
-                    autoResizeTextarea();
-                    loadMessages(); // Reload messages to show the new one
-                    showToast('Message sent successfully', 'success');
-                } else {
-                    showToast('Error sending message: ' + (data.error || 'Unknown error'), 'error');
+                const nameInitials = contact.name.split(' ')
+                    .map(word => word.charAt(0))
+                    .join('')
+                    .toUpperCase()
+                    .substring(0, 2);
+
+                const gradientClass = type === 'student' ? 'from-green-500 to-teal-600' : 'from-purple-500 to-indigo-600';
+                const contactType = type === 'student' ? 'student' : 'adviser';
+                const idField = type === 'student' ? `data-student-id="${contact.student_id}"` : `data-adviser-id="${contact.adviser_id}"`;
+
+                contactsHTML += `
+                    <div class="contact-item p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative" 
+                         data-contact-id="${contact.id}"
+                         data-contact-name="${escapeHtml(contact.name)}"
+                         data-contact-role="${escapeHtml(contact.role)}"
+                         data-contact-type="${contactType}"
+                         ${idField}
+                         onclick="selectContact(this)">
+                        <div class="flex items-center space-x-3">
+                            <div class="flex-shrink-0 w-12 h-12 bg-gradient-to-r ${gradientClass} rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                ${nameInitials}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(contact.name)}</p>
+                                <p class="text-sm text-gray-600 truncate">${escapeHtml(contact.role)}</p>
+                                <p class="text-xs text-gray-500">${timeText}</p>
+                            </div>
+                        </div>
+                        ${unreadBadge}
+                    </div>
+                `;
+            });
+
+            contactsList.innerHTML = contactsHTML;
+            contactsCount.textContent = `${contacts.length} conversations`;
+
+            if (currentContact) {
+                const currentContactElement = contactsList.querySelector(`[data-contact-id="${currentContact.id}"]`);
+                if (currentContactElement) {
+                    currentContactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
                 }
-            } catch (error) {
-                console.error('Error sending message:', error);
-                showToast('Failed to send message', 'error');
-            } finally {
-                setSendingState(false);
             }
         }
 
-        // Set sending state
-        function setSendingState(sending) {
-            const sendText = sendButton?.querySelector('.send-text');
-            const sendingText = sendButton?.querySelector('.sending-text');
+        function getTimeText(timestamp) {
+            if (!timestamp) return '';
             
-            if (sending) {
-                sendText?.classList.add('hidden');
-                sendingText?.classList.remove('hidden');
-                sendButton.disabled = true;
+            const time_diff = Math.floor(Date.now() / 1000) - Math.floor(new Date(timestamp).getTime() / 1000);
+            
+            if (time_diff < 60) {
+                return "Just now";
+            } else if (time_diff < 3600) {
+                return Math.floor(time_diff / 60) + " minutes ago";
+            } else if (time_diff < 86400) {
+                return Math.floor(time_diff / 3600) + " hours ago";
             } else {
-                sendText?.classList.remove('hidden');
-                sendingText?.classList.add('hidden');
-                sendButton.disabled = messageText.value.trim() === '';
+                const date = new Date(timestamp);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             }
         }
 
-        // Show/hide loading messages
-        function showLoadingMessages() {
-            loadingMessages?.classList.remove('hidden');
-            messagesContainer?.classList.add('hidden');
+        function showMobileContacts() {
+            const contactsSidebar = document.getElementById('contactsSidebar');
+            contactsSidebar.classList.remove('lg:col-span-2');
+            contactsSidebar.classList.add('col-span-1', 'absolute', 'inset-0', 'z-10', 'bg-white');
         }
 
-        function hideLoadingMessages() {
-            loadingMessages?.classList.add('hidden');
-            messagesContainer?.classList.remove('hidden');
-        }
-
-        // Start messages polling
-        // Start messages polling - DISABLED (manual refresh only)
-function startMessagesPolling() {
-    // Auto-refresh disabled - use manual refresh only
-    if (messagesPollingInterval) {
-        clearInterval(messagesPollingInterval);
+       function showMobileContacts() {
+    if (window.innerWidth < 1024) {
+        const contactsSidebar = document.getElementById('contactsSidebar');
+        const chatArea = document.getElementById('chatArea');
+        contactsSidebar.classList.remove('hidden');
+        chatArea.classList.add('hidden');
+        chatArea.classList.remove('flex');
     }
 }
 
-        // Start unread count polling
-       // Start unread count polling - DISABLED (manual refresh only)
-function startUnreadCountPolling() {
-    // Initial load only, no auto-refresh
-    updateUnreadCounts();
-}
-
-        // Update unread counts
-        async function updateUnreadCounts() {
-            try {
-                // Update total unread count
-                const totalResponse = await fetch(window.location.href, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=get_unread_count'
-                });
-                
-                const totalData = await totalResponse.json();
-                if (totalData.success) {
-                    updateTotalUnreadDisplay(totalData.count);
-                }
-                
-                // Update individual unread counts
-                const studentItems = document.querySelectorAll('.student-item');
-                for (const item of studentItems) {
-                    const contactId = item.dataset.contactId;
-                    const contactType = item.dataset.contactType;
-                    
-                    const individualResponse = await fetch(window.location.href, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: `action=get_individual_unread_count&recipient_id=${contactId}&recipient_type=${contactType}`
-                    });
-                    
-                    const individualData = await individualResponse.json();
-                    if (individualData.success) {
-                        updateIndividualUnreadDisplay(contactId, individualData.count);
-                    }
-                }
-            } catch (error) {
-                console.error('Error updating unread counts:', error);
-            }
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
-        // Update total unread display
-        function updateTotalUnreadDisplay(count) {
-            const totalUnreadElement = document.getElementById('totalUnreadCount');
-            if (totalUnreadElement) {
-                if (count > 0) {
-                    totalUnreadElement.textContent = count;
-                    totalUnreadElement.classList.remove('hidden');
-                } else {
-                    totalUnreadElement.classList.add('hidden');
-                }
-            }
-        }
-
-        // Update individual unread display
-        function updateIndividualUnreadDisplay(contactId, count) {
-            const studentItem = document.querySelector(`[data-contact-id="${contactId}"]`);
-            if (studentItem) {
-                const badge = studentItem.querySelector('.unread-badge');
-                if (badge) {
-                    if (count > 0) {
-                        badge.textContent = count;
-                        badge.classList.remove('hidden');
-                    } else {
-                        badge.classList.add('hidden');
-                    }
-                }
-            }
-        }
-
-        // Show toast notification
         function showToast(message, type = 'info') {
-            const toast = document.getElementById('toast');
-            const toastMessage = document.getElementById('toastMessage');
-            const toastIcon = document.getElementById('toastIcon');
-            
-            if (!toast || !toastMessage || !toastIcon) return;
-            
-            // Set message
-            toastMessage.textContent = message;
-            
-            // Set icon based on type
-            let iconClass = '';
-            let iconColor = '';
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 px-6 py-4 rounded-lg text-white font-medium z-50 transform transition-all duration-300 ease-in-out translate-x-full opacity-0`;
             
             switch (type) {
                 case 'success':
-                    iconClass = 'fas fa-check-circle';
-                    iconColor = 'text-green-600';
+                    toast.classList.add('bg-green-500');
                     break;
                 case 'error':
-                    iconClass = 'fas fa-exclamation-circle';
-                    iconColor = 'text-red-600';
+                    toast.classList.add('bg-red-500');
                     break;
                 case 'warning':
-                    iconClass = 'fas fa-exclamation-triangle';
-                    iconColor = 'text-yellow-600';
+                    toast.classList.add('bg-yellow-500');
                     break;
                 default:
-                    iconClass = 'fas fa-info-circle';
-                    iconColor = 'text-blue-600';
+                    toast.classList.add('bg-blue-500');
             }
             
-            toastIcon.innerHTML = `<i class="${iconClass} ${iconColor}"></i>`;
+            toast.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
             
-            // Show toast
-            toast.classList.remove('hidden');
+            document.body.appendChild(toast);
             
-            // Auto hide after 5 seconds
             setTimeout(() => {
-                hideToast();
-            }, 5000);
+                toast.classList.remove('translate-x-full', 'opacity-0');
+            }, 100);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-x-full', 'opacity-0');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, 4000);
         }
 
-        // Hide toast
-        function hideToast() {
-            const toast = document.getElementById('toast');
-            toast?.classList.add('hidden');
-        }
-
-        // Utility function to escape HTML
-        function escapeHtml(unsafe) {
-            return unsafe
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        // Confirm logout
         function confirmLogout() {
             return confirm('Are you sure you want to logout?');
         }
 
-        // Handle window resize
-        window.addEventListener('resize', function() {
-            if (window.innerWidth >= 1024) {
-                // Desktop view - show students sidebar
-                studentsSidebar.classList.remove('hidden');
-                studentsSidebar.classList.add('lg:flex');
-            }
+        window.addEventListener('online', function() {
+            showToast('Connection restored', 'success');
         });
 
-        // Cleanup intervals when page unloads
-       // Cleanup intervals when page unloads (auto-refresh disabled)
-window.addEventListener('beforeunload', function() {
-    // No intervals to clear since auto-refresh is disabled
+        window.addEventListener('offline', function() {
+            showToast('Connection lost. Messages will be sent when connection is restored.', 'warning');
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (window.innerWidth < 1024) {
+                    closeSidebar();
+                }
+                
+                const profileDropdown = document.getElementById('profileDropdown');
+                if (!profileDropdown.classList.contains('hidden')) {
+                    profileDropdown.classList.add('hidden');
+                }
+            }
+        });
+// Prevent zoom on input focus (iOS fix)
+function preventZoom(e) {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+        e.target.style.fontSize = '16px';
+    }
+}
+
+// Handle window resize for responsive behavior
+window.addEventListener('resize', function() {
+    const contactsSidebar = document.getElementById('contactsSidebar');
+    const chatArea = document.getElementById('chatArea');
+    
+    if (window.innerWidth >= 1024) {
+        // Desktop view - show both
+        contactsSidebar.classList.remove('hidden');
+        chatArea.classList.remove('hidden');
+        chatArea.classList.add('flex');
+    } else {
+        // Mobile view - show appropriate panel
+        if (currentContact) {
+            contactsSidebar.classList.add('hidden');
+            chatArea.classList.remove('hidden');
+            chatArea.classList.add('flex');
+        } else {
+            contactsSidebar.classList.remove('hidden');
+            chatArea.classList.add('hidden');
+        }
+    }
 });
+
+// Add focus event listener for inputs
+document.addEventListener('focus', preventZoom, true);
+        console.log('Company Supervisor Message System initialized');
     </script>
 </body>
 </html>

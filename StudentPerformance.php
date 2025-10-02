@@ -283,6 +283,7 @@ function getStudentDataForPrediction($student_id, $conn) {
 }
 
 // OJT Pass Prediction Function - CONSISTENT VERSION
+// OJT Pass Prediction Function - REALISTIC VERSION
 function predictOJTSuccess($studentData, $conn) {
     $prediction = [
         'pass_probability' => 0,
@@ -297,207 +298,137 @@ function predictOJTSuccess($studentData, $conn) {
     $factors = [];
     $recommendations = [];
     
-    // 1. Attendance Analysis (Weight: 25%)
+    // 1. Attendance Analysis (Weight: 35 points)
     $attendanceScore = 0;
     if (!empty($studentData['attendance_stats'])) {
         $attendanceRate = $studentData['attendance_stats']['total_days'] > 0 ? 
             ($studentData['attendance_stats']['present_days'] / $studentData['attendance_stats']['total_days']) * 100 : 0;
         
+        // More realistic scoring - directly proportional to attendance rate
+        $baseAttendanceScore = ($attendanceRate / 100) * 35;
+        
+        // Penalty for late arrivals (up to -5 points)
+        $lateRate = $studentData['attendance_stats']['total_days'] > 0 ? 
+            ($studentData['attendance_stats']['late_days'] / $studentData['attendance_stats']['total_days']) * 100 : 0;
+        $latePenalty = min(5, ($lateRate / 20) * 5); // Max 5 point penalty if 20%+ late rate
+        
+        $attendanceScore = max(0, $baseAttendanceScore - $latePenalty);
+        
+        // Add factors based on actual performance
         if ($attendanceRate >= 95) {
-            $attendanceScore = 25;
             $factors[] = "Excellent attendance rate (" . round($attendanceRate, 1) . "%)";
         } elseif ($attendanceRate >= 85) {
-            $attendanceScore = 20;
             $factors[] = "Good attendance rate (" . round($attendanceRate, 1) . "%)";
         } elseif ($attendanceRate >= 75) {
-            $attendanceScore = 15;
             $factors[] = "Moderate attendance rate (" . round($attendanceRate, 1) . "%)";
             $recommendations[] = "Improve attendance consistency";
         } else {
-            $attendanceScore = 5;
-            $factors[] = "Poor attendance rate (" . round($attendanceRate, 1) . "%)";
+            $factors[] = "Low attendance rate (" . round($attendanceRate, 1) . "%)";
             $recommendations[] = "Critical: Address attendance issues immediately";
         }
         
-        // Penalty for excessive late arrivals
-        $lateRate = $studentData['attendance_stats']['total_days'] > 0 ? 
-            ($studentData['attendance_stats']['late_days'] / $studentData['attendance_stats']['total_days']) * 100 : 0;
-        if ($lateRate > 20) {
-            $attendanceScore = max(0, $attendanceScore - 5);
+        if ($lateRate > 15) {
             $recommendations[] = "Address punctuality issues";
         }
-    } else {
-        // Default scoring when no attendance data
-        $attendanceScore = 15; // Assume moderate performance
-        $factors[] = "Attendance data not available - using default scoring";
-    }
+    } 
     $score += $attendanceScore;
     
-    // 2. Task Performance Analysis (Weight: 30%)
+    // 2. Task Performance Analysis (Weight: 25 points)
     $taskScore = 0;
-    if (!empty($studentData['task_stats'])) {
-        $completionRate = $studentData['task_stats']['total_tasks'] > 0 ? 
-            ($studentData['task_stats']['completed_tasks'] / $studentData['task_stats']['total_tasks']) * 100 : 0;
+    if (!empty($studentData['task_stats']) && $studentData['task_stats']['total_tasks'] > 0) {
+        $completionRate = ($studentData['task_stats']['completed_tasks'] / $studentData['task_stats']['total_tasks']) * 100;
         
+        // Base score directly proportional to completion rate
+        $baseTaskScore = ($completionRate / 100) * 25;
+        
+        // Penalty for overdue tasks (up to -5 points)
+        $overdueTasksCount = isset($studentData['task_stats']['overdue_tasks']) ? $studentData['task_stats']['overdue_tasks'] : 0;
+        $overduePenalty = min(5, $overdueTasksCount * 1.25); // 1.25 points per overdue task, max 5
+        
+        $taskScore = max(0, $baseTaskScore - $overduePenalty);
+        
+        // Add factors
         if ($completionRate >= 90) {
-            $taskScore = 30;
-            $factors[] = "Excellent task completion rate (" . round($completionRate, 1) . "%)";
+            $factors[] = "Excellent task completion (" . round($completionRate, 1) . "%)";
         } elseif ($completionRate >= 75) {
-            $taskScore = 25;
-            $factors[] = "Good task completion rate (" . round($completionRate, 1) . "%)";
+            $factors[] = "Good task completion (" . round($completionRate, 1) . "%)";
         } elseif ($completionRate >= 60) {
-            $taskScore = 18;
-            $factors[] = "Moderate task completion rate (" . round($completionRate, 1) . "%)";
+            $factors[] = "Moderate task completion (" . round($completionRate, 1) . "%)";
             $recommendations[] = "Focus on completing assigned tasks";
         } else {
-            $taskScore = 8;
-            $factors[] = "Poor task completion rate (" . round($completionRate, 1) . "%)";
-            $recommendations[] = "Critical: Improve task completion significantly";
+            $factors[] = "Low task completion (" . round($completionRate, 1) . "%)";
+            $recommendations[] = "Critical: Improve task completion rate";
         }
         
-        // Bonus for proactive task management
-        $overdueTasksCount = isset($studentData['task_stats']['overdue_tasks']) ? $studentData['task_stats']['overdue_tasks'] : 0;
-        if ($overdueTasksCount == 0 && $studentData['task_stats']['total_tasks'] > 0) {
-            $taskScore = min(30, $taskScore + 5);
-            $factors[] = "No overdue tasks";
-        } elseif ($overdueTasksCount > 3) {
-            $taskScore = max(0, $taskScore - 5);
+        if ($overdueTasksCount > 3) {
             $recommendations[] = "Address overdue tasks immediately";
         }
-    } else {
-        // Default scoring when no task data
-        $taskScore = 18; // Assume moderate performance
-        $factors[] = "Task data not available - using default scoring";
-    }
+    } 
     $score += $taskScore;
     
-    // 3. Supervisor Evaluation Analysis (Weight: 25%)
+    // 3. Supervisor Evaluation Analysis (Weight: 35 points)
     $evaluationScore = 0;
     if (!empty($studentData['evaluation_data']) && isset($studentData['evaluation_data']['equivalent_rating'])) {
         $rating = $studentData['evaluation_data']['equivalent_rating'];
         
-        if ($rating >= 85) {
-            $evaluationScore = 25;
-            $factors[] = "Excellent supervisor ratings (Rating: {$rating}/100)";
-        } elseif ($rating >= 75) {
-            $evaluationScore = 20;
-            $factors[] = "Good supervisor ratings (Rating: {$rating}/100)";
-        } elseif ($rating >= 65) {
-            $evaluationScore = 15;
-            $factors[] = "Average supervisor ratings (Rating: {$rating}/100)";
-            $recommendations[] = "Focus on improving work quality and professionalism";
+        // Direct conversion from rating (0-100) to score (0-35)
+        $evaluationScore = ($rating / 100) * 35;
+        
+        // Add factors
+        if ($rating >= 90) {
+            $factors[] = "Outstanding supervisor rating (" . round($rating, 1) . "/100)";
+        } elseif ($rating >= 80) {
+            $factors[] = "Excellent supervisor rating (" . round($rating, 1) . "/100)";
+        } elseif ($rating >= 70) {
+            $factors[] = "Good supervisor rating (" . round($rating, 1) . "/100)";
+        } elseif ($rating >= 60) {
+            $factors[] = "Average supervisor rating (" . round($rating, 1) . "/100)";
+            $recommendations[] = "Focus on improving work quality";
         } else {
-            $evaluationScore = 5;
-            $factors[] = "Poor supervisor ratings (Rating: {$rating}/100)";
+            $factors[] = "Below average supervisor rating (" . round($rating, 1) . "/100)";
             $recommendations[] = "Critical: Address performance issues with supervisor";
         }
-        
-        // Additional checks for specific evaluation criteria
-        if (isset($studentData['evaluation_data']['professionalism_avg']) && $studentData['evaluation_data']['professionalism_avg'] <= 2) {
-            $recommendations[] = "Focus on professional behavior and ethics";
-        }
-        if (isset($studentData['evaluation_data']['productivity_avg']) && $studentData['evaluation_data']['productivity_avg'] <= 2) {
-            $recommendations[] = "Urgent: Improve work quality and productivity";
-        }
-    } else {
-        // Default scoring when no evaluation data
-        $evaluationScore = 15; // Assume moderate performance
-        $factors[] = "Supervisor evaluation not available - using default scoring";
     }
     $score += $evaluationScore;
     
-    // 4. Progress and Hours Completion (Weight: 15%)
-    $progressScore = 0;
-    if (!empty($studentData['required_hours']) && $studentData['required_hours'] > 0) {
-        $hoursCompletion = ($studentData['completed_hours'] / $studentData['required_hours']) * 100;
-        
-        // Adjust based on time elapsed
-        $startDate = strtotime($studentData['start_date']);
-        $endDate = strtotime($studentData['end_date']);
-        $today = time();
-        
-        if ($startDate && $endDate && $today >= $startDate) {
-            $totalDuration = $endDate - $startDate;
-            $elapsed = max(1, $today - $startDate); // Prevent division by zero
-            $expectedProgress = ($elapsed / $totalDuration) * 100;
-            
-            if ($hoursCompletion >= $expectedProgress + 10) {
-                $progressScore = 15;
-                $factors[] = "Ahead of schedule on hours completion";
-            } elseif ($hoursCompletion >= $expectedProgress - 5) {
-                $progressScore = 12;
-                $factors[] = "On track with hours completion";
-            } elseif ($hoursCompletion >= $expectedProgress - 15) {
-                $progressScore = 8;
-                $factors[] = "Slightly behind on hours completion";
-                $recommendations[] = "Increase daily work hours to catch up";
-            } else {
-                $progressScore = 3;
-                $factors[] = "Significantly behind on hours completion";
-                $recommendations[] = "Critical: Urgent action needed on hours completion";
-            }
-        } else {
-            // Default based on hours completion percentage
-            if ($hoursCompletion >= 90) {
-                $progressScore = 15;
-            } elseif ($hoursCompletion >= 70) {
-                $progressScore = 12;
-            } elseif ($hoursCompletion >= 50) {
-                $progressScore = 8;
-            } else {
-                $progressScore = 3;
-            }
-        }
-    } else {
-        // Default scoring when no hours data
-        $progressScore = 8; // Assume moderate progress
-        $factors[] = "Hours data not available - using default scoring";
-    }
-    $score += $progressScore;
-    
-    // 5. Self-Assessment and Stress Factors (Weight: 5%)
+    // 4. Self-Assessment and Wellness (Weight: 5 points)
     $wellnessScore = 0;
     if (!empty($studentData['self_assessment'])) {
         $stressLevel = $studentData['self_assessment']['stress_level'];
         $satisfaction = $studentData['self_assessment']['workplace_satisfaction'];
         $confidence = $studentData['self_assessment']['confidence_level'];
         
-        if ($stressLevel <= 2 && $satisfaction >= 4 && $confidence >= 4) {
-            $wellnessScore = 5;
-            $factors[] = "Positive mental health indicators";
-        } elseif ($stressLevel <= 3 && $satisfaction >= 3 && $confidence >= 3) {
-            $wellnessScore = 3;
-        } else {
-            $wellnessScore = 1;
-            if ($stressLevel >= 4) {
-                $recommendations[] = "Monitor and address high stress levels";
-            }
-            if ($satisfaction <= 2) {
-                $recommendations[] = "Investigate workplace satisfaction issues";
-            }
+        // Calculate wellness score based on normalized values (1-5 scale)
+        $stressScore = (6 - $stressLevel) / 5; // Invert stress (lower is better)
+        $satisfactionScore = $satisfaction / 5;
+        $confidenceScore = $confidence / 5;
+        
+        $wellnessScore = (($stressScore + $satisfactionScore + $confidenceScore) / 3) * 5;
+        
+        if ($stressLevel >= 4) {
+            $recommendations[] = "Monitor and address high stress levels";
         }
-    } else {
-        // Default scoring when no self-assessment data
-        $wellnessScore = 3; // Assume moderate wellness
-        $factors[] = "Self-assessment data not available - using default scoring";
+        if ($satisfaction <= 2) {
+            $recommendations[] = "Investigate workplace satisfaction concerns";
+        }
+        if ($confidence <= 2) {
+            $recommendations[] = "Provide additional mentoring support";
+        }
     }
     $score += $wellnessScore;
     
-    // Calculate final probability (ensure it never exceeds 100)
-    $probability = min(100, ($score / $maxScore) * 100);
+    // Calculate final probability - direct conversion
+    $probability = round($score, 1);
     
-    // Determine risk level based on probability
-    if ($probability >= 85) {
-        $riskLevel = 'very_low';
-    } elseif ($probability >= 70) {
-        $riskLevel = 'low';
-    } elseif ($probability >= 55) {
-        $riskLevel = 'medium';
-    } elseif ($probability >= 40) {
-        $riskLevel = 'high';
-    } else {
-        $riskLevel = 'very_high';
-    }
+if ($probability >= 80) {
+    $riskLevel = 'low';        // 80-100%: Low Risk
+} elseif ($probability >= 60) {
+    $riskLevel = 'medium';     // 60-79%: Medium Risk  
+} elseif ($probability >= 40) {
+    $riskLevel = 'high';       // 40-59%: High Risk
+} else {
+    $riskLevel = 'very_high';  // 0-39%: Very High Risk (Critical)
+}
     
     // Add general recommendations based on risk level
     if ($riskLevel == 'very_high' || $riskLevel == 'high') {
@@ -509,18 +440,17 @@ function predictOJTSuccess($studentData, $conn) {
     }
     
     return [
-        'pass_probability' => round($probability, 1),
+        'pass_probability' => $probability,
         'risk_level' => $riskLevel,
         'key_factors' => $factors,
         'recommendations' => array_unique($recommendations),
-        'score' => $score,
+        'score' => round($score, 1),
         'max_score' => $maxScore,
         'component_scores' => [
-            'attendance' => $attendanceScore,
-            'tasks' => $taskScore,
-            'evaluation' => $evaluationScore,
-            'progress' => $progressScore,
-            'wellness' => $wellnessScore
+            'attendance' => round($attendanceScore, 1),
+            'tasks' => round($taskScore, 1),
+            'evaluation' => round($evaluationScore, 1),
+            'wellness' => round($wellnessScore, 1)
         ]
     ];
 }
@@ -776,10 +706,9 @@ if ($view_student) {
 
 function getRiskBadgeClass($riskLevel) {
     switch($riskLevel) {
-        case 'very_low': return 'bg-green-100 text-green-800';
         case 'low': return 'bg-green-100 text-green-800';
         case 'medium': return 'bg-yellow-100 text-yellow-800';
-        case 'high': return 'bg-red-100 text-red-800';
+        case 'high': return 'bg-orange-100 text-orange-800';
         case 'very_high': return 'bg-red-100 text-red-800';
         default: return 'bg-gray-100 text-gray-800';
     }
@@ -787,10 +716,9 @@ function getRiskBadgeClass($riskLevel) {
 
 function getRiskLabel($riskLevel) {
     switch($riskLevel) {
-        case 'very_low': return 'Very Low Risk (85-100%)';
-        case 'low': return 'Low Risk (70-84%)';
-        case 'medium': return 'Medium Risk (55-69%)';
-        case 'high': return 'High Risk (40-54%)';
+        case 'low': return 'Low Risk (80-100%)';
+        case 'medium': return 'Medium Risk (60-79%)';
+        case 'high': return 'High Risk (40-59%)';
         case 'very_high': return 'Very High Risk (0-39%)';
         default: return 'Unknown';
     }
@@ -848,6 +776,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
@@ -1135,13 +1083,12 @@ tailwind.config = {
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Risk Level</label>
                     <select name="status" id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">All Risk Levels</option>
-                        <option value="very_low" <?php echo $status_filter === 'very_low' ? 'selected' : ''; ?>>Very Low Risk (85-100%)</option>
-                        <option value="low" <?php echo $status_filter === 'low' ? 'selected' : ''; ?>>Low Risk (70-84%)</option>
-                        <option value="medium" <?php echo $status_filter === 'medium' ? 'selected' : ''; ?>>Medium Risk (55-69%)</option>
-                        <option value="high" <?php echo $status_filter === 'high' ? 'selected' : ''; ?>>High Risk (40-54%)</option>
-                        <option value="very_high" <?php echo $status_filter === 'very_high' ? 'selected' : ''; ?>>Very High Risk (0-39%)</option>
-                    </select>
+    <option value="">All Risk Levels</option>
+    <option value="low" <?php echo $status_filter === 'low' ? 'selected' : ''; ?>>Low Risk (80-100%)</option>
+    <option value="medium" <?php echo $status_filter === 'medium' ? 'selected' : ''; ?>>Medium Risk (60-79%)</option>
+    <option value="high" <?php echo $status_filter === 'high' ? 'selected' : ''; ?>>High Risk (40-59%)</option>
+    <option value="very_high" <?php echo $status_filter === 'very_high' ? 'selected' : ''; ?>>Very High Risk (0-39%)</option>
+</select>
                 </div>
 
                 <!-- Company Filter -->
@@ -1304,8 +1251,8 @@ tailwind.config = {
                                             <td class="px-6 py-4 whitespace-nowrap">
                                                 <div class="prediction-mini">
                                                     <div class="prediction-circle <?php echo $prediction_class; ?>">
-                                                        <?php echo round($quick_probability); ?>%
-                                                    </div>
+    <?php echo $prediction['pass_probability']; ?>%
+</div>
                                                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo getRiskBadgeClass($quick_risk); ?>">
                                                         <?php echo getRiskLabel($quick_risk); ?>
                                                     </span>
@@ -1431,12 +1378,12 @@ tailwind.config = {
                             </div>
                             
                             <!-- Score -->
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-gray-900 mb-1">
-                                    <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
-                                </div>
-                                <p class="text-sm text-gray-600">Performance Score</p>
-                            </div>
+                           <div class="text-center">
+        <div class="text-2xl font-bold text-gray-900 mb-1">
+            <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
+        </div>
+        <p class="text-sm text-gray-600">Performance Score</p>
+    </div>
                             
                             <!-- Progress -->
                             <div class="text-center">
@@ -1448,238 +1395,186 @@ tailwind.config = {
                         </div>
 
                         <!-- Success Probability Breakdown -->
-                        <div class="mt-8 bg-gray-50 rounded-lg p-6">
-                            <h4 class="text-lg font-medium text-gray-900 mb-4">
-                                <i class="fas fa-chart-pie text-purple-600 mr-2"></i>
-                                Success Probability Computation
-                            </h4>
-                            
-                            <div class="mb-4">
-                                <div class="flex justify-between items-center mb-2">
-                                    <span class="text-lg font-semibold text-gray-900">Final Success Probability</span>
-                                    <span class="text-2xl font-bold text-blue-600"><?php echo $prediction['pass_probability']; ?>%</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-3">
-                                    <div class="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-1000" style="width: <?php echo $prediction['pass_probability']; ?>%"></div>
-                                </div>
-                            </div>
+                        <!-- Success Probability Breakdown -->
+<div class="mt-8 bg-gray-50 rounded-lg p-6">
+    <h4 class="text-lg font-medium text-gray-900 mb-4">
+        <i class="fas fa-chart-pie text-purple-600 mr-2"></i>
+        Success Probability Computation
+    </h4>
+    
+    <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+    <span class="text-lg font-semibold text-gray-900">Final Success Probability</span>
+    <span class="text-2xl font-bold text-blue-600"><?php echo $prediction['pass_probability']; ?>%</span>
+</div>
+<div class="w-full bg-gray-200 rounded-full h-3">
+    <div class="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-1000" style="width: <?php echo $prediction['pass_probability']; ?>%"></div>
+</div>
+    </div>
 
-                            <!-- Computation Breakdown -->
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                                <?php
-                                // Calculate individual component scores for display
-                                $attendanceScore = 0;
-                                $taskScore = 0;
-                                $evaluationScore = 0;
-                                $progressScore = 0;
-                                $wellnessScore = 0;
-                                
-                                // Attendance Analysis (Weight: 25%)
-                                if (!empty($attendance_stats)) {
-                                    $attendanceRate = $attendance_stats['total_days'] > 0 ? 
-                                        ($attendance_stats['present_days'] / $attendance_stats['total_days']) * 100 : 0;
-                                    
-                                    if ($attendanceRate >= 95) {
-                                        $attendanceScore = 25;
-                                    } elseif ($attendanceRate >= 85) {
-                                        $attendanceScore = 20;
-                                    } elseif ($attendanceRate >= 75) {
-                                        $attendanceScore = 15;
-                                    } else {
-                                        $attendanceScore = 5;
-                                    }
-                                    
-                                    // Penalty for excessive late arrivals
-                                    $lateRate = $attendance_stats['total_days'] > 0 ? 
-                                        ($attendance_stats['late_days'] / $attendance_stats['total_days']) * 100 : 0;
-                                    if ($lateRate > 20) {
-                                        $attendanceScore = max(0, $attendanceScore - 5);
-                                    }
-                                }
-                                
-                                // Task Performance Analysis (Weight: 30%)
-                                if (!empty($task_stats)) {
-                                    $completionRate = $task_stats['total_tasks'] > 0 ? 
-                                        ($task_stats['completed_tasks'] / $task_stats['total_tasks']) * 100 : 0;
-                                    
-                                    if ($completionRate >= 90) {
-                                        $taskScore = 30;
-                                    } elseif ($completionRate >= 75) {
-                                        $taskScore = 25;
-                                    } elseif ($completionRate >= 60) {
-                                        $taskScore = 18;
-                                    } else {
-                                        $taskScore = 8;
-                                    }
-                                    
-                                    // Bonus/Penalty for task management
-                                    if ($task_stats['overdue_tasks'] == 0) {
-                                        $taskScore = min(30, $taskScore + 5);
-                                    } elseif ($task_stats['overdue_tasks'] > 3) {
-                                        $taskScore = max(0, $taskScore - 5);
-                                    }
-                                }
-                                
-                                // Supervisor Evaluation Analysis (Weight: 25%)
-                               if (!empty($evaluation_data)) {
-    $avgRating = $evaluation_data['equivalent_rating'] / 20; // Convert 100-point to 5-point scale
-    $evaluationScore = 0;
+    <!-- Computation Breakdown -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <?php
+        // Calculate individual component scores for display
+        $attendanceScore = 0;
+        $taskScore = 0;
+        $evaluationScore = 0;
+        $wellnessScore = 0;
+        
+        // Attendance Analysis (Weight: 35%)
+        if (!empty($attendance_stats)) {
+            $attendanceRate = $attendance_stats['total_days'] > 0 ? 
+                ($attendance_stats['present_days'] / $attendance_stats['total_days']) * 100 : 0;
+            
+            if ($attendanceRate >= 95) {
+                $attendanceScore = 35;
+            } elseif ($attendanceRate >= 85) {
+                $attendanceScore = 28;
+            } elseif ($attendanceRate >= 75) {
+                $attendanceScore = 21;
+            } else {
+                $attendanceScore = 7;
+            }
+            
+            // Penalty for excessive late arrivals
+            $lateRate = $attendance_stats['total_days'] > 0 ? 
+                ($attendance_stats['late_days'] / $attendance_stats['total_days']) * 100 : 0;
+            if ($lateRate > 20) {
+                $attendanceScore = max(0, $attendanceScore - 7);
+            }
+        }
+        
+        // Task Performance Analysis (Weight: 25%)
+        if (!empty($task_stats)) {
+            $completionRate = $task_stats['total_tasks'] > 0 ? 
+                ($task_stats['completed_tasks'] / $task_stats['total_tasks']) * 100 : 0;
+            
+            if ($completionRate >= 90) {
+                $taskScore = 25;
+            } elseif ($completionRate >= 75) {
+                $taskScore = 21;
+            } elseif ($completionRate >= 60) {
+                $taskScore = 15;
+            } else {
+                $taskScore = 7;
+            }
+            
+            // Bonus/Penalty for task management
+            if ($task_stats['overdue_tasks'] == 0) {
+                $taskScore = min(25, $taskScore + 4);
+            } elseif ($task_stats['overdue_tasks'] > 3) {
+                $taskScore = max(0, $taskScore - 4);
+            }
+        }
+        
+        // Supervisor Evaluation Analysis (Weight: 35%)
+        if (!empty($evaluation_data)) {
+            $rating = $evaluation_data['equivalent_rating'];
+            
+            if ($rating >= 85) {
+                $evaluationScore = 35;
+            } elseif ($rating >= 75) {
+                $evaluationScore = 28;
+            } elseif ($rating >= 65) {
+                $evaluationScore = 21;
+            } else {
+                $evaluationScore = 7;
+            }
+        }
+        
+        // Self-Assessment and Stress Factors (Weight: 5%)
+        if (!empty($self_assessment)) {
+            $stressLevel = $self_assessment['stress_level'];
+            $satisfaction = $self_assessment['workplace_satisfaction'];
+            $confidence = $self_assessment['confidence_level'];
+            
+            if ($stressLevel <= 2 && $satisfaction >= 4 && $confidence >= 4) {
+                $wellnessScore = 5;
+            } elseif ($stressLevel <= 3 && $satisfaction >= 3 && $confidence >= 3) {
+                $wellnessScore = 3;
+            } else {
+                $wellnessScore = 1;
+            }
+        }
+        
+        // Calculate percentages for display
+        $attendancePercent = ($attendanceScore / 35) * 100;
+        $taskPercent = ($taskScore / 25) * 100;
+        $evaluationPercent = ($evaluationScore / 35) * 100;
+        $wellnessPercent = ($wellnessScore / 5) * 100;
+        ?>
+        
+        <!-- Attendance Component -->
+        <div class="text-center">
+            <div class="text-sm font-medium text-gray-600 mb-2">Attendance</div>
+            <div class="text-lg font-bold text-green-600 mb-2"><?php echo round($attendancePercent, 1); ?>%</div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-green-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $attendancePercent; ?>%"></div>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">
+                <?php echo $attendanceScore; ?>/35 points (35%)
+            </div>
+        </div>
+        
+        <!-- Task Performance Component -->
+        <div class="text-center">
+            <div class="text-sm font-medium text-gray-600 mb-2">Task Performance</div>
+            <div class="text-lg font-bold text-blue-600 mb-2"><?php echo round($taskPercent, 1); ?>%</div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-blue-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $taskPercent; ?>%"></div>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">
+                <?php echo $taskScore; ?>/25 points (25%)
+            </div>
+        </div>
+        
+        <!-- Supervisor Evaluation Component -->
+        <div class="text-center">
+            <div class="text-sm font-medium text-gray-600 mb-2">Supervisor Rating</div>
+            <div class="text-lg font-bold text-purple-600 mb-2"><?php echo round($evaluationPercent, 1); ?>%</div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-purple-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $evaluationPercent; ?>%"></div>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">
+                <?php echo $evaluationScore; ?>/35 points (35%)
+            </div>
+        </div>
+        
+        <!-- Wellness Component -->
+        <div class="text-center">
+            <div class="text-sm font-medium text-gray-600 mb-2">Wellness</div>
+            <div class="text-lg font-bold text-teal-600 mb-2"><?php echo round($wellnessPercent, 1); ?>%</div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-teal-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $wellnessPercent; ?>%"></div>
+            </div>
+            <div class="text-xs text-gray-500 mt-1">
+                <?php echo $wellnessScore; ?>/5 points (5%)
+            </div>
+        </div>
+    </div>
     
-    if ($avgRating >= 4.0) {
-        $evaluationScore = 25;
-    } elseif ($avgRating >= 3.5) {
-        $evaluationScore = 20;
-    } elseif ($avgRating >= 3.0) {
-        $evaluationScore = 15;
-    } else {
-        $evaluationScore = 5;
-    }
-    
-    $evaluationPercent = ($evaluationScore / 25) * 100;
-}
-                                
-                                // Progress and Hours Completion (Weight: 15%)
-                                if (!empty($student_details['required_hours']) && $student_details['required_hours'] > 0) {
-                                    $hoursCompletion = ($student_details['completed_hours'] / $student_details['required_hours']) * 100;
-                                    
-                                    // Adjust based on time elapsed
-                                    $startDate = strtotime($student_details['start_date']);
-                                    $endDate = strtotime($student_details['end_date']);
-                                    $today = time();
-                                    
-                                    if ($startDate && $endDate && $today >= $startDate) {
-                                        $totalDuration = $endDate - $startDate;
-                                        $elapsed = $today - $startDate;
-                                        $expectedProgress = $elapsed > 0 ? ($elapsed / $totalDuration) * 100 : 0;
-                                        
-                                        if ($hoursCompletion >= $expectedProgress + 10) {
-                                            $progressScore = 15;
-                                        } elseif ($hoursCompletion >= $expectedProgress - 5) {
-                                            $progressScore = 12;
-                                        } elseif ($hoursCompletion >= $expectedProgress - 15) {
-                                            $progressScore = 8;
-                                        } else {
-                                            $progressScore = 3;
-                                        }
-                                    }
-                                }
-                                
-                                // Self-Assessment and Stress Factors (Weight: 5%)
-                                if (!empty($self_assessment)) {
-                                    $stressLevel = $self_assessment['stress_level'];
-                                    $satisfaction = $self_assessment['workplace_satisfaction'];
-                                    $confidence = $self_assessment['confidence_level'];
-                                    
-                                    if ($stressLevel <= 2 && $satisfaction >= 4 && $confidence >= 4) {
-                                        $wellnessScore = 5;
-                                    } elseif ($stressLevel <= 3 && $satisfaction >= 3 && $confidence >= 3) {
-                                        $wellnessScore = 3;
-                                    } else {
-                                        $wellnessScore = 1;
-                                    }
-                                }
-                                
-                                // Calculate percentages for display
-                                $attendancePercent = ($attendanceScore / 25) * 100;
-                                $taskPercent = ($taskScore / 30) * 100;
-                                $evaluationPercent = ($evaluationScore / 25) * 100;
-                                $progressPercent = ($progressScore / 15) * 100;
-                                $wellnessPercent = ($wellnessScore / 5) * 100;
-                                ?>
-                                
-                                <!-- Attendance Component -->
-                                <div class="bg-white p-4 rounded-lg border">
-                                    <div class="text-center">
-                                        <div class="text-sm font-medium text-gray-600 mb-2">Attendance</div>
-                                        <div class="text-lg font-bold text-green-600 mb-2"><?php echo round($attendancePercent, 1); ?>%</div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-green-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $attendancePercent; ?>%"></div>
-                                        </div>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            <?php echo $attendanceScore; ?>/25 points (25%)
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Task Performance Component -->
-                                <div class="bg-white p-4 rounded-lg border">
-                                    <div class="text-center">
-                                        <div class="text-sm font-medium text-gray-600 mb-2">Task Performance</div>
-                                        <div class="text-lg font-bold text-blue-600 mb-2"><?php echo round($taskPercent, 1); ?>%</div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-blue-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $taskPercent; ?>%"></div>
-                                        </div>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            <?php echo $taskScore; ?>/30 points (30%)
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Supervisor Evaluation Component -->
-                                <div class="bg-white p-4 rounded-lg border">
-                                    <div class="text-center">
-                                        <div class="text-sm font-medium text-gray-600 mb-2">Supervisor Rating</div>
-                                        <div class="text-lg font-bold text-purple-600 mb-2"><?php echo round($evaluationPercent, 1); ?>%</div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-purple-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $evaluationPercent; ?>%"></div>
-                                        </div>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            <?php echo $evaluationScore; ?>/25 points (25%)
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Progress Component -->
-                                <div class="bg-white p-4 rounded-lg border">
-                                    <div class="text-center">
-                                        <div class="text-sm font-medium text-gray-600 mb-2">Progress</div>
-                                        <div class="text-lg font-bold text-orange-600 mb-2"><?php echo round($progressPercent, 1); ?>%</div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-orange-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $progressPercent; ?>%"></div>
-                                        </div>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            <?php echo $progressScore; ?>/15 points (15%)
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Wellness Component -->
-                                <div class="bg-white p-4 rounded-lg border">
-                                    <div class="text-center">
-                                        <div class="text-sm font-medium text-gray-600 mb-2">Wellness</div>
-                                        <div class="text-lg font-bold text-teal-600 mb-2"><?php echo round($wellnessPercent, 1); ?>%</div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-teal-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $wellnessPercent; ?>%"></div>
-                                        </div>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            <?php echo $wellnessScore; ?>/5 points (5%)
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+    <!-- Algorithm Explanation -->
+    <div class="mt-6 p-4 bg-blue-50 rounded-lg">
+        <h5 class="text-sm font-medium text-blue-900 mb-2">
+            <i class="fas fa-info-circle mr-1"></i>
+            How the AI Calculates Success Probability
+        </h5>
+        <div class="text-sm text-blue-800 space-y-1">
+            <p><strong>Attendance (35%):</strong> Based on presence rate, punctuality, and consistency - the foundation of OJT success</p>
+            <p><strong>Supervisor Rating (35%):</strong> Holistic evaluation of work quality, professionalism, attitude, and overall performance</p>
+            <p><strong>Task Performance (25%):</strong> Completion rate, quality, and timeliness of assigned tasks</p>
+            <p><strong>Wellness Factors (5%):</strong> Self-reported stress, satisfaction, and confidence levels</p>
+        </div>
+        <div class="mt-3 p-3 bg-white rounded border-l-4 border-blue-500">
+            <p class="text-xs text-gray-600">
+                <strong>Note:</strong> The AI algorithm uses weighted scoring with performance thresholds to ensure 
+                accurate predictions. Scores are capped at maximum values and risk levels are determined 
+                based on statistical analysis of successful OJT completions.
+            </p>
+        </div>
+    </div>
+</div>
                             
-                            <!-- Algorithm Explanation -->
-                            <div class="mt-6 p-4 bg-blue-50 rounded-lg">
-                                <h5 class="text-sm font-medium text-blue-900 mb-2">
-                                    <i class="fas fa-info-circle mr-1"></i>
-                                    How the AI Calculates Success Probability
-                                </h5>
-                                <div class="text-sm text-blue-800 space-y-1">
-                                    <p><strong>Attendance (25%):</strong> Based on presence rate, punctuality, and consistency</p>
-                                    <p><strong>Task Performance (30%):</strong> Completion rate, quality, and timeliness of assigned tasks</p>
-                                    <p><strong>Supervisor Rating (25%):</strong> Average of 9 evaluation criteria from company supervisor</p>
-                                    <p><strong>Progress Tracking (15%):</strong> Hours completion relative to timeline expectations</p>
-                                    <p><strong>Wellness Factors (5%):</strong> Self-reported stress, satisfaction, and confidence levels</p>
-                                </div>
-                                <div class="mt-3 p-3 bg-white rounded border-l-4 border-blue-500">
-                                    <p class="text-xs text-gray-600">
-                                        <strong>Note:</strong> The AI algorithm uses weighted scoring with performance thresholds to ensure 
-                                        accurate predictions. Scores are capped at maximum values and risk levels are determined 
-                                        based on statistical analysis of successful OJT completions.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
 
                         <!-- Key Factors -->
                         <?php if (!empty($prediction['key_factors'])): ?>

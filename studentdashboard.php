@@ -74,7 +74,7 @@ $submitted_documents = [];
 
 try {
     // Get all document requirements
-    $doc_stmt = $conn->prepare("SELECT id, name, description, is_required, created_at FROM document_requirements ORDER BY is_required DESC, name ASC");
+$doc_stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at FROM document_requirements ORDER BY is_required DESC, name ASC");
     $doc_stmt->execute();
     $doc_result = $doc_stmt->get_result();
     
@@ -530,124 +530,191 @@ tailwind.config = {
                     <?php else: ?>
                         <div class="space-y-4 sm:space-y-6">
                             <?php foreach ($document_requirements as $doc): ?>
+    <?php 
+    $submission = isset($submitted_documents[$doc['id']]) ? $submitted_documents[$doc['id']] : null;
+    $is_submitted = $submission && !empty($submission['submission_id']);
+    $status = $is_submitted ? $submission['status'] : 'not_submitted';
+    
+    // Calculate submission status
+    $submission_status = 'on-time'; // default
+    $status_color = 'text-green-600';
+    $status_icon = 'check-circle';
+    $status_text = '';
+    
+    if (!empty($doc['submission_deadline'])) {
+        $deadline = strtotime($doc['submission_deadline']);
+        $now = time();
+        
+        if ($is_submitted) {
+            $submitted_time = strtotime($submission['submitted_at']);
+            if ($submitted_time > $deadline) {
+                $submission_status = 'late';
+                $status_color = 'text-yellow-600';
+                $status_icon = 'exclamation-triangle';
+                $days_late = floor(($submitted_time - $deadline) / (60 * 60 * 24));
+                $status_text = "Submitted {$days_late} day(s) late";
+            } else {
+                $status_text = "Submitted on time";
+            }
+        } else {
+            if ($now > $deadline) {
+                $submission_status = 'overdue';
+                $status_color = 'text-red-600';
+                $status_icon = 'times-circle';
+                $days_overdue = floor(($now - $deadline) / (60 * 60 * 24));
+                $status_text = "Overdue by {$days_overdue} day(s)";
+            } else {
+                $days_remaining = floor(($deadline - $now) / (60 * 60 * 24));
+                $status_text = "Due in {$days_remaining} day(s)";
+                $status_color = 'text-blue-600';
+                $status_icon = 'clock';
+            }
+        }
+    }
+    ?>
+    
+    <div class="border border-gray-200 rounded-lg p-4 sm:p-6 <?php echo !$is_verified ? 'opacity-60' : ''; ?>">
+        <!-- Document Header -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div class="mb-3 sm:mb-0">
+                <h4 class="text-lg font-medium text-bulsu-maroon mb-2">
+                    <?php echo htmlspecialchars($doc['name']); ?>
+                </h4>
+                <div class="flex flex-wrap gap-2">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $doc['is_required'] ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'; ?>">
+                        <?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?>
+                    </span>
+                    <?php if ($is_submitted): ?>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                            <?php 
+                            switch($status) {
+                                case 'approved': echo 'bg-green-100 text-green-800'; break;
+                                case 'pending': echo 'bg-yellow-100 text-yellow-800'; break;
+                                case 'rejected': echo 'bg-red-100 text-red-800'; break;
+                            }
+                            ?>">
+                            <?php echo ucfirst($status); ?>
+                        </span>
+                        <?php if (!empty($doc['submission_deadline']) && $status_text): ?>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                                <?php echo $submission_status === 'late' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'; ?>">
+                                <i class="fas fa-<?php echo $status_icon; ?> mr-1"></i>
+                                <?php echo $status_text; ?>
+                            </span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <?php if (!empty($doc['submission_deadline']) && $status_text): ?>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
                                 <?php 
-                                $submission = isset($submitted_documents[$doc['id']]) ? $submitted_documents[$doc['id']] : null;
-                                $is_submitted = $submission && !empty($submission['submission_id']);
-                                $status = $is_submitted ? $submission['status'] : 'not_submitted';
-                                ?>
-                                <div class="border border-gray-200 rounded-lg p-4 sm:p-6 <?php echo !$is_verified ? 'opacity-60' : ''; ?>">
-                                    <!-- Document Header -->
-                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-                                        <div class="mb-3 sm:mb-0">
-                                            <h4 class="text-lg font-medium text-bulsu-maroon mb-2">
-                                                <?php echo htmlspecialchars($doc['name']); ?>
-                                            </h4>
-                                            <div class="flex flex-wrap gap-2">
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $doc['is_required'] ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'; ?>">
-                                                    <?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?>
-                                                </span>
-                                                <?php if ($is_submitted): ?>
-                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
-                                                        <?php 
-                                                        switch($status) {
-                                                            case 'approved': echo 'bg-green-100 text-green-800'; break;
-                                                            case 'pending': echo 'bg-yellow-100 text-yellow-800'; break;
-                                                            case 'rejected': echo 'bg-red-100 text-red-800'; break;
-                                                        }
-                                                        ?>">
-                                                        <?php echo ucfirst($status); ?>
-                                                    </span>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
+                                echo $submission_status === 'overdue' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'; 
+                                ?>">
+                                <i class="fas fa-<?php echo $status_icon; ?> mr-1"></i>
+                                <?php echo $status_text; ?>
+                            </span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
 
-                                    <!-- Document Description -->
-                                    <p class="text-gray-600 mb-4"><?php echo htmlspecialchars($doc['description']); ?></p>
+        <!-- Document Description -->
+        <p class="text-gray-600 mb-4"><?php echo htmlspecialchars($doc['description']); ?></p>
+        
+        <!-- Deadline Display (NEW SECTION) -->
+        <?php if (!empty($doc['submission_deadline'])): ?>
+            <div class="mb-4 p-3 rounded-md <?php echo $submission_status === 'overdue' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'; ?>">
+                <div class="flex items-center">
+                    <i class="fas fa-calendar-alt <?php echo $submission_status === 'overdue' ? 'text-red-600' : 'text-blue-600'; ?> mr-2"></i>
+                    <span class="text-sm font-medium <?php echo $submission_status === 'overdue' ? 'text-red-800' : 'text-blue-800'; ?>">
+                        Deadline: <?php echo date('F j, Y', strtotime($doc['submission_deadline'])); ?>
+                    </span>
+                </div>
+            </div>
+        <?php endif; ?>
 
-                                    <!-- Document Info and Actions -->
-                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
-                                        <div class="text-sm text-gray-600">
-                                            <?php if ($is_submitted): ?>
-                                                <div class="flex items-center mb-1">
-                                                    <?php 
-                                                    $file_extension = strtolower(pathinfo($submission['original_filename'], PATHINFO_EXTENSION));
-                                                    $icon_class = 'fa-file';
-                                                    $icon_color = 'text-gray-500';
-                                                    if (in_array($file_extension, ['pdf'])) {
-                                                        $icon_class = 'fa-file-pdf';
-                                                        $icon_color = 'text-red-500';
-                                                    } elseif (in_array($file_extension, ['doc', 'docx'])) {
-                                                        $icon_class = 'fa-file-word';
-                                                        $icon_color = 'text-blue-500';
-                                                    } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png'])) {
-                                                        $icon_class = 'fa-file-image';
-                                                        $icon_color = 'text-green-500';
-                                                    }
-                                                    ?>
-                                                    <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
-                                                    <span class="font-medium"><?php echo htmlspecialchars($submission['original_filename']); ?></span>
-                                                </div>
-                                                <p class="text-xs text-gray-500">
-                                                    Submitted: <?php echo date('M j, Y g:i A', strtotime($submission['submitted_at'])); ?>
-                                                </p>
-                                            <?php else: ?>
-                                                <span class="text-gray-500">Not submitted</span>
-                                            <?php endif; ?>
-                                        </div>
+        <!-- Document Info and Actions -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+            <div class="text-sm text-gray-600">
+                <?php if ($is_submitted): ?>
+                    <div class="flex items-center mb-1">
+                        <?php 
+                        $file_extension = strtolower(pathinfo($submission['original_filename'], PATHINFO_EXTENSION));
+                        $icon_class = 'fa-file';
+                        $icon_color = 'text-gray-500';
+                        if (in_array($file_extension, ['pdf'])) {
+                            $icon_class = 'fa-file-pdf';
+                            $icon_color = 'text-red-500';
+                        } elseif (in_array($file_extension, ['doc', 'docx'])) {
+                            $icon_class = 'fa-file-word';
+                            $icon_color = 'text-blue-500';
+                        } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png'])) {
+                            $icon_class = 'fa-file-image';
+                            $icon_color = 'text-green-500';
+                        }
+                        ?>
+                        <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
+                        <span class="font-medium"><?php echo htmlspecialchars($submission['original_filename']); ?></span>
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        Submitted: <?php echo date('M j, Y g:i A', strtotime($submission['submitted_at'])); ?>
+                    </p>
+                <?php else: ?>
+                    <span class="text-gray-500">Not submitted</span>
+                <?php endif; ?>
+            </div>
 
-                                        <div class="flex flex-col sm:flex-row gap-2">
-                                            <?php if ($is_submitted): ?>
-                                                <button onclick="viewDocument('<?php echo htmlspecialchars($submission['file_path']); ?>', '<?php echo htmlspecialchars($submission['original_filename']); ?>', '<?php echo htmlspecialchars($submission['file_type']); ?>')"
-                                                   class="inline-flex items-center justify-center px-3 py-2 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
-                                                    <i class="fas fa-eye mr-1"></i>
-                                                    View
-                                                </button>
-                                                <?php if ($is_verified && ($status === 'rejected' || $status === 'pending')): ?>
-                                                    <button onclick="openUploadModal(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
-                                                            class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon transition-colors">
-                                                        <i class="fas fa-upload mr-1"></i>
-                                                        Re-upload
-                                                    </button>
-                                                <?php elseif (!$is_verified && ($status === 'rejected' || $status === 'pending')): ?>
-                                                    <button onclick="showVerificationAlert()"
-                                                            class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gray-400 cursor-not-allowed opacity-60">
-                                                        <i class="fas fa-lock mr-1"></i>
-                                                        Re-upload
-                                                    </button>
-                                                <?php endif; ?>
-                                            <?php else: ?>
-                                                <?php if ($is_verified): ?>
-                                                    <button onclick="openUploadModal(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
-                                                            class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon transition-colors">
-                                                        <i class="fas fa-upload mr-1"></i>
-                                                        Upload
-                                                    </button>
-                                                <?php else: ?>
-                                                    <button onclick="showVerificationAlert()"
-                                                            class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gray-400 cursor-not-allowed opacity-60">
-                                                        <i class="fas fa-lock mr-1"></i>
-                                                        Upload
-                                                    </button>
-                                                <?php endif; ?>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <?php if ($is_submitted): ?>
+                    <button onclick="viewDocument('<?php echo htmlspecialchars($submission['file_path']); ?>', '<?php echo htmlspecialchars($submission['original_filename']); ?>', '<?php echo htmlspecialchars($submission['file_type']); ?>')"
+                       class="inline-flex items-center justify-center px-3 py-2 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
+                        <i class="fas fa-eye mr-1"></i>
+                        View
+                    </button>
+                    <?php if ($is_verified && ($status === 'rejected' || $status === 'pending')): ?>
+                        <button onclick="openUploadModal(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
+                                class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon transition-colors">
+                            <i class="fas fa-upload mr-1"></i>
+                            Re-upload
+                        </button>
+                    <?php elseif (!$is_verified && ($status === 'rejected' || $status === 'pending')): ?>
+                        <button onclick="showVerificationAlert()"
+                                class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gray-400 cursor-not-allowed opacity-60">
+                            <i class="fas fa-lock mr-1"></i>
+                            Re-upload
+                        </button>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <?php if ($is_verified): ?>
+                        <button onclick="openUploadModal(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
+                                class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon transition-colors">
+                            <i class="fas fa-upload mr-1"></i>
+                            Upload
+                        </button>
+                    <?php else: ?>
+                        <button onclick="showVerificationAlert()"
+                                class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gray-400 cursor-not-allowed opacity-60">
+                            <i class="fas fa-lock mr-1"></i>
+                            Upload
+                        </button>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
 
-                                    <!-- Feedback Section -->
-                                    <?php if ($is_submitted && !empty($submission['feedback']) && $status === 'rejected'): ?>
-                                        <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                                            <div class="flex items-start">
-                                                <i class="fas fa-comment text-red-600 mt-0.5 mr-2"></i>
-                                                <div>
-                                                    <h5 class="font-medium text-red-800 text-sm mb-1">Feedback:</h5>
-                                                    <p class="text-red-700 text-sm"><?php echo htmlspecialchars($submission['feedback']); ?></p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endforeach; ?>
+        <!-- Feedback Section -->
+        <?php if ($is_submitted && !empty($submission['feedback']) && $status === 'rejected'): ?>
+            <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <div class="flex items-start">
+                    <i class="fas fa-comment text-red-600 mt-0.5 mr-2"></i>
+                    <div>
+                        <h5 class="font-medium text-red-800 text-sm mb-1">Feedback:</h5>
+                        <p class="text-red-700 text-sm"><?php echo htmlspecialchars($submission['feedback']); ?></p>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+    </div>
+<?php endforeach; ?>
                         </div>
                     <?php endif; ?>
                 </div>

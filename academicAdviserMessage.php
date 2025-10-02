@@ -37,25 +37,37 @@ try {
  $message = '';
 $message_type = '';
 
- $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
-    $unread_messages_result = mysqli_query($conn, $unread_messages_query);
+$unread_messages_query = "SELECT COUNT(*) as count FROM messages 
+    WHERE recipient_type = 'adviser' 
+    AND (sender_type = 'student' OR sender_type = 'company') 
+    AND is_read = 0 
+    AND is_deleted_by_recipient = 0";
+     $unread_messages_result = mysqli_query($conn, $unread_messages_query);
     $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
 // Get students who have messaged this adviser
 $student_contacts = [];
 try {
+    // First, get all students
     $contacts_stmt = $conn->prepare("
         SELECT DISTINCT 
             s.id, s.first_name, s.middle_name, s.last_name, s.email, 
             s.student_id, s.department, s.program, s.year_level, s.profile_picture,
-            MAX(m.sent_at) as last_message_time,
-            COUNT(CASE WHEN m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' THEN 1 END) as unread_count
+            (SELECT MAX(m.sent_at) 
+             FROM messages m 
+             WHERE (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                OR (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = s.id AND m.recipient_type = 'student')
+            ) as last_message_time,
+            (SELECT COUNT(*) 
+             FROM messages m 
+             WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' 
+               AND m.sender_id = s.id AND m.sender_type = 'student'
+            ) as unread_count
         FROM students s
-        INNER JOIN messages m ON (
-            (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser') OR
-            (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = s.id AND m.recipient_type = 'student')
-        )
-        GROUP BY s.id, s.first_name, s.middle_name, s.last_name, s.email, s.student_id, s.department, s.program, s.year_level, s.profile_picture
-        ORDER BY last_message_time DESC
+        WHERE s.verified = 1
+        ORDER BY 
+            CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+            last_message_time DESC,
+            s.first_name, s.last_name
     ");
     $contacts_stmt->bind_param("iii", $adviser_id, $adviser_id, $adviser_id);
     $contacts_stmt->execute();
@@ -82,115 +94,266 @@ try {
     // Handle error silently
 }
 
+$company_contacts = [];
+try {
+    $company_stmt = $conn->prepare("
+        SELECT DISTINCT 
+            cs.supervisor_id, cs.full_name, cs.email, cs.company_name, 
+            cs.position, cs.profile_picture, cs.industry_field,
+            (SELECT MAX(m.sent_at) 
+             FROM messages m 
+             WHERE (m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                OR (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = cs.supervisor_id AND m.recipient_type = 'supervisor')
+            ) as last_message_time,
+            (SELECT COUNT(*) 
+             FROM messages m 
+             WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' 
+               AND m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor'
+            ) as unread_count
+        FROM company_supervisors cs
+        WHERE cs.account_status = 'Active'
+        ORDER BY 
+            CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+            last_message_time DESC,
+            cs.full_name
+    ");
+    $company_stmt->bind_param("iii", $adviser_id, $adviser_id, $adviser_id);
+    $company_stmt->execute();
+    $company_result = $company_stmt->get_result();
+    
+    while ($row = $company_result->fetch_assoc()) {
+        $company_contacts[] = [
+            'id' => 'company_' . $row['supervisor_id'],
+            'supervisor_id' => $row['supervisor_id'],
+            'name' => $row['full_name'],
+            'role' => $row['position'] . ' at ' . $row['company_name'],
+            'email' => $row['email'],
+            'company_name' => $row['company_name'],
+            'profile_picture' => $row['profile_picture'],
+            'type' => 'company',
+            'last_message_time' => $row['last_message_time'],
+            'unread_count' => $row['unread_count'],
+            'available' => true
+        ];
+    }
+} catch (Exception $e) {
+    // Handle error silently
+}
+
+// CRITICAL FIX #5: Update unread messages count query
+$unread_messages_query = "SELECT COUNT(*) as count FROM messages 
+    WHERE recipient_type = 'adviser' 
+    AND (sender_type = 'student' OR sender_type = 'supervisor') 
+    AND is_read = 0 
+    AND is_deleted_by_recipient = 0";
+
+
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     
     switch ($_POST['action']) {
         case 'send_message':
-            $recipient_id = $_POST['recipient_id'];
-            $message = trim($_POST['message']);
-            $recipient_type = $_POST['recipient_type'];
+    $recipient_id = $_POST['recipient_id'];
+    $message = trim($_POST['message']);
+    $recipient_type = $_POST['recipient_type'];
+    
+    if (empty($message)) {
+        echo json_encode(['success' => false, 'error' => 'Message cannot be empty']);
+        exit();
+    }
+    
+    // FIXED: Accept 'company' but convert to 'supervisor' for database
+    if (!in_array($recipient_type, ['student', 'company'])) {
+        echo json_encode(['success' => false, 'error' => 'Invalid recipient type']);
+        exit();
+    }
+    
+    // Convert 'company' to 'supervisor' for database compatibility
+    $db_recipient_type = ($recipient_type === 'company') ? 'supervisor' : $recipient_type;
+    
+    try {
+        $insert_stmt = $conn->prepare("
+            INSERT INTO messages (sender_id, sender_type, recipient_id, recipient_type, message, sent_at) 
+            VALUES (?, 'adviser', ?, ?, ?, NOW())
+        ");
+        $insert_stmt->bind_param("isss", $adviser_id, $recipient_id, $db_recipient_type, $message);
+        
+        if ($insert_stmt->execute()) {
+            echo json_encode(['success' => true, 'message' => 'Message sent successfully']);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Failed to send message']);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => 'Database error']);
+    }
+    exit();
             
-            if (empty($message)) {
-                echo json_encode(['success' => false, 'error' => 'Message cannot be empty']);
-                exit();
-            }
+       case 'get_messages':
+    $recipient_id = $_POST['recipient_id'];
+    $recipient_type = $_POST['recipient_type'];
+    
+    error_log("Getting messages for: ID=$recipient_id, Type=$recipient_type");
+    
+    try {
+        // Clean the recipient_id
+        if (strpos($recipient_id, 'student_') === 0) {
+            $recipient_id_clean = str_replace('student_', '', $recipient_id);
+        } elseif (strpos($recipient_id, 'company_') === 0) {
+            $recipient_id_clean = str_replace('company_', '', $recipient_id);
+        } else {
+            $recipient_id_clean = $recipient_id;
+        }
+        
+        // Convert 'company' to 'supervisor' for database queries
+        $db_recipient_type = ($recipient_type === 'company') ? 'supervisor' : $recipient_type;
+        
+        error_log("Clean recipient_id: $recipient_id_clean, adviser_id: $adviser_id, db_type: $db_recipient_type");
+        
+        if ($recipient_type === 'student') {
+            // Student messages query (unchanged)
+            $messages_stmt = $conn->prepare("
+                SELECT m.*,
+                       CASE 
+                           WHEN m.sender_type = 'student' THEN CONCAT(s.first_name, ' ', s.last_name)
+                           WHEN m.sender_type = 'adviser' THEN aa.name
+                       END as sender_name,
+                       CASE 
+                           WHEN m.sender_type = 'student' THEN s.profile_picture
+                           WHEN m.sender_type = 'adviser' THEN NULL
+                       END as sender_avatar,
+                       CASE 
+                           WHEN m.sender_type = 'adviser' AND m.sender_id = ? THEN 1
+                           ELSE 0
+                       END as is_own_message
+                FROM messages m
+                LEFT JOIN students s ON m.sender_id = s.id AND m.sender_type = 'student'
+                LEFT JOIN academic_adviser aa ON m.sender_id = aa.id AND m.sender_type = 'adviser'
+                WHERE (
+                    (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'student')
+                    OR 
+                    (m.sender_id = ? AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                )
+                ORDER BY m.sent_at ASC
+            ");
             
-            // Validate recipient type (adviser can only send to students)
-            if ($recipient_type !== 'student') {
-                echo json_encode(['success' => false, 'error' => 'Invalid recipient type']);
-                exit();
-            }
+            $messages_stmt->bind_param("iiiii", $adviser_id, $adviser_id, $recipient_id_clean, $recipient_id_clean, $adviser_id);
             
-            try {
-                $insert_stmt = $conn->prepare("
-                    INSERT INTO messages (sender_id, sender_type, recipient_id, recipient_type, message, sent_at) 
-                    VALUES (?, 'adviser', ?, ?, ?, NOW())
-                ");
-                $insert_stmt->bind_param("isss", $adviser_id, $recipient_id, $recipient_type, $message);
-                
-                if ($insert_stmt->execute()) {
-                    echo json_encode(['success' => true, 'message' => 'Message sent successfully']);
-                } else {
-                    echo json_encode(['success' => false, 'error' => 'Failed to send message']);
-                }
-            } catch (Exception $e) {
-                echo json_encode(['success' => false, 'error' => 'Database error']);
-            }
-            exit();
+            // Mark student messages as read
+            $mark_read_stmt = $conn->prepare("
+                UPDATE messages SET is_read = 1 
+                WHERE recipient_id = ? AND recipient_type = 'adviser' AND sender_id = ? AND sender_type = 'student'
+            ");
+            $mark_read_stmt->bind_param("ii", $adviser_id, $recipient_id_clean);
+            $mark_read_stmt->execute();
             
-        case 'get_messages':
-            $recipient_id = $_POST['recipient_id'];
-            $recipient_type = $_POST['recipient_type'];
+        } else if ($recipient_type === 'company') {
+            // FIXED: Company messages query using 'supervisor' in database
+            $messages_stmt = $conn->prepare("
+                SELECT m.*,
+                       CASE 
+                           WHEN m.sender_type = 'supervisor' THEN cs.full_name
+                           WHEN m.sender_type = 'adviser' THEN aa.name
+                       END as sender_name,
+                       CASE 
+                           WHEN m.sender_type = 'supervisor' THEN cs.profile_picture
+                           WHEN m.sender_type = 'adviser' THEN NULL
+                       END as sender_avatar,
+                       CASE 
+                           WHEN m.sender_type = 'adviser' AND m.sender_id = ? THEN 1
+                           ELSE 0
+                       END as is_own_message
+                FROM messages m
+                LEFT JOIN company_supervisors cs ON m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor'
+                LEFT JOIN academic_adviser aa ON m.sender_id = aa.id AND m.sender_type = 'adviser'
+                WHERE (
+                    (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'supervisor')
+                    OR 
+                    (m.sender_id = ? AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                )
+                ORDER BY m.sent_at ASC
+            ");
             
-            try {
-                // Fixed query to properly show both adviser and student messages
-                $messages_stmt = $conn->prepare("
-                    SELECT m.*,
-                           CASE 
-                               WHEN m.sender_type = 'student' THEN CONCAT(s.first_name, ' ', s.last_name)
-                               WHEN m.sender_type = 'adviser' THEN aa.name
-                           END as sender_name,
-                           CASE 
-                               WHEN m.sender_type = 'student' THEN s.profile_picture
-                               WHEN m.sender_type = 'adviser' THEN NULL
-                           END as sender_avatar,
-                           CASE 
-                               WHEN m.sender_type = 'adviser' AND m.sender_id = ? THEN 1
-                               ELSE 0
-                           END as is_own_message
-                    FROM messages m
-                    LEFT JOIN students s ON m.sender_id = s.id AND m.sender_type = 'student'
-                    LEFT JOIN academic_adviser aa ON m.sender_id = aa.id AND m.sender_type = 'adviser'
-                    WHERE (
-                        (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = ? AND m.recipient_type = 'student')
-                        OR 
-                        (m.sender_id = ? AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
-                    )
-                    ORDER BY m.sent_at ASC
-                ");
-                
-                $recipient_id_clean = str_replace('student_', '', $recipient_id);
-                $messages_stmt->bind_param("iiiii", 
-                    $adviser_id,                    // For checking is_own_message
-                    $adviser_id,                    // adviser sending to student
-                    $recipient_id_clean,            // to specific student
-                    $recipient_id_clean,            // student sending to adviser
-                    $adviser_id                     // to this adviser
-                );
-                
-                $messages_stmt->execute();
-                $messages_result = $messages_stmt->get_result();
-                
-                $messages = [];
-                while ($row = $messages_result->fetch_assoc()) {
-                    $messages[] = [
-                        'id' => $row['id'],
-                        'message' => $row['message'],
-                        'sent_at' => $row['sent_at'],
-                        'sender_name' => $row['sender_name'],
-                        'sender_avatar' => $row['sender_avatar'],
-                        'is_own' => ($row['is_own_message'] == 1), // Messages sent by this adviser
-                        'is_read' => $row['is_read'],
-                        'sender_type' => $row['sender_type']
-                    ];
-                }
-                
-                // Mark messages from student as read (messages TO this adviser)
-                $mark_read_stmt = $conn->prepare("
-                    UPDATE messages SET is_read = 1 
-                    WHERE recipient_id = ? AND recipient_type = 'adviser' AND sender_id = ? AND sender_type = 'student'
-                ");
-                $mark_read_stmt->bind_param("ii", $adviser_id, $recipient_id_clean);
-                $mark_read_stmt->execute();
-                
-                echo json_encode(['success' => true, 'messages' => $messages]);
-            } catch (Exception $e) {
-                echo json_encode(['success' => false, 'error' => 'Failed to load messages: ' . $e->getMessage()]);
-            }
-            exit();
+            $messages_stmt->bind_param("iiiii", $adviser_id, $adviser_id, $recipient_id_clean, $recipient_id_clean, $adviser_id);
             
+            // Mark company messages as read
+            $mark_read_stmt = $conn->prepare("
+                UPDATE messages SET is_read = 1 
+                WHERE recipient_id = ? AND recipient_type = 'adviser' AND sender_id = ? AND sender_type = 'supervisor'
+            ");
+            $mark_read_stmt->bind_param("ii", $adviser_id, $recipient_id_clean);
+            $mark_read_stmt->execute();
+        }
+        
+        $messages_stmt->execute();
+        $messages_result = $messages_stmt->get_result();
+        
+        $messages = [];
+        while ($row = $messages_result->fetch_assoc()) {
+            $messages[] = [
+                'id' => $row['id'],
+                'message' => $row['message'],
+                'sent_at' => $row['sent_at'],
+                'sender_name' => $row['sender_name'],
+                'sender_avatar' => $row['sender_avatar'],
+                'is_own' => ($row['is_own_message'] == 1),
+                'is_read' => $row['is_read'],
+                'sender_type' => $row['sender_type']
+            ];
+        }
+        
+        error_log("Messages found: " . count($messages));
+        
+        echo json_encode(['success' => true, 'messages' => $messages]);
+    } catch (Exception $e) {
+        error_log("Error loading messages: " . $e->getMessage());
+        echo json_encode(['success' => false, 'error' => 'Failed to load messages: ' . $e->getMessage()]);
+    }
+    exit();
+    case 'get_company_contacts':
+    try {
+        $contacts_stmt = $conn->prepare("
+            SELECT DISTINCT 
+                cs.supervisor_id, cs.full_name, cs.email, cs.company_name, 
+                cs.position, cs.profile_picture,
+                (SELECT MAX(m.sent_at) 
+                 FROM messages m 
+                 WHERE (m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                    OR (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = cs.supervisor_id AND m.recipient_type = 'supervisor')
+                ) as last_message_time,
+                (SELECT COUNT(*) 
+                 FROM messages m 
+                 WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' 
+                   AND m.sender_id = cs.supervisor_id AND m.sender_type = 'supervisor'
+                ) as unread_count
+            FROM company_supervisors cs
+            WHERE cs.account_status = 'Active'
+            ORDER BY 
+                CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+                last_message_time DESC,
+                cs.full_name
+        ");
+        $contacts_stmt->bind_param("iii", $adviser_id, $adviser_id, $adviser_id);
+        $contacts_stmt->execute();
+        $contacts_result = $contacts_stmt->get_result();
+        
+        $contacts = [];
+        while ($row = $contacts_result->fetch_assoc()) {
+            $contacts[] = [
+                'id' => 'company_' . $row['supervisor_id'],
+                'supervisor_id' => $row['supervisor_id'],
+                'name' => $row['full_name'],
+                'role' => $row['position'] . ' at ' . $row['company_name'],
+                'unread_count' => $row['unread_count'],
+                'last_message_time' => $row['last_message_time']
+            ];
+        }
+        
+        echo json_encode(['success' => true, 'contacts' => $contacts]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => 'Failed to get contacts']);
+    }
+    exit();
         case 'get_unread_count':
             try {
                 $unread_stmt = $conn->prepare("
@@ -210,44 +373,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
             
         case 'get_student_contacts':
-            // Return updated contact list with unread counts
-            try {
-                $contacts_stmt = $conn->prepare("
-                    SELECT DISTINCT 
-                        s.id, s.first_name, s.middle_name, s.last_name, s.email, 
-                        s.student_id, s.department, s.program, s.year_level, s.profile_picture,
-                        MAX(m.sent_at) as last_message_time,
-                        COUNT(CASE WHEN m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' THEN 1 END) as unread_count
-                    FROM students s
-                    INNER JOIN messages m ON (
-                        (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser') OR
-                        (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = s.id AND m.recipient_type = 'student')
-                    )
-                    GROUP BY s.id
-                    ORDER BY last_message_time DESC
-                ");
-                $contacts_stmt->bind_param("iii", $adviser_id, $adviser_id, $adviser_id);
-                $contacts_stmt->execute();
-                $contacts_result = $contacts_stmt->get_result();
-                
-                $contacts = [];
-                while ($row = $contacts_result->fetch_assoc()) {
-                    $full_name = trim($row['first_name'] . ' ' . $row['middle_name'] . ' ' . $row['last_name']);
-                    $contacts[] = [
-                        'id' => 'student_' . $row['id'],
-                        'student_id' => $row['id'],
-                        'name' => $full_name,
-                        'role' => $row['program'] . ' - ' . $row['year_level'],
-                        'unread_count' => $row['unread_count'],
-                        'last_message_time' => $row['last_message_time']
-                    ];
-                }
-                
-                echo json_encode(['success' => true, 'contacts' => $contacts]);
-            } catch (Exception $e) {
-                echo json_encode(['success' => false, 'error' => 'Failed to get contacts']);
-            }
-            exit();
+    try {
+        $contacts_stmt = $conn->prepare("
+            SELECT DISTINCT 
+                s.id, s.first_name, s.middle_name, s.last_name, s.email, 
+                s.student_id, s.department, s.program, s.year_level, s.profile_picture,
+                (SELECT MAX(m.sent_at) 
+                 FROM messages m 
+                 WHERE (m.sender_id = s.id AND m.sender_type = 'student' AND m.recipient_id = ? AND m.recipient_type = 'adviser')
+                    OR (m.sender_id = ? AND m.sender_type = 'adviser' AND m.recipient_id = s.id AND m.recipient_type = 'student')
+                ) as last_message_time,
+                (SELECT COUNT(*) 
+                 FROM messages m 
+                 WHERE m.is_read = 0 AND m.recipient_id = ? AND m.recipient_type = 'adviser' 
+                   AND m.sender_id = s.id AND m.sender_type = 'student'
+                ) as unread_count
+            FROM students s
+            WHERE s.verified = 1
+            ORDER BY 
+                CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
+                last_message_time DESC,
+                s.first_name, s.last_name
+        ");
+        $contacts_stmt->bind_param("iii", $adviser_id, $adviser_id, $adviser_id);
+        $contacts_stmt->execute();
+        $contacts_result = $contacts_stmt->get_result();
+        
+        $contacts = [];
+        while ($row = $contacts_result->fetch_assoc()) {
+            $full_name = trim($row['first_name'] . ' ' . $row['middle_name'] . ' ' . $row['last_name']);
+            $contacts[] = [
+                'id' => 'student_' . $row['id'],
+                'student_id' => $row['id'],
+                'name' => $full_name,
+                'role' => $row['program'] . ' - ' . $row['year_level'],
+                'unread_count' => $row['unread_count'],
+                'last_message_time' => $row['last_message_time']
+            ];
+        }
+        
+        echo json_encode(['success' => true, 'contacts' => $contacts]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => 'Failed to get contacts']);
+    }
+    exit();
     }
 }
 
@@ -299,6 +468,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         .sidebar {
             transition: transform 0.3s ease-in-out;
         }
@@ -506,26 +695,48 @@ tailwind.config = {
                     <!-- Contacts Sidebar -->
                     <div id="contactsSidebar" class="lg:col-span-2 border-r border-gray-200 flex flex-col bg-gray-50">
                         <!-- Contacts Header -->
-                        <div class="p-4 sm:p-6 border-b border-gray-200 bg-white">
-                            <button class="lg:hidden mb-4 p-2 text-gray-500 hover:text-gray-700" onclick="hideMobileContacts()" id="mobileBackBtn">
-                                <i class="fas fa-arrow-left text-lg"></i>
-                            </button>
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center">
-                                    <i class="fas fa-users text-blue-600 mr-3"></i>
-                                    <div>
-                                        <h3 class="text-lg font-medium text-gray-900">Student Conversations</h3>
-                                        <p class="text-sm text-gray-500" id="contactsCount"><?php echo count($student_contacts); ?> conversations</p>
-                                    </div>
-                                </div>
-                                <button class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors" onclick="refreshContacts()" title="Refresh contacts">
-                                    <i class="fas fa-sync-alt"></i>
-                                </button>
-                            </div>
-                        </div>
+                        <!-- Contacts Header -->
+<div class="p-4 sm:p-6 border-b border-gray-200 bg-white">
+    <button class="lg:hidden mb-4 p-2 text-gray-500 hover:text-gray-700" onclick="hideMobileContacts()" id="mobileBackBtn">
+        <i class="fas fa-arrow-left text-lg"></i>
+    </button>
+    
+    <!-- Tab Buttons -->
+    <div class="flex space-x-2 mb-4">
+        <button onclick="switchToStudents()" id="studentsTab" class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-bulsu-maroon text-white">
+            <i class="fas fa-user-graduate mr-2"></i>Students
+            <?php if (count(array_filter($student_contacts, function($c) { return $c['unread_count'] > 0; })) > 0): ?>
+                <span class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                    <?php echo array_sum(array_column($student_contacts, 'unread_count')); ?>
+                </span>
+            <?php endif; ?>
+        </button>
+        <button onclick="switchToCompanies()" id="companiesTab" class="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300">
+            <i class="fas fa-building mr-2"></i>Companies
+            <?php if (count(array_filter($company_contacts, function($c) { return $c['unread_count'] > 0; })) > 0): ?>
+                <span class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                    <?php echo array_sum(array_column($company_contacts, 'unread_count')); ?>
+                </span>
+            <?php endif; ?>
+        </button>
+    </div>
+    
+    <div class="flex items-center justify-between">
+        <div class="flex items-center">
+            <i class="fas fa-users text-blue-600 mr-3"></i>
+            <div>
+                <h3 class="text-lg font-medium text-gray-900" id="contactsTitle">Student Conversations</h3>
+                <p class="text-sm text-gray-500" id="contactsCount"><?php echo count($student_contacts); ?> conversations</p>
+            </div>
+        </div>
+        <button class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors" onclick="refreshContacts()" title="Refresh contacts">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+</div>
                         
                         <!-- Contacts List -->
-                        <div class="flex-1 overflow-y-auto custom-scrollbar" id="contactsList">
+                    <div class="overflow-y-auto custom-scrollbar" id="contactsList" style="max-height: 640px;">
                             <?php if (empty($student_contacts)): ?>
                                 <div class="flex flex-col items-center justify-center h-64 text-center p-6">
                                     <i class="fas fa-comments text-gray-300 text-5xl mb-4"></i>
@@ -579,10 +790,10 @@ tailwind.config = {
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </div>
-                    </div>
+                     </div>
 
-                    <!-- Chat Area -->
-                    <div class="lg:col-span-3 flex flex-col">
+                     <!-- Chat Area -->
+                     <div class="lg:col-span-3 flex flex-col">
                         <!-- Chat Header -->
                         <div class="chat-header p-4 sm:p-6 border-b border-gray-200 bg-white hidden" id="chatHeader">
                             <button class="lg:hidden mr-4 p-2 text-gray-500 hover:text-gray-700" onclick="showMobileContacts()" id="mobileContactsBtn">
@@ -623,7 +834,7 @@ tailwind.config = {
                                 </button>
                             </div>
                         </div>
-                    </div>
+                     </div>
                 </div>
             </div>
         </div>
@@ -694,48 +905,58 @@ tailwind.config = {
             });
         }
 
-        function selectContact(contactElement) {
-            if (contactElement.classList.contains('disabled')) {
-                showToast('Cannot select this contact', 'warning');
-                return;
-            }
+       function selectContact(contactElement) {
+    if (contactElement.classList.contains('disabled')) {
+        showToast('Cannot select this contact', 'warning');
+        return;
+    }
 
-            // Remove active class from all contacts
-            document.querySelectorAll('.contact-item').forEach(item => {
-                item.classList.remove('bg-blue-50', 'border-l-4', 'border-l-blue-500');
-            });
+    // Remove active class from all contacts
+    document.querySelectorAll('.contact-item').forEach(item => {
+        item.classList.remove('bg-blue-50', 'border-l-4', 'border-l-blue-500');
+    });
 
-            // Add active class to selected contact
-            contactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
+    // Add active class to selected contact
+    contactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
 
-            // Get contact data
-            currentContact = {
-                id: contactElement.dataset.contactId,
-                name: contactElement.dataset.contactName,
-                role: contactElement.dataset.contactRole,
-                type: contactElement.dataset.contactType,
-                student_id: contactElement.dataset.studentId
-            };
+    // CHANGE: Get contact data with proper type handling
+    const contactType = contactElement.dataset.contactType;
+    
+    currentContact = {
+        id: contactElement.dataset.contactId,
+        name: contactElement.dataset.contactName,
+        role: contactElement.dataset.contactRole,
+        type: contactType
+    };
 
-            // Update chat header
-            updateChatHeader(currentContact);
+    // CHANGE: Add the proper ID field based on type
+    if (contactType === 'student') {
+        currentContact.student_id = contactElement.dataset.studentId;
+    } else if (contactType === 'company') {
+        currentContact.supervisor_id = contactElement.dataset.supervisorId;
+    }
 
-            // Load messages
-            loadMessages();
+    console.log('Selected contact:', currentContact);
 
-            // Show chat elements
-            document.getElementById('chatHeader').classList.remove('hidden');
-            document.getElementById('messageInputArea').classList.remove('hidden');
+    // Update chat header
+    updateChatHeader(currentContact);
 
-            // Hide unread badge for this contact
-            const unreadBadge = contactElement.querySelector('.absolute');
-            if (unreadBadge && unreadBadge.classList.contains('bg-red-500')) {
-                unreadBadge.classList.add('hidden');
-            }
+    // Load messages
+    loadMessages();
 
-            // Hide mobile contacts on mobile
-            hideMobileContacts();
-        }
+    // Show chat elements
+    document.getElementById('chatHeader').classList.remove('hidden');
+    document.getElementById('messageInputArea').classList.remove('hidden');
+
+    // Hide unread badge for this contact
+    const unreadBadge = contactElement.querySelector('.absolute');
+    if (unreadBadge && unreadBadge.classList.contains('bg-red-500')) {
+        unreadBadge.classList.add('hidden');
+    }
+
+    // Hide mobile contacts on mobile
+    hideMobileContacts();
+}
 
         function updateChatHeader(contact) {
             const chatAvatar = document.getElementById('chatAvatar');
@@ -754,57 +975,73 @@ tailwind.config = {
             chatRole.textContent = contact.role;
         }
 
-        function loadMessages() {
-            if (!currentContact) return;
+       function loadMessages() {
+    if (!currentContact) return;
 
-            const messagesArea = document.getElementById('messagesArea');
+    const messagesArea = document.getElementById('messagesArea');
+    messagesArea.innerHTML = `
+        <div class="flex items-center justify-center h-full">
+            <div class="flex items-center space-x-3 text-gray-500">
+                <i class="fas fa-spinner animate-spin"></i>
+                <span>Loading messages...</span>
+            </div>
+        </div>
+    `;
+
+    // CHANGE: Extract the actual ID based on contact type
+    let recipientId;
+    if (currentContact.type === 'student') {
+        recipientId = currentContact.student_id || currentContact.id.replace('student_', '');
+    } else if (currentContact.type === 'company') {
+        recipientId = currentContact.supervisor_id || currentContact.id.replace('company_', '');
+    }
+
+    console.log('Loading messages for:', {
+        recipientId: recipientId,
+        type: currentContact.type,
+        fullContact: currentContact
+    });
+
+    const formData = new FormData();
+    formData.append('action', 'get_messages');
+    formData.append('recipient_id', recipientId);
+    formData.append('recipient_type', currentContact.type);
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Messages response:', data);
+        if (data.success) {
+            displayMessages(data.messages);
+            scrollToBottom();
+        } else {
+            console.error('Failed to load messages:', data.error);
             messagesArea.innerHTML = `
                 <div class="flex items-center justify-center h-full">
-                    <div class="flex items-center space-x-3 text-gray-500">
-                        <i class="fas fa-spinner animate-spin"></i>
-                        <span>Loading messages...</span>
+                    <div class="text-center text-red-500">
+                        <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+                        <p>Failed to load messages</p>
+                        <p class="text-sm mt-2">${data.error || 'Unknown error'}</p>
                     </div>
                 </div>
             `;
-
-            const formData = new FormData();
-            formData.append('action', 'get_messages');
-            formData.append('recipient_id', currentContact.id);
-            formData.append('recipient_type', currentContact.type);
-
-            fetch('', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displayMessages(data.messages);
-                    scrollToBottom();
-                } else {
-                    messagesArea.innerHTML = `
-                        <div class="flex items-center justify-center h-full">
-                            <div class="text-center text-red-500">
-                                <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
-                                <p>Failed to load messages</p>
-                            </div>
-                        </div>
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('Error loading messages:', error);
-                messagesArea.innerHTML = `
-                    <div class="flex items-center justify-center h-full">
-                        <div class="text-center text-red-500">
-                            <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
-                            <p>Error loading messages</p>
-                        </div>
-                    </div>
-                `;
-            });
         }
-
+    })
+    .catch(error => {
+        console.error('Error loading messages:', error);
+        messagesArea.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center text-red-500">
+                    <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+                    <p>Error loading messages</p>
+                </div>
+            </div>
+        `;
+    });
+}
         function displayMessages(messages) {
             const messagesArea = document.getElementById('messagesArea');
             
@@ -914,53 +1151,66 @@ tailwind.config = {
         }
 
         function sendMessage() {
-            const messageInput = document.getElementById('messageInput');
-            const sendButton = document.getElementById('sendButton');
-            const message = messageInput.value.trim();
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    const message = messageInput.value.trim();
 
-            if (!message || !currentContact) return;
+    if (!message || !currentContact) return;
 
-            // Disable input while sending
-            messageInput.disabled = true;
-            sendButton.disabled = true;
-            sendButton.innerHTML = '<i class="fas fa-spinner animate-spin"></i>';
+    // Disable input while sending
+    messageInput.disabled = true;
+    sendButton.disabled = true;
+    sendButton.innerHTML = '<i class="fas fa-spinner animate-spin"></i>';
 
-            const formData = new FormData();
-            formData.append('action', 'send_message');
-            formData.append('recipient_id', currentContact.id.replace('student_', ''));
-            formData.append('recipient_type', currentContact.type);
-            formData.append('message', message);
+    // CHANGE: Extract the actual ID based on contact type
+    let recipientId;
+    if (currentContact.type === 'student') {
+        recipientId = currentContact.student_id || currentContact.id.replace('student_', '');
+    } else if (currentContact.type === 'company') {
+        recipientId = currentContact.supervisor_id || currentContact.id.replace('company_', '');
+    }
 
-            fetch('', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    messageInput.value = '';
-                    adjustTextareaHeight(messageInput);
-                    loadMessages(); // Reload messages to show the new message
-                    showToast('Message sent successfully', 'success');
-                    
-                    // Update contact list to reflect latest message
-                    setTimeout(refreshContacts, 1000);
-                } else {
-                    showToast(data.error || 'Failed to send message', 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error sending message:', error);
-                showToast('Error sending message', 'error');
-            })
-            .finally(() => {
-                // Re-enable input
-                messageInput.disabled = false;
-                sendButton.disabled = message.trim().length === 0;
-                sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
-                messageInput.focus();
-            });
+    console.log('Sending message to:', {
+        recipientId: recipientId,
+        type: currentContact.type,
+        message: message
+    });
+
+    const formData = new FormData();
+    formData.append('action', 'send_message');
+    formData.append('recipient_id', recipientId);
+    formData.append('recipient_type', currentContact.type);
+    formData.append('message', message);
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Send message response:', data);
+        if (data.success) {
+            messageInput.value = '';
+            adjustTextareaHeight(messageInput);
+            loadMessages();
+            showToast('Message sent successfully', 'success');
+            
+            setTimeout(refreshContacts, 1000);
+        } else {
+            showToast(data.error || 'Failed to send message', 'error');
         }
+    })
+    .catch(error => {
+        console.error('Error sending message:', error);
+        showToast('Error sending message', 'error');
+    })
+    .finally(() => {
+        messageInput.disabled = false;
+        sendButton.disabled = message.trim().length === 0;
+        sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        messageInput.focus();
+    });
+}
 
         function handleKeyPress(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -1006,87 +1256,154 @@ tailwind.config = {
             });
         }
 
-        function refreshContacts() {
-            const formData = new FormData();
-            formData.append('action', 'get_student_contacts');
+        // Tab switching functions
+let currentTab = 'students'; // Track current tab
 
-            fetch('', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    updateContactsList(data.contacts);
-                }
-            })
-            .catch(error => {
-                console.error('Error refreshing contacts:', error);
-            });
+function switchToStudents() {
+    currentTab = 'students';
+    
+    // Update tab styling
+    document.getElementById('studentsTab').classList.remove('bg-gray-200', 'text-gray-700');
+    document.getElementById('studentsTab').classList.add('bg-bulsu-maroon', 'text-white');
+    document.getElementById('companiesTab').classList.remove('bg-bulsu-maroon', 'text-white');
+    document.getElementById('companiesTab').classList.add('bg-gray-200', 'text-gray-700');
+    
+    // Update header text
+    document.getElementById('contactsTitle').textContent = 'Student Conversations';
+    
+    // Refresh student contacts
+    refreshStudentContacts();
+}
+
+function switchToCompanies() {
+    currentTab = 'companies';
+    
+    // Update tab styling
+    document.getElementById('companiesTab').classList.remove('bg-gray-200', 'text-gray-700');
+    document.getElementById('companiesTab').classList.add('bg-bulsu-maroon', 'text-white');
+    document.getElementById('studentsTab').classList.remove('bg-bulsu-maroon', 'text-white');
+    document.getElementById('studentsTab').classList.add('bg-gray-200', 'text-gray-700');
+    
+    // Update header text
+    document.getElementById('contactsTitle').textContent = 'Company Conversations';
+    
+    // Refresh company contacts
+    refreshCompanyContacts();
+}
+
+function refreshContacts() {
+    if (currentTab === 'students') {
+        refreshStudentContacts();
+    } else {
+        refreshCompanyContacts();
+    }
+}
+
+function refreshStudentContacts() {
+    const formData = new FormData();
+    formData.append('action', 'get_student_contacts');
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateContactsList(data.contacts, 'student');
         }
+    })
+    .catch(error => {
+        console.error('Error refreshing student contacts:', error);
+    });
+}
 
-        function updateContactsList(contacts) {
-            const contactsList = document.getElementById('contactsList');
-            const contactsCount = document.getElementById('contactsCount');
-            
-            if (contacts.length === 0) {
-                contactsList.innerHTML = `
-                    <div class="flex flex-col items-center justify-center h-64 text-center p-6">
-                        <i class="fas fa-comments text-gray-300 text-5xl mb-4"></i>
-                        <h4 class="text-lg font-medium text-gray-900 mb-2">No Messages Yet</h4>
-                        <p class="text-gray-500">Students will appear here when they send you a message</p>
-                    </div>
-                `;
-                contactsCount.textContent = '0 conversations';
-                return;
-            }
+function refreshCompanyContacts() {
+    const formData = new FormData();
+    formData.append('action', 'get_company_contacts');
 
-            let contactsHTML = '';
-            contacts.forEach(contact => {
-                const timeText = getTimeText(contact.last_message_time);
-                const unreadBadge = contact.unread_count > 0 ? 
-                    `<div class="absolute top-2 right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">${contact.unread_count}</div>` : '';
-                
-                const nameInitials = contact.name.split(' ')
-                    .map(word => word.charAt(0))
-                    .join('')
-                    .toUpperCase()
-                    .substring(0, 2);
-
-                contactsHTML += `
-                    <div class="contact-item p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative" 
-                         data-contact-id="${contact.id}"
-                         data-contact-name="${escapeHtml(contact.name)}"
-                         data-contact-role="${escapeHtml(contact.role)}"
-                         data-contact-type="student"
-                         data-student-id="${contact.student_id}"
-                         onclick="selectContact(this)">
-                        <div class="flex items-center space-x-3">
-                            <div class="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                                ${nameInitials}
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(contact.name)}</p>
-                                <p class="text-sm text-gray-600 truncate">${escapeHtml(contact.role)}</p>
-                                <p class="text-xs text-gray-500">${timeText}</p>
-                            </div>
-                        </div>
-                        ${unreadBadge}
-                    </div>
-                `;
-            });
-
-            contactsList.innerHTML = contactsHTML;
-            contactsCount.textContent = `${contacts.length} conversations`;
-
-            // Reselect current contact if it exists
-            if (currentContact) {
-                const currentContactElement = contactsList.querySelector(`[data-contact-id="${currentContact.id}"]`);
-                if (currentContactElement) {
-                    currentContactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
-                }
-            }
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateContactsList(data.contacts, 'company');
         }
+    })
+    .catch(error => {
+        console.error('Error refreshing company contacts:', error);
+    });
+}
+
+       function updateContactsList(contacts, type) {
+    const contactsList = document.getElementById('contactsList');
+    const contactsCount = document.getElementById('contactsCount');
+    
+    if (contacts.length === 0) {
+        const emptyMessage = type === 'student' ? 'Students' : 'Companies';
+        contactsList.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-64 text-center p-6">
+                <i class="fas fa-comments text-gray-300 text-5xl mb-4"></i>
+                <h4 class="text-lg font-medium text-gray-900 mb-2">No Messages Yet</h4>
+                <p class="text-gray-500">${emptyMessage} will appear here when they send you a message</p>
+            </div>
+        `;
+        contactsCount.textContent = '0 conversations';
+        return;
+    }
+
+    let contactsHTML = '';
+    contacts.forEach(contact => {
+        const timeText = getTimeText(contact.last_message_time);
+        const unreadBadge = contact.unread_count > 0 ? 
+            `<div class="absolute top-2 right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">${contact.unread_count}</div>` : '';
+        
+        const nameInitials = contact.name.split(' ')
+            .map(word => word.charAt(0))
+            .join('')
+            .toUpperCase()
+            .substring(0, 2);
+
+        const gradientClass = type === 'student' ? 'from-green-500 to-teal-600' : 'from-blue-500 to-indigo-600';
+        const contactType = type === 'student' ? 'student' : 'company';
+        const idField = type === 'student' ? `data-student-id="${contact.student_id}"` : `data-supervisor-id="${contact.supervisor_id}"`;
+
+        contactsHTML += `
+            <div class="contact-item p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative" 
+                 data-contact-id="${contact.id}"
+                 data-contact-name="${escapeHtml(contact.name)}"
+                 data-contact-role="${escapeHtml(contact.role)}"
+                 data-contact-type="${contactType}"
+                 ${idField}
+                 onclick="selectContact(this)">
+                <div class="flex items-center space-x-3">
+                    <div class="flex-shrink-0 w-12 h-12 bg-gradient-to-r ${gradientClass} rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                        ${nameInitials}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(contact.name)}</p>
+                        <p class="text-sm text-gray-600 truncate">${escapeHtml(contact.role)}</p>
+                        <p class="text-xs text-gray-500">${timeText}</p>
+                    </div>
+                </div>
+                ${unreadBadge}
+            </div>
+        `;
+    });
+
+    contactsList.innerHTML = contactsHTML;
+    contactsCount.textContent = `${contacts.length} conversations`;
+
+    // Reselect current contact if it exists
+    if (currentContact) {
+        const currentContactElement = contactsList.querySelector(`[data-contact-id="${currentContact.id}"]`);
+        if (currentContactElement) {
+            currentContactElement.classList.add('bg-blue-50', 'border-l-4', 'border-l-blue-500');
+        }
+    }
+}
 
         function getTimeText(timestamp) {
             if (!timestamp) return '';

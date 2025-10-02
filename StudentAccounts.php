@@ -376,108 +376,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 break;
 
             case 'get_documents':
-                $student_id = (int)$_POST['student_id'];
-                // Add search parameter if provided
-                $search = isset($_POST['search']) ? mysqli_real_escape_string($conn, $_POST['search']) : '';
-                
-                // Get all required documents
-                $required_docs_query = "SELECT * FROM document_requirements WHERE is_required = 1 ORDER BY name";
-                $required_docs_result = mysqli_query($conn, $required_docs_query);
-                $required_documents = mysqli_fetch_all($required_docs_result, MYSQLI_ASSOC);
-                
-                // Get student's submitted documents
-                $documents_query = "
-                    SELECT sd.*, s.first_name, s.last_name, s.student_id as student_number, dr.name as document_name, dr.description as document_description
-                    FROM student_documents sd
-                    JOIN students s ON sd.student_id = s.id
-                    LEFT JOIN document_requirements dr ON sd.document_id = dr.id
-                    WHERE sd.student_id = ?
-                ";
-                
-                // Add search condition if search term is provided
-                if (!empty($search)) {
-                    $documents_query .= " AND (sd.name LIKE '%$search%' OR sd.description LIKE '%$search%' OR sd.original_filename LIKE '%$search%' OR s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%')";
+    $student_id = (int)$_POST['student_id'];
+    $search = isset($_POST['search']) ? mysqli_real_escape_string($conn, $_POST['search']) : '';
+    
+    // Get all required documents with deadlines
+    $required_docs_query = "SELECT id, name, submission_deadline FROM document_requirements WHERE is_required = 1 ORDER BY name";
+    $required_docs_result = mysqli_query($conn, $required_docs_query);
+    $required_documents = mysqli_fetch_all($required_docs_result, MYSQLI_ASSOC);
+    
+    // Get student's submitted documents with deadline comparison
+    $documents_query = "
+        SELECT 
+            sd.*, 
+            s.first_name, 
+            s.last_name, 
+            s.student_id as student_number, 
+            dr.name as document_name, 
+            dr.description as document_description,
+            dr.submission_deadline,
+            CASE 
+                WHEN dr.submission_deadline IS NULL THEN 'no-deadline'
+                WHEN sd.submitted_at <= dr.submission_deadline THEN 'on-time'
+                WHEN sd.submitted_at > dr.submission_deadline THEN 'late'
+                ELSE 'not-submitted'
+            END as submission_timeliness,
+            DATEDIFF(sd.submitted_at, dr.submission_deadline) as days_difference
+        FROM student_documents sd
+        JOIN students s ON sd.student_id = s.id
+        LEFT JOIN document_requirements dr ON sd.document_id = dr.id
+        WHERE sd.student_id = ?
+    ";
+    
+    if (!empty($search)) {
+        $documents_query .= " AND (sd.name LIKE '%$search%' OR sd.description LIKE '%$search%' OR sd.original_filename LIKE '%$search%' OR s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%')";
+    }
+    
+    $documents_query .= " ORDER BY sd.submitted_at DESC";
+    
+    $stmt = mysqli_prepare($conn, $documents_query);
+    mysqli_stmt_bind_param($stmt, "i", $student_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $submitted_documents = mysqli_fetch_all($result, MYSQLI_ASSOC);
+    
+    // Calculate statistics including timeliness
+    $total_on_time = 0;
+    $total_late = 0;
+    
+    foreach ($submitted_documents as $doc) {
+        if ($doc['submission_timeliness'] === 'on-time') {
+            $total_on_time++;
+        } elseif ($doc['submission_timeliness'] === 'late') {
+            $total_late++;
+        }
+    }
+    
+    // Check requirements status (existing code)
+    $all_requirements_met = true;
+    $missing_documents = [];
+    $pending_documents = [];
+    $rejected_documents = [];
+    
+    foreach ($required_documents as $required_doc) {
+        $submitted = false;
+        $approved = false;
+        
+        foreach ($submitted_documents as $submitted_doc) {
+            if ($submitted_doc['document_id'] == $required_doc['id']) {
+                $submitted = true;
+                if ($submitted_doc['status'] === 'approved') {
+                    $approved = true;
+                } elseif ($submitted_doc['status'] === 'pending') {
+                    $pending_documents[] = $required_doc['name'];
+                } elseif ($submitted_doc['status'] === 'rejected') {
+                    $rejected_documents[] = $required_doc['name'];
                 }
-                
-                $documents_query .= " ORDER BY sd.submitted_at DESC";
-                
-                $stmt = mysqli_prepare($conn, $documents_query);
-                mysqli_stmt_bind_param($stmt, "i", $student_id);
-                mysqli_stmt_execute($stmt);
-                $result = mysqli_stmt_get_result($stmt);
-                $submitted_documents = mysqli_fetch_all($result, MYSQLI_ASSOC);
-                
-                // Check if ALL required documents are submitted AND approved
-                $all_requirements_met = true;
-                $missing_documents = [];
-                $pending_documents = [];
-                $rejected_documents = [];
-                
-                foreach ($required_documents as $required_doc) {
-                    // Check if this required document has been submitted
-                    $submitted = false;
-                    $approved = false;
-                    
-                    foreach ($submitted_documents as $submitted_doc) {
-                        if ($submitted_doc['document_id'] == $required_doc['id']) {
-                            $submitted = true;
-                            if ($submitted_doc['status'] === 'approved') {
-                                $approved = true;
-                            } elseif ($submitted_doc['status'] === 'pending') {
-                                $pending_documents[] = $required_doc['name'];
-                            } elseif ($submitted_doc['status'] === 'rejected') {
-                                $rejected_documents[] = $required_doc['name'];
-                            }
-                            break;
-                        }
-                    }
-                    
-                    if (!$submitted) {
-                        $missing_documents[] = $required_doc['name'];
-                        $all_requirements_met = false;
-                    } elseif (!$approved) {
-                        $all_requirements_met = false;
-                    }
-                }
-                
-                // Calculate statistics
-                $total_required = count($required_documents);
-                $total_submitted = count($submitted_documents);
-                $total_approved = count(array_filter($submitted_documents, function($doc) {
-                    return $doc['status'] === 'approved';
-                }));
-                $total_pending = count(array_filter($submitted_documents, function($doc) {
-                    return $doc['status'] === 'pending';
-                }));
-                $total_rejected = count(array_filter($submitted_documents, function($doc) {
-                    return $doc['status'] === 'rejected';
-                }));
-                
-                echo json_encode([
-                    'success' => true, 
-                    'documents' => $submitted_documents,
-                    'required_documents' => $required_documents,
-                    'all_requirements_met' => $all_requirements_met,
-                    'missing_documents' => $missing_documents,
-                    'pending_documents' => $pending_documents,
-                    'rejected_documents' => $rejected_documents,
-                    'statistics' => [
-                        'total_required' => $total_required,
-                        'total_submitted' => $total_submitted,
-                        'total_approved' => $total_approved,
-                        'total_pending' => $total_pending,
-                        'total_rejected' => $total_rejected,
-                        'approved_required' => count(array_filter($submitted_documents, function($doc) use ($required_documents) {
-                            foreach ($required_documents as $req_doc) {
-                                if ($doc['document_id'] == $req_doc['id'] && $doc['status'] === 'approved') {
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }))
-                    ]
-                ]);
                 break;
+            }
+        }
+        
+        if (!$submitted) {
+            $missing_documents[] = $required_doc['name'];
+            $all_requirements_met = false;
+        } elseif (!$approved) {
+            $all_requirements_met = false;
+        }
+    }
+    
+    // Calculate statistics
+    $total_required = count($required_documents);
+    $total_submitted = count($submitted_documents);
+    $total_approved = count(array_filter($submitted_documents, function($doc) {
+        return $doc['status'] === 'approved';
+    }));
+    $total_pending = count(array_filter($submitted_documents, function($doc) {
+        return $doc['status'] === 'pending';
+    }));
+    $total_rejected = count(array_filter($submitted_documents, function($doc) {
+        return $doc['status'] === 'rejected';
+    }));
+    
+    echo json_encode([
+        'success' => true, 
+        'documents' => $submitted_documents,
+        'required_documents' => $required_documents,
+        'all_requirements_met' => $all_requirements_met,
+        'missing_documents' => $missing_documents,
+        'pending_documents' => $pending_documents,
+        'rejected_documents' => $rejected_documents,
+        'statistics' => [
+            'total_required' => $total_required,
+            'total_submitted' => $total_submitted,
+            'total_approved' => $total_approved,
+            'total_pending' => $total_pending,
+            'total_rejected' => $total_rejected,
+            'total_on_time' => $total_on_time,
+            'total_late' => $total_late,
+            'approved_required' => count(array_filter($submitted_documents, function($doc) use ($required_documents) {
+                foreach ($required_documents as $req_doc) {
+                    if ($doc['document_id'] == $req_doc['id'] && $doc['status'] === 'approved') {
+                        return true;
+                    }
+                }
+                return false;
+            }))
+        ]
+    ]);
+    break;
 
             case 'get_all_pending_documents':
                 // Add search parameter if provided
@@ -690,6 +715,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
@@ -1333,28 +1378,36 @@ tailwind.config = {
                </div>
 
                <!-- Document Statistics -->
-               <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                   <div class="bg-blue-50 p-3 rounded-lg text-center">
-                       <div id="statsRequired" class="text-2xl font-bold text-blue-600">0</div>
-                       <div class="text-xs text-blue-600">Required</div>
-                   </div>
-                   <div class="bg-gray-50 p-3 rounded-lg text-center">
-                       <div id="statsSubmitted" class="text-2xl font-bold text-gray-600">0</div>
-                       <div class="text-xs text-gray-600">Submitted</div>
-                   </div>
-                   <div class="bg-green-50 p-3 rounded-lg text-center">
-                       <div id="statsApproved" class="text-2xl font-bold text-green-600">0</div>
-                       <div class="text-xs text-green-600">Approved</div>
-                   </div>
-                   <div class="bg-yellow-50 p-3 rounded-lg text-center">
-                       <div id="statsPending" class="text-2xl font-bold text-yellow-600">0</div>
-                       <div class="text-xs text-yellow-600">Pending</div>
-                   </div>
-                   <div class="bg-red-50 p-3 rounded-lg text-center">
-                       <div id="statsRejected" class="text-2xl font-bold text-red-600">0</div>
-                       <div class="text-xs text-red-600">Rejected</div>
-                   </div>
-               </div>
+<div class="grid grid-cols-2 md:grid-cols-7 gap-4 mb-6">
+    <div class="bg-blue-50 p-3 rounded-lg text-center">
+        <div id="statsRequired" class="text-2xl font-bold text-blue-600">0</div>
+        <div class="text-xs text-blue-600">Required</div>
+    </div>
+    <div class="bg-gray-50 p-3 rounded-lg text-center">
+        <div id="statsSubmitted" class="text-2xl font-bold text-gray-600">0</div>
+        <div class="text-xs text-gray-600">Submitted</div>
+    </div>
+    <div class="bg-green-50 p-3 rounded-lg text-center">
+        <div id="statsApproved" class="text-2xl font-bold text-green-600">0</div>
+        <div class="text-xs text-green-600">Approved</div>
+    </div>
+    <div class="bg-yellow-50 p-3 rounded-lg text-center">
+        <div id="statsPending" class="text-2xl font-bold text-yellow-600">0</div>
+        <div class="text-xs text-yellow-600">Pending</div>
+    </div>
+    <div class="bg-red-50 p-3 rounded-lg text-center">
+        <div id="statsRejected" class="text-2xl font-bold text-red-600">0</div>
+        <div class="text-xs text-red-600">Rejected</div>
+    </div>
+    <div class="bg-green-50 p-3 rounded-lg text-center border-2 border-green-300">
+        <div id="statsOnTime" class="text-2xl font-bold text-green-600">0</div>
+        <div class="text-xs text-green-600">On Time</div>
+    </div>
+    <div class="bg-yellow-50 p-3 rounded-lg text-center border-2 border-yellow-300">
+        <div id="statsLate" class="text-2xl font-bold text-yellow-600">0</div>
+        <div class="text-xs text-yellow-600">Late</div>
+    </div>
+</div>
 
                <!-- Search Documents -->
                <div class="mb-4">
@@ -1807,17 +1860,19 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
        }
 
        function updateDocumentStatistics(stats) {
-           document.getElementById('totalDocs').textContent = stats.total_submitted;
-           document.getElementById('approvedDocs').textContent = stats.total_approved;
-           document.getElementById('pendingDocs').textContent = stats.total_pending;
+    document.getElementById('totalDocs').textContent = stats.total_submitted;
+    document.getElementById('approvedDocs').textContent = stats.total_approved;
+    document.getElementById('pendingDocs').textContent = stats.total_pending;
 
-           // Update modal statistics
-           document.getElementById('statsRequired').textContent = stats.total_required;
-           document.getElementById('statsSubmitted').textContent = stats.total_submitted;
-           document.getElementById('statsApproved').textContent = stats.total_approved;
-           document.getElementById('statsPending').textContent = stats.total_pending;
-           document.getElementById('statsRejected').textContent = stats.total_rejected;
-       }
+    // Update modal statistics
+    document.getElementById('statsRequired').textContent = stats.total_required;
+    document.getElementById('statsSubmitted').textContent = stats.total_submitted;
+    document.getElementById('statsApproved').textContent = stats.total_approved;
+    document.getElementById('statsPending').textContent = stats.total_pending;
+    document.getElementById('statsRejected').textContent = stats.total_rejected;
+    document.getElementById('statsOnTime').textContent = stats.total_on_time || 0;
+    document.getElementById('statsLate').textContent = stats.total_late || 0;
+}
 
        function displayRequirementsStatus(data) {
            // Hide all alerts first
@@ -1891,59 +1946,83 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
        }
 
        function createDocumentCard(doc) {
-           const card = document.createElement('div');
-           card.className = 'document-card bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all';
+    const card = document.createElement('div');
+    card.className = 'document-card bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all';
 
-           const statusClass = `status-${doc.status}`;
-           const statusIcon = doc.status === 'approved' ? 'check-circle' : 
-                             doc.status === 'rejected' ? 'times-circle' : 'clock';
+    const statusClass = `status-${doc.status}`;
+    const statusIcon = doc.status === 'approved' ? 'check-circle' : 
+                      doc.status === 'rejected' ? 'times-circle' : 'clock';
+    
+    // Determine timeliness badge
+    let timelinessBadge = '';
+    if (doc.submission_deadline && doc.submission_timeliness) {
+        if (doc.submission_timeliness === 'on-time') {
+            timelinessBadge = `
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300">
+                    <i class="fas fa-check mr-1"></i>
+                    On Time
+                </span>
+            `;
+        } else if (doc.submission_timeliness === 'late') {
+            const daysLate = Math.abs(doc.days_difference);
+            timelinessBadge = `
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
+                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                    ${daysLate} day${daysLate > 1 ? 's' : ''} late
+                </span>
+            `;
+        }
+    }
 
-           card.innerHTML = `
-               <div class="flex items-start justify-between mb-3">
-                   <div class="flex-1">
-                       <h5 class="font-medium text-gray-900 truncate">${doc.document_name || doc.original_filename}</h5>
-                       <p class="text-sm text-gray-600">${doc.student_number || ''} - ${doc.first_name} ${doc.last_name}</p>
-                   </div>
-                   <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${statusClass}">
-                       <i class="fas fa-${statusIcon} mr-1"></i>
-                       ${doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                   </span>
-               </div>
-               
-               <div class="text-sm text-gray-600 mb-3">
-                   <p>Submitted: ${new Date(doc.submitted_at).toLocaleDateString()}</p>
-                   ${doc.reviewed_at ? `<p>Reviewed: ${new Date(doc.reviewed_at).toLocaleDateString()}</p>` : ''}
-               </div>
-               
-               ${doc.feedback ? `
-                   <div class="bg-gray-50 p-3 rounded text-sm text-gray-700 mb-3">
-                       <strong>Feedback:</strong> ${doc.feedback}
-                   </div>
-               ` : ''}
-               
-               <div class="flex space-x-2">
-                   <button onclick="viewDocument('${doc.file_path}')" 
-                           class="flex-1 inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50">
-                       <i class="fas fa-eye mr-1"></i>
-                       View
-                   </button>
-                   ${doc.status === 'pending' ? `
-                       <button onclick="approveDocument(${doc.id}, '${doc.original_filename}', '${doc.first_name} ${doc.last_name}')" 
-                               class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700">
-                           <i class="fas fa-check mr-1"></i>
-                           Approve
-                       </button>
-                       <button onclick="rejectDocument(${doc.id}, '${doc.original_filename}', '${doc.first_name} ${doc.last_name}')" 
-                               class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700">
-                           <i class="fas fa-times mr-1"></i>
-                           Reject
-                       </button>
-                   ` : ''}
-               </div>
-           `;
+    card.innerHTML = `
+        <div class="flex items-start justify-between mb-3">
+            <div class="flex-1">
+                <h5 class="font-medium text-gray-900 truncate">${doc.document_name || doc.original_filename}</h5>
+                <p class="text-sm text-gray-600">${doc.student_number || ''} - ${doc.first_name} ${doc.last_name}</p>
+            </div>
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${statusClass}">
+                <i class="fas fa-${statusIcon} mr-1"></i>
+                ${doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+            </span>
+        </div>
+        
+        <div class="text-sm text-gray-600 mb-3">
+            <p>Submitted: ${new Date(doc.submitted_at).toLocaleDateString()} ${new Date(doc.submitted_at).toLocaleTimeString()}</p>
+            ${doc.submission_deadline ? `<p class="text-xs text-blue-600">Deadline: ${new Date(doc.submission_deadline).toLocaleDateString()}</p>` : ''}
+            ${doc.reviewed_at ? `<p>Reviewed: ${new Date(doc.reviewed_at).toLocaleDateString()}</p>` : ''}
+        </div>
+        
+        ${timelinessBadge ? `<div class="mb-3">${timelinessBadge}</div>` : ''}
+        
+        ${doc.feedback ? `
+            <div class="bg-gray-50 p-3 rounded text-sm text-gray-700 mb-3">
+                <strong>Feedback:</strong> ${doc.feedback}
+            </div>
+        ` : ''}
+        
+        <div class="flex space-x-2">
+            <button onclick="viewDocument('${doc.file_path}')" 
+                    class="flex-1 inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <i class="fas fa-eye mr-1"></i>
+                View
+            </button>
+            ${doc.status === 'pending' ? `
+                <button onclick="approveDocument(${doc.id}, '${doc.original_filename}', '${doc.first_name} ${doc.last_name}')" 
+                        class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700">
+                    <i class="fas fa-check mr-1"></i>
+                    Approve
+                </button>
+                <button onclick="rejectDocument(${doc.id}, '${doc.original_filename}', '${doc.first_name} ${doc.last_name}')" 
+                        class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700">
+                    <i class="fas fa-times mr-1"></i>
+                    Reject
+                </button>
+            ` : ''}
+        </div>
+    `;
 
-           return card;
-       }
+    return card;
+}
 
        function updateDeploymentButton(allRequirementsMet) {
            const button = document.getElementById('deployButton');

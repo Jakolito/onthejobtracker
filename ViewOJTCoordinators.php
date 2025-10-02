@@ -299,6 +299,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         /* Custom animations and styles for features not in Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;

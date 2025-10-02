@@ -115,7 +115,7 @@ $system_alerts = [];
 $attendance_alerts = [];
 $assessment_alerts = [];  // ADD THIS LINE
 $all_alerts = [];
-
+$document_alerts = [];  // ADD THIS LINE
 try {
     // 1. TASK-RELATED ALERTS - Modified with resolved check
     $overdue_tasks_query = "
@@ -660,6 +660,165 @@ if (!$assessment_result) {
         ];
     }
 }
+// 5. DOCUMENT REQUIREMENT ALERTS - Add this new section
+// 5. DOCUMENT REQUIREMENT ALERTS - IMPROVED VERSION
+// 5. DOCUMENT REQUIREMENT ALERTS - FIXED for pre-deployment students
+$document_alerts = [];
+
+$document_deadline_query = "
+    SELECT 
+        s.first_name,
+        s.last_name,
+        s.student_id,
+        s.email,
+        s.id as student_db_id,
+        dr.name as document_name,
+        dr.id as document_id,
+        dr.submission_deadline,
+        dr.is_required,
+        sd.status as submission_status,
+        sd.submitted_at,
+        DATEDIFF(dr.submission_deadline, CURDATE()) as days_until_deadline,
+        DATEDIFF(CURDATE(), dr.submission_deadline) as days_overdue,
+        CASE
+            WHEN sd.id IS NULL AND dr.submission_deadline < CURDATE() THEN 'overdue_missing'
+            WHEN sd.id IS NULL AND dr.submission_deadline >= CURDATE() THEN 'not_submitted'
+            WHEN sd.status = 'rejected' AND dr.submission_deadline < CURDATE() THEN 'overdue_rejected'
+            WHEN sd.status = 'rejected' AND dr.submission_deadline >= CURDATE() THEN 'resubmission_needed'
+            ELSE NULL
+        END as alert_category,
+        ra.resolved_at,
+        TIMESTAMPDIFF(HOUR, ra.resolved_at, NOW()) as hours_since_resolved
+    FROM students s
+    CROSS JOIN document_requirements dr
+    LEFT JOIN student_documents sd ON s.id = sd.student_id AND dr.id = sd.document_id
+    LEFT JOIN resolved_alerts ra ON s.id = ra.student_id 
+        AND ra.alert_type LIKE CONCAT('%', dr.name, '%')
+        AND ra.alert_type LIKE '%Document%'
+    WHERE s.verified = 1
+    AND s.status = 'Active'
+    AND dr.submission_deadline IS NOT NULL
+    AND (
+        -- Show if never resolved OR resolved more than 7 days ago
+        ra.id IS NULL 
+        OR TIMESTAMPDIFF(HOUR, ra.resolved_at, NOW()) >= 168
+    )
+    AND (
+        -- Missing documents (any time before deadline)
+        (sd.id IS NULL AND dr.submission_deadline >= CURDATE())
+        -- Overdue missing documents
+        OR (sd.id IS NULL AND dr.submission_deadline < CURDATE())
+        -- Rejected documents (any time before deadline)
+        OR (sd.status = 'rejected' AND dr.submission_deadline >= CURDATE())
+        -- Overdue rejected documents
+        OR (sd.status = 'rejected' AND dr.submission_deadline < CURDATE())
+    )
+    ORDER BY 
+        CASE
+            -- Critical: Overdue
+            WHEN dr.submission_deadline < CURDATE() THEN 1
+            -- High: Within 7 days
+            WHEN DATEDIFF(dr.submission_deadline, CURDATE()) <= 7 THEN 2
+            -- Medium: Within 14 days
+            WHEN DATEDIFF(dr.submission_deadline, CURDATE()) <= 14 THEN 3
+            -- Low: More than 14 days
+            ELSE 4
+        END,
+        dr.submission_deadline ASC
+";
+
+$document_result = mysqli_query($conn, $document_deadline_query);
+
+if (!$document_result) {
+    error_log("Document deadline alerts query error: " . mysqli_error($conn));
+} else {
+    while ($row = mysqli_fetch_assoc($document_result)) {
+        $severity = 'warning';
+        $alert_type = '';
+        $details = '';
+        $action_needed = '';
+        
+        // Determine severity based on days until deadline
+        if ($row['days_overdue'] > 0) {
+            $severity = 'critical';
+        } elseif ($row['days_until_deadline'] <= 3) {
+            $severity = 'critical';
+        } elseif ($row['days_until_deadline'] <= 7) {
+            $severity = 'warning';
+        }
+        
+        switch($row['alert_category']) {
+            case 'overdue_missing':
+                $alert_type = 'Document Overdue - Not Submitted';
+                $details = "'{$row['document_name']}' was due " . abs($row['days_overdue']) . " day(s) ago - STILL NOT SUBMITTED";
+                $action_needed = 'URGENT: Contact student immediately';
+                break;
+                
+            case 'not_submitted':
+                if ($row['days_until_deadline'] <= 3) {
+                    $alert_type = 'Document Deadline Critical';
+                    $details = "'{$row['document_name']}' due in {$row['days_until_deadline']} day(s) - NOT YET SUBMITTED";
+                    $action_needed = 'URGENT: Remind student immediately';
+                } elseif ($row['days_until_deadline'] <= 7) {
+                    $alert_type = 'Document Deadline Approaching';
+                    $details = "'{$row['document_name']}' due in {$row['days_until_deadline']} day(s) - NOT YET SUBMITTED";
+                    $action_needed = 'Remind student to submit document';
+                } else {
+                    $alert_type = 'Document Pending Submission';
+                    $details = "'{$row['document_name']}' due in {$row['days_until_deadline']} day(s) - NOT YET SUBMITTED";
+                    $action_needed = 'Monitor and remind student';
+                }
+                break;
+                
+            case 'overdue_rejected':
+                $alert_type = 'Rejected Document Overdue';
+                $details = "'{$row['document_name']}' was rejected - resubmission overdue by " . abs($row['days_overdue']) . " day(s)";
+                $action_needed = 'URGENT: Follow up on resubmission immediately';
+                break;
+                
+            case 'resubmission_needed':
+                if ($row['days_until_deadline'] <= 3) {
+                    $alert_type = 'Document Resubmission Critical';
+                    $severity = 'critical';
+                } else {
+                    $alert_type = 'Document Resubmission Due Soon';
+                }
+                $details = "'{$row['document_name']}' was rejected - resubmission due in {$row['days_until_deadline']} day(s)";
+                $action_needed = 'Remind student to resubmit corrected document';
+                break;
+        }
+        
+        $additional_info = 'Deadline: ' . date('M j, Y', strtotime($row['submission_deadline']));
+        if ($row['is_required']) {
+            $additional_info .= ' | ⚠️ REQUIRED DOCUMENT';
+        }
+        if ($row['submitted_at']) {
+            $additional_info .= ' | Previous submission: ' . date('M j, Y', strtotime($row['submitted_at']));
+        }
+        if ($row['resolved_at'] && $row['hours_since_resolved'] > 0) {
+            $days_since = floor($row['hours_since_resolved'] / 24);
+            $additional_info .= " | Last reminded: {$days_since} day(s) ago";
+        }
+        
+        $document_alerts[] = [
+            'student_name' => $row['first_name'] . ' ' . $row['last_name'],
+            'student_id' => $row['student_id'],
+            'student_email' => $row['email'],
+            'student_db_id' => $row['student_db_id'],
+            'type' => $alert_type,
+            'severity' => $severity,
+            'details' => $details,
+            'additional_info' => $additional_info,
+            'date_detected' => date('M j, Y'),
+            'raw_date' => date('Y-m-d H:i:s'),
+            'action_needed' => $action_needed,
+            'document_id' => $row['document_id'],
+            'document_name' => $row['document_name'],
+            'days_until_deadline' => $row['days_until_deadline'],
+            'days_overdue' => $row['days_overdue']
+        ];
+    }
+}
     // 4. SYSTEM-RELATED ALERTS - Modified with resolved check
     $inactive_students_query = "
         SELECT 
@@ -698,8 +857,26 @@ if (!$assessment_result) {
     }
 
     // Combine all alerts and sort
-$all_alerts = array_merge($task_alerts, $attendance_alerts, $performance_alerts, $system_alerts, $assessment_alerts);
-    
+$all_alerts = array_merge($task_alerts, $attendance_alerts, $performance_alerts, $system_alerts, $assessment_alerts, $document_alerts);
+$alerts_per_page = 10;
+$current_page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$total_alerts = count($all_alerts);
+$critical_alerts = count(array_filter($all_alerts, function($alert) { 
+    return $alert['severity'] === 'critical'; 
+}));
+$warning_alerts = count(array_filter($all_alerts, function($alert) { 
+    return $alert['severity'] === 'warning'; 
+}));
+$info_alerts = count(array_filter($all_alerts, function($alert) { 
+    return $alert['severity'] === 'info'; 
+}));
+// Calculate pagination
+$total_alerts_original = count($all_alerts);
+$total_pages = ceil($total_alerts_original / $alerts_per_page);
+$offset = ($current_page - 1) * $alerts_per_page;
+
+// Slice the alerts array for current page
+$paginated_alerts = array_slice($all_alerts, $offset, $alerts_per_page);
     // Sort by severity and date
     usort($all_alerts, function($a, $b) {
         $severity_order = ['critical' => 1, 'warning' => 2, 'info' => 3];
@@ -713,8 +890,7 @@ $all_alerts = array_merge($task_alerts, $attendance_alerts, $performance_alerts,
     $error_message = "Error fetching alerts: " . $e->getMessage();
 }
 // Get alert counts
-$total_alerts = count($all_alerts);
-$critical_alerts = count(array_filter($all_alerts, function($alert) { return $alert['severity'] === 'critical'; }));
+$total_alerts = $total_alerts_original; // Ginamit yung variable from pagination$critical_alerts = count(array_filter($all_alerts, function($alert) { return $alert['severity'] === 'critical'; }));
 $warning_alerts = count(array_filter($all_alerts, function($alert) { return $alert['severity'] === 'warning'; }));
 $info_alerts = count(array_filter($all_alerts, function($alert) { return $alert['severity'] === 'info'; }));
 
@@ -724,6 +900,7 @@ $attendance_count = count($attendance_alerts);
 $performance_count = count($performance_alerts);
 $system_count = count($system_alerts);
 $assessment_count = count($assessment_alerts);  // ADD THIS LINE
+$document_count = count($document_alerts);  // This should be here
 
 // Create adviser initials
 $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
@@ -776,6 +953,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         /* Custom CSS for enhanced features */
         .sidebar {
             transition: transform 0.3s ease-in-out;
@@ -1067,6 +1264,17 @@ tailwind.config = {
             </div>
         </div>
     </div>
+    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+    <div class="flex items-center">
+        <div class="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+            <i class="fas fa-file-alt text-orange-600 text-xl"></i>
+        </div>
+        <div class="ml-4">
+            <h4 class="text-lg font-semibold text-gray-900">Document Issues</h4>
+            <p class="text-sm text-gray-600"><?php echo $document_count; ?> alerts</p>
+        </div>
+    </div>
+</div>
 
     <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
         <div class="flex items-center">
@@ -1105,18 +1313,7 @@ tailwind.config = {
         </div>
     </div>
 
-    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
-        <div class="flex items-center">
-            <div class="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                <i class="fas fa-desktop text-orange-600 text-xl"></i>
-            </div>
-            <div class="ml-4">
-                <h4 class="text-lg font-semibold text-gray-900">System Issues</h4>
-                <p class="text-sm text-gray-600"><?php echo $system_count; ?> alerts</p>
-            </div>
-        </div>
-    </div>
-
+    
                 
             </div>
 
@@ -1143,128 +1340,200 @@ tailwind.config = {
     <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="warning">
         <i class="fas fa-exclamation-circle mr-2"></i> Warning
     </button>
-    <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="assessment">
-    <i class="fas fa-heart-pulse mr-2"></i> Assessment
-</button>
 
 </div>
                     </div>
                     
                     <div class="flex flex-wrap gap-2">
-                        <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="task">
-                            <i class="fas fa-tasks mr-2"></i> Task Issues
-                        </button>
-                        <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="attendance">
-                            <i class="fas fa-calendar-check mr-2"></i> Attendance
-                        </button>
-                        <button class="filter-btn flex items-center px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors" data-filter="performance">
-                            <i class="fas fa-chart-line mr-2"></i> Performance
-                        </button>
+                       
                        
                     </div>
                 </div>
             </div>
 
             <!-- Alerts Table -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-                <?php if ($total_alerts > 0): ?>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="w-4 px-6 py-3"></th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Information</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Type</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Detected</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="alertsTableBody" class="bg-white divide-y divide-gray-200">
-                                <?php foreach ($all_alerts as $index => $alert): 
-                                    // Determine category for filtering
-                                    $category = 'system';
-if (strpos($alert['type'], 'Task') !== false || strpos($alert['type'], 'Submission') !== false || strpos($alert['type'], 'Rejection') !== false) {
-    $category = 'task';
-} elseif (strpos($alert['type'], 'Attendance') !== false || strpos($alert['type'], 'Absence') !== false || strpos($alert['type'], 'Tardiness') !== false) {
-    $category = 'attendance';
-} elseif (strpos($alert['type'], 'Performance') !== false || strpos($alert['type'], 'Evaluation') !== false) {
-    $category = 'performance';
-} elseif (strpos($alert['type'], 'stress') !== false || strpos($alert['type'], 'Assessment') !== false) {
-    $category = 'assessment';
-}
-                                    
-                                    $severityColor = '';
-                                    switch($alert['severity']) {
-                                        case 'critical':
-                                            $severityColor = 'bg-red-500';
-                                            break;
-                                        case 'warning':
-                                            $severityColor = 'bg-yellow-500';
-                                            break;
-                                        case 'info':
-                                            $severityColor = 'bg-blue-500';
-                                            break;
-                                    }
-                                ?>
-                                    <tr class="alert-row hover:bg-gray-50 transition-colors" 
-                                        data-severity="<?php echo $alert['severity']; ?>"
-                                        data-type="<?php echo $alert['type']; ?>"
-                                        data-category="<?php echo $category; ?>"
-                                        data-student-id="<?php echo $alert['student_db_id']; ?>">
-                                        <td class="px-6 py-4">
-                                            <div class="w-3 h-3 rounded-full <?php echo $severityColor; ?>"></div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center">
-                                                <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                                                    <?php echo strtoupper(substr($alert['student_name'], 0, 1)); ?>
-                                                </div>
-                                                <div class="ml-4">
-                                                    <h4 class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($alert['student_name']); ?></h4>
-                                                    <p class="text-sm text-gray-600"><?php echo htmlspecialchars($alert['student_id']); ?> • <?php echo htmlspecialchars($alert['student_email']); ?></p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
-                                                <?php echo $alert['severity'] === 'critical' ? 'bg-red-100 text-red-800' : 
-                                                         ($alert['severity'] === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'); ?>">
-                                                <?php echo htmlspecialchars($alert['type']); ?>
-                                            </span>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="text-sm text-gray-900"><?php echo htmlspecialchars($alert['details']); ?></div>
-                                            <?php if (isset($alert['additional_info'])): ?>
-                                                <div class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($alert['additional_info']); ?></div>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td class="px-6 py-4 text-sm text-gray-500">
-                                            <?php echo htmlspecialchars($alert['date_detected']); ?>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex space-x-2">
-                                                <button onclick="showNotificationModal(<?php echo $alert['student_db_id']; ?>, '<?php echo addslashes($alert['student_name']); ?>', '<?php echo addslashes($alert['type']); ?>', '<?php echo addslashes($alert['details']); ?>')"
-                                                        class="inline-flex items-center px-3 py-2 text-xs font-medium text-blue-600 bg-blue-100 rounded-md hover:bg-blue-200 transition-colors">
-                                                    <i class="fas fa-bell mr-1"></i> Notify
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php else: ?>
-                    <div class="text-center py-12">
-                        <i class="fas fa-check-circle text-green-500 text-6xl mb-4"></i>
-                        <h3 class="text-xl font-semibold text-gray-900 mb-2">No Active Alerts</h3>
-                        <p class="text-gray-600">Excellent! All students are performing well with no critical issues detected.</p>
-                    </div>
-                <?php endif; ?>
-            </div>
+            <!-- Alerts Table -->
+<div class="bg-white rounded-lg shadow-sm border border-gray-200">
+    <?php if ($total_alerts > 0): ?>
+        <!-- ========== BAGONG ALERT COUNT DISPLAY ========== -->
+        <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+            <p class="text-sm text-gray-600">
+                Showing <span class="font-semibold"><?php echo $offset + 1; ?></span> to 
+                <span class="font-semibold"><?php echo min($offset + $alerts_per_page, $total_alerts); ?></span> of 
+                <span class="font-semibold"><?php echo $total_alerts; ?></span> alerts
+            </p>
         </div>
-    </div>
+        <!-- ========== END ========== -->
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="w-4 px-6 py-3"></th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Information</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Type</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Detected</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="alertsTableBody" class="bg-white divide-y divide-gray-200">
+                    <!-- ========== IMPORTANTE: PALITAN ANG $all_alerts ng $paginated_alerts ========== -->
+                    <?php foreach ($paginated_alerts as $index => $alert): 
+                        // Determine category for filtering
+                        $category = 'system';
+                        if (strpos($alert['type'], 'Task') !== false || strpos($alert['type'], 'Submission') !== false || strpos($alert['type'], 'Rejection') !== false) {
+                            $category = 'task';
+                        } elseif (strpos($alert['type'], 'Attendance') !== false || strpos($alert['type'], 'Absence') !== false || strpos($alert['type'], 'Tardiness') !== false) {
+                            $category = 'attendance';
+                        } elseif (strpos($alert['type'], 'Performance') !== false || strpos($alert['type'], 'Evaluation') !== false) {
+                            $category = 'performance';
+                        } elseif (strpos($alert['type'], 'stress') !== false || strpos($alert['type'], 'Assessment') !== false) {
+                            $category = 'assessment';
+                        } else if (strpos($alert['type'], 'Document') !== false || strpos($alert['type'], 'Resubmission') !== false) {
+                            $category = 'document';
+                        }
+                        
+                        $severityColor = '';
+                        switch($alert['severity']) {
+                            case 'critical':
+                                $severityColor = 'bg-red-500';
+                                break;
+                            case 'warning':
+                                $severityColor = 'bg-yellow-500';
+                                break;
+                            case 'info':
+                                $severityColor = 'bg-blue-500';
+                                break;
+                        }
+                    ?>
+                        <tr class="alert-row hover:bg-gray-50 transition-colors" 
+                            data-severity="<?php echo $alert['severity']; ?>"
+                            data-type="<?php echo $alert['type']; ?>"
+                            data-category="<?php echo $category; ?>"
+                            data-student-id="<?php echo $alert['student_db_id']; ?>">
+                            <td class="px-6 py-4">
+                                <div class="w-3 h-3 rounded-full <?php echo $severityColor; ?>"></div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                        <?php echo strtoupper(substr($alert['student_name'], 0, 1)); ?>
+                                    </div>
+                                    <div class="ml-4">
+                                        <h4 class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($alert['student_name']); ?></h4>
+                                        <p class="text-sm text-gray-600"><?php echo htmlspecialchars($alert['student_id']); ?> • <?php echo htmlspecialchars($alert['student_email']); ?></p>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                                    <?php echo $alert['severity'] === 'critical' ? 'bg-red-100 text-red-800' : 
+                                             ($alert['severity'] === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'); ?>">
+                                    <?php echo htmlspecialchars($alert['type']); ?>
+                                </span>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($alert['details']); ?></div>
+                                <?php if (isset($alert['additional_info'])): ?>
+                                    <div class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($alert['additional_info']); ?></div>
+                                <?php endif; ?>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-500">
+                                <?php echo htmlspecialchars($alert['date_detected']); ?>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex space-x-2">
+                                    <button onclick="showNotificationModal(<?php echo $alert['student_db_id']; ?>, '<?php echo addslashes($alert['student_name']); ?>', '<?php echo addslashes($alert['type']); ?>', '<?php echo addslashes($alert['details']); ?>')"
+                                            class="inline-flex items-center px-3 py-2 text-xs font-medium text-blue-600 bg-blue-100 rounded-md hover:bg-blue-200 transition-colors">
+                                        <i class="fas fa-bell mr-1"></i> Notify
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ========== BAGONG PAGINATION CONTROLS - IDAGDAG BAGO MAGSARA ANG TABLE DIV ========== -->
+        <?php if ($total_pages > 1): ?>
+            <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <!-- Page info -->
+                    <div class="text-sm text-gray-700">
+                        Page <span class="font-semibold"><?php echo $current_page; ?></span> of 
+                        <span class="font-semibold"><?php echo $total_pages; ?></span>
+                    </div>
+
+                    <!-- Pagination buttons -->
+                    <div class="flex items-center space-x-2">
+                        <!-- First page -->
+                        <?php if ($current_page > 1): ?>
+                            <a href="?page=1" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-angle-double-left"></i>
+                            </a>
+                        <?php endif; ?>
+
+                        <!-- Previous page -->
+                        <?php if ($current_page > 1): ?>
+                            <a href="?page=<?php echo $current_page - 1; ?>" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-angle-left"></i> Previous
+                            </a>
+                        <?php endif; ?>
+
+                        <!-- Page numbers -->
+                        <?php
+                        $start_page = max(1, $current_page - 2);
+                        $end_page = min($total_pages, $current_page + 2);
+                        
+                        for ($i = $start_page; $i <= $end_page; $i++): ?>
+                            <a href="?page=<?php echo $i; ?>" 
+                               class="px-3 py-2 text-sm font-medium rounded-md transition-colors <?php echo $i === $current_page ? 'bg-blue-600 text-white' : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'; ?>">
+                                <?php echo $i; ?>
+                            </a>
+                        <?php endfor; ?>
+
+                        <!-- Next page -->
+                        <?php if ($current_page < $total_pages): ?>
+                            <a href="?page=<?php echo $current_page + 1; ?>" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                                Next <i class="fas fa-angle-right"></i>
+                            </a>
+                        <?php endif; ?>
+
+                        <!-- Last page -->
+                        <?php if ($current_page < $total_pages): ?>
+                            <a href="?page=<?php echo $total_pages; ?>" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-angle-double-right"></i>
+                            </a>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Quick page jump -->
+                    <div class="flex items-center space-x-2">
+                        <label for="pageJump" class="text-sm text-gray-700">Go to:</label>
+                        <select id="pageJump" onchange="if(this.value) window.location.href='?page='+this.value;" 
+                                class="px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                <option value="<?php echo $i; ?>" <?php echo $i === $current_page ? 'selected' : ''; ?>>
+                                    Page <?php echo $i; ?>
+                                </option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+        <!-- ========== END PAGINATION ========== -->
+
+    <?php else: ?>
+        <div class="text-center py-12">
+            <i class="fas fa-check-circle text-green-500 text-6xl mb-4"></i>
+            <h3 class="text-xl font-semibold text-gray-900 mb-2">No Active Alerts</h3>
+            <p class="text-gray-600">Excellent! All students are performing well with no critical issues detected.</p>
+        </div>
+    <?php endif; ?>
+</div>
 
     <!-- Notification Modal -->
     <div id="notificationModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
@@ -1626,6 +1895,15 @@ function showNotificationModal(studentId, studentName, alertType, alertDetails, 
         case 'System Inactivity':
             messageContent = `Hi ${studentName}, You haven't logged into the system for ${alertDetails.toLowerCase()}. You might be missing important updates. Please contact me if you need help with password reset, technical support, or system navigation. Let's ensure you stay connected. Your Academic Adviser`;
             break;
+        case 'Document Overdue - Not Submitted':
+case 'Document Deadline Approaching':
+    messageContent = `Hi ${studentName}, I'm following up regarding the document requirement: ${alertDetails}. Submitting all required documents on time is essential for your OJT completion. Please upload the document as soon as possible or contact me if you're experiencing any issues with the submission. I'm here to help if you need guidance. Your Academic Adviser`;
+    break;
+    
+case 'Rejected Document Overdue':
+case 'Document Resubmission Due Soon':
+    messageContent = `Hi ${studentName}, Your document submission was rejected and needs to be corrected: ${alertDetails}. Please review the feedback provided, make the necessary corrections, and resubmit before the deadline. Contact me if you need clarification on what needs to be fixed. Let's ensure your documents meet the requirements. Your Academic Adviser`;
+    break;
             
         default:
             messageContent = `Hi ${studentName}, I'm reaching out regarding: ${alertDetails}. Please contact me within 48 hours so we can discuss this matter and provide any support you need. I'm here to help you succeed in your OJT program. Your Academic Adviser`;
@@ -1907,6 +2185,14 @@ function unresolveAlert(button) {
                 }
             }
         });
+        document.addEventListener('DOMContentLoaded', function() {
+    const pageLinks = document.querySelectorAll('a[href^="?page="]');
+    pageLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    });
+});
     </script>
 </body>
 </html>

@@ -24,73 +24,74 @@ $message_type = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
-            case 'add_document':
-                $document_name = trim($_POST['document_name']);
-                $document_description = trim($_POST['document_description']);
-                $is_required = isset($_POST['is_required']) ? 1 : 0;
-                
-                if (!empty($document_name)) {
-                    try {
-                        $stmt = $conn->prepare("INSERT INTO document_requirements (name, description, is_required, created_by, created_at) VALUES (?, ?, ?, ?, NOW())");
-                        if (!$stmt) {
-                            throw new Exception("Prepare failed: " . $conn->error);
-                        }
-                        
-                        $stmt->bind_param("ssis", $document_name, $document_description, $is_required, $adviser_id);
-                        
-                        if ($stmt->execute()) {
-                            $message = "Document requirement '{$document_name}' has been added successfully.";
-                            $message_type = 'success';
-                        } else {
-                            throw new Exception("Execute failed: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    } catch (Exception $e) {
-                        $message = "Database error: " . $e->getMessage();
-                        $message_type = 'error';
-                    }
+            
+case 'add_document':
+    $document_name = trim($_POST['document_name']);
+    $document_description = trim($_POST['document_description']);
+    $is_required = isset($_POST['is_required']) ? 1 : 0;
+    $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
+    
+    if (!empty($document_name)) {
+        try {
+            $stmt = $conn->prepare("INSERT INTO document_requirements (name, description, is_required, submission_deadline, created_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+            if (!$stmt) {
+                throw new Exception("Prepare failed: " . $conn->error);
+            }
+            
+            $stmt->bind_param("ssisi", $document_name, $document_description, $is_required, $submission_deadline, $adviser_id);
+            
+            if ($stmt->execute()) {
+                $message = "Document requirement '{$document_name}' has been added successfully.";
+                $message_type = 'success';
+            } else {
+                throw new Exception("Execute failed: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $message = "Database error: " . $e->getMessage();
+            $message_type = 'error';
+        }
+    } else {
+        $message = "Document name is required.";
+        $message_type = 'error';
+    }
+    break;
+
+// Also update the edit_document case
+case 'edit_document':
+    $doc_id = intval($_POST['doc_id']);
+    $document_name = trim($_POST['document_name']);
+    $document_description = trim($_POST['document_description']);
+    $is_required = isset($_POST['is_required']) ? 1 : 0;
+    $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
+    
+    if (!empty($document_name) && $doc_id > 0) {
+        try {
+            $stmt = $conn->prepare("UPDATE document_requirements SET name = ?, description = ?, is_required = ?, submission_deadline = ? WHERE id = ?");
+            if (!$stmt) {
+                throw new Exception("Prepare update failed: " . $conn->error);
+            }
+            
+            $stmt->bind_param("ssisi", $document_name, $document_description, $is_required, $submission_deadline, $doc_id);
+            
+            if ($stmt->execute()) {
+                if ($stmt->affected_rows > 0) {
+                    $message = "Document requirement has been updated successfully.";
+                    $message_type = 'success';
                 } else {
-                    $message = "Document name is required.";
-                    $message_type = 'error';
+                    $message = "No changes were made to the document requirement.";
+                    $message_type = 'info';
                 }
-                break;
-                
-            case 'edit_document':
-                $doc_id = intval($_POST['doc_id']);
-                $document_name = trim($_POST['document_name']);
-                $document_description = trim($_POST['document_description']);
-                $is_required = isset($_POST['is_required']) ? 1 : 0;
-                
-                if (!empty($document_name) && $doc_id > 0) {
-                    try {
-                        $stmt = $conn->prepare("UPDATE document_requirements SET name = ?, description = ?, is_required = ? WHERE id = ?");
-                        if (!$stmt) {
-                            throw new Exception("Prepare update failed: " . $conn->error);
-                        }
-                        
-                        $stmt->bind_param("ssii", $document_name, $document_description, $is_required, $doc_id);
-                        
-                        if ($stmt->execute()) {
-                            if ($stmt->affected_rows > 0) {
-                                $message = "Document requirement has been updated successfully.";
-                                $message_type = 'success';
-                            } else {
-                                $message = "No changes were made to the document requirement.";
-                                $message_type = 'info';
-                            }
-                        } else {
-                            throw new Exception("Execute update failed: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    } catch (Exception $e) {
-                        $message = "Database error: " . $e->getMessage();
-                        $message_type = 'error';
-                    }
-                } else {
-                    $message = "Document name is required and valid ID must be provided.";
-                    $message_type = 'error';
-                }
-                break;
+            } else {
+                throw new Exception("Execute update failed: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $message = "Database error: " . $e->getMessage();
+            $message_type = 'error';
+        }
+    }
+    break;
                 
             case 'toggle_requirement':
                 $doc_id = intval($_POST['doc_id']);
@@ -215,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Fetch all document requirements from database
 $documents = [];
 try {
-    $stmt = $conn->prepare("SELECT id, name, description, is_required, created_at, created_by FROM document_requirements ORDER BY created_at DESC");
+        $stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at, created_by FROM document_requirements ORDER BY created_at DESC");
     if (!$stmt) {
         throw new Exception("Prepare select failed: " . $conn->error);
     }
@@ -283,6 +284,26 @@ tailwind.config = {
 }
 </script>
     <style>
+         .activity-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .notification-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            margin-left: 8px;
+            background: #EF4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 10px;
+            animation: pulse 2s infinite;
+        }
         /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
@@ -536,49 +557,55 @@ tailwind.config = {
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <?php foreach ($documents as $doc): ?>
-                                    <tr data-doc-id="<?php echo $doc['id']; ?>" class="hover:bg-gray-50">
-                                        <td class="px-6 py-4">
-                                            <div>
-                                                <div class="flex items-center">
-                                                    <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($doc['name']); ?></div>
-                                                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $doc['is_required'] ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'; ?>">
-                                                        <?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?>
-                                                    </span>
-                                                </div>
-                                                <?php if (!empty($doc['description'])): ?>
-                                                    <div class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($doc['description']); ?></div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4">
-                                            <div class="flex items-center space-x-3">
-                                                <div class="toggle-switch <?php echo $doc['is_required'] ? 'active' : ''; ?>" 
-                                                     onclick="toggleRequirement(<?php echo $doc['id']; ?>)">
-                                                    <div class="toggle-slider"></div>
-                                                </div>
-                                                <span class="status-text text-sm text-gray-700"><?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4 text-sm text-gray-500">
-                                            <?php echo date('M j, Y', strtotime($doc['created_at'])); ?>
-                                        </td>
-                                        <td class="px-6 py-4 text-right text-sm font-medium">
-                                            <div class="flex items-center justify-end space-x-2">
-                                                <button onclick="editDocument(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($doc['description'], ENT_QUOTES); ?>', <?php echo $doc['is_required'] ? 'true' : 'false'; ?>)"
-                                                        class="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 transition-colors">
-                                                    <i class="fas fa-edit mr-1"></i>
-                                                    Edit
-                                                </button>
-                                                <button onclick="deleteDocument(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
-                                                        class="inline-flex items-center px-3 py-1 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-700 transition-colors">
-                                                    <i class="fas fa-trash mr-1"></i>
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
+                               <?php foreach ($documents as $doc): ?>
+    <tr data-doc-id="<?php echo $doc['id']; ?>" class="hover:bg-gray-50">
+        <td class="px-6 py-4">
+            <div>
+                <div class="flex items-center">
+                    <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($doc['name']); ?></div>
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $doc['is_required'] ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'; ?>">
+                        <?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?>
+                    </span>
+                </div>
+                <?php if (!empty($doc['description'])): ?>
+                    <div class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($doc['description']); ?></div>
+                <?php endif; ?>
+                <?php if (!empty($doc['submission_deadline'])): ?>
+                    <div class="text-xs text-blue-600 mt-1">
+                        <i class="fas fa-calendar-alt mr-1"></i>
+                        Deadline: <?php echo date('M j, Y', strtotime($doc['submission_deadline'])); ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </td>
+        <td class="px-6 py-4">
+            <div class="flex items-center space-x-3">
+                <div class="toggle-switch <?php echo $doc['is_required'] ? 'active' : ''; ?>" 
+                     onclick="toggleRequirement(<?php echo $doc['id']; ?>)">
+                    <div class="toggle-slider"></div>
+                </div>
+                <span class="status-text text-sm text-gray-700"><?php echo $doc['is_required'] ? 'Required' : 'Optional'; ?></span>
+            </div>
+        </td>
+        <td class="px-6 py-4 text-sm text-gray-500">
+            <?php echo date('M j, Y', strtotime($doc['created_at'])); ?>
+        </td>
+        <td class="px-6 py-4 text-right text-sm font-medium">
+            <div class="flex items-center justify-end space-x-2">
+                <button onclick="editDocument(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($doc['description'], ENT_QUOTES); ?>', <?php echo $doc['is_required'] ? 'true' : 'false'; ?>, '<?php echo htmlspecialchars($doc['submission_deadline'] ?? '', ENT_QUOTES); ?>')"
+                        class="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-edit mr-1"></i>
+                    Edit
+                </button>
+                <button onclick="deleteDocument(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
+                        class="inline-flex items-center px-3 py-1 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-700 transition-colors">
+                    <i class="fas fa-trash mr-1"></i>
+                    Delete
+                </button>
+            </div>
+        </td>
+    </tr>
+<?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
@@ -588,104 +615,119 @@ tailwind.config = {
     </div>
 
     <!-- Add Document Modal -->
-    <div id="addDocumentModal" class="fixed inset-0 z-50 hidden">
-        <div class="fixed inset-0 bg-black bg-opacity-50"></div>
-        <div class="fixed inset-0 flex items-center justify-center p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-                <div class="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-medium text-gray-900">Add Document Requirement</h3>
-                    <button onclick="closeAddModal()" class="text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times text-xl"></i>
+<div id="addDocumentModal" class="fixed inset-0 z-50 hidden">
+    <div class="fixed inset-0 bg-black bg-opacity-50"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Add Document Requirement</h3>
+                <button onclick="closeAddModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="addDocumentForm" method="POST" class="p-6">
+                <input type="hidden" name="action" value="add_document">
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Document Name *</label>
+                    <input type="text" name="document_name" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                    <textarea name="document_description" rows="3"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Brief description of the document requirement"></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Submission Deadline</label>
+                    <input type="date" name="submission_deadline"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Leave empty if no deadline</p>
+                </div>
+                
+                <div class="mb-6">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="is_required" checked
+                               class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">This document is required</span>
+                    </label>
+                </div>
+                
+                <div class="flex items-center justify-end space-x-3">
+                    <button type="button" onclick="closeAddModal()" 
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors">
+                        Add Document
                     </button>
                 </div>
-                <form id="addDocumentForm" method="POST" class="p-6">
-                    <input type="hidden" name="action" value="add_document">
-                    
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Document Name *</label>
-                        <input type="text" name="document_name" required
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                        <textarea name="document_description" rows="3"
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  placeholder="Brief description of the document requirement"></textarea>
-                    </div>
-                    
-                    <div class="mb-6">
-                        <label class="flex items-center">
-                            <input type="checkbox" name="is_required" checked
-                                   class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                            <span class="ml-2 text-sm text-gray-700">This document is required</span>
-                        </label>
-                    </div>
-                    
-                    <div class="flex items-center justify-end space-x-3">
-                        <button type="button" onclick="closeAddModal()" 
-                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">
-                            Cancel
-                        </button>
-                        <button type="submit"
-                                class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors">
-                            Add Document
-                        </button>
-                    </div>
-                </form>
-            </div>
+            </form>
         </div>
     </div>
+</div>
+
 
     <!-- Edit Document Modal -->
     <div id="editDocumentModal" class="fixed inset-0 z-50 hidden">
-        <div class="fixed inset-0 bg-black bg-opacity-50"></div>
-        <div class="fixed inset-0 flex items-center justify-center p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-                <div class="flex items-center justify-between p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-medium text-gray-900">Edit Document Requirement</h3>
-                    <button onclick="closeEditModal()" class="text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times text-xl"></i>
+    <div class="fixed inset-0 bg-black bg-opacity-50"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Edit Document Requirement</h3>
+                <button onclick="closeEditModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="editDocumentForm" method="POST" class="p-6">
+                <input type="hidden" name="action" value="edit_document">
+                <input type="hidden" name="doc_id" id="edit_doc_id">
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Document Name *</label>
+                    <input type="text" name="document_name" id="edit_document_name" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                    <textarea name="document_description" id="edit_document_description" rows="3"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Submission Deadline</label>
+                    <input type="date" name="submission_deadline" id="edit_submission_deadline"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Leave empty if no deadline</p>
+                </div>
+                
+                <div class="mb-6">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="is_required" id="edit_is_required"
+                               class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">This document is required</span>
+                    </label>
+                </div>
+                
+                <div class="flex items-center justify-end space-x-3">
+                    <button type="button" onclick="closeEditModal()" 
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+                        Update Document
                     </button>
                 </div>
-                <form id="editDocumentForm" method="POST" class="p-6">
-                    <input type="hidden" name="action" value="edit_document">
-                    <input type="hidden" name="doc_id" id="edit_doc_id">
-                    
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Document Name *</label>
-                        <input type="text" name="document_name" id="edit_document_name" required
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                        <textarea name="document_description" id="edit_document_description" rows="3"
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
-                    </div>
-                    
-                    <div class="mb-6">
-                        <label class="flex items-center">
-                            <input type="checkbox" name="is_required" id="edit_is_required"
-                                   class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                            <span class="ml-2 text-sm text-gray-700">This document is required</span>
-                        </label>
-                    </div>
-                    
-                    <div class="flex items-center justify-end space-x-3">
-                        <button type="button" onclick="closeEditModal()" 
-                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">
-                            Cancel
-                        </button>
-                        <button type="submit"
-                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
-                            Update Document
-                        </button>
-                    </div>
-                </form>
-            </div>
+            </form>
         </div>
     </div>
+</div>
 
     <!-- Delete Confirmation Modal -->
     <div id="deleteConfirmModal" class="fixed inset-0 z-50 hidden">
@@ -785,17 +827,17 @@ tailwind.config = {
             document.getElementById('addDocumentForm').reset();
         }
 
-        function editDocument(id, name, description, isRequired) {
-            document.getElementById('edit_doc_id').value = id;
-            document.getElementById('edit_document_name').value = name;
-            document.getElementById('edit_document_description').value = description;
-            document.getElementById('edit_is_required').checked = isRequired;
-            document.getElementById('editDocumentModal').classList.remove('hidden');
-            setTimeout(() => {
-                document.getElementById('edit_document_name').focus();
-            }, 100);
-        }
-
+        function editDocument(id, name, description, isRequired, deadline) {
+    document.getElementById('edit_doc_id').value = id;
+    document.getElementById('edit_document_name').value = name;
+    document.getElementById('edit_document_description').value = description;
+    document.getElementById('edit_is_required').checked = isRequired;
+    document.getElementById('edit_submission_deadline').value = deadline || '';
+    document.getElementById('editDocumentModal').classList.remove('hidden');
+    setTimeout(() => {
+        document.getElementById('edit_document_name').focus();
+    }, 100);
+}
         function closeEditModal() {
             document.getElementById('editDocumentModal').classList.add('hidden');
         }

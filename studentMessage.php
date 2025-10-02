@@ -416,6 +416,38 @@ tailwind.config = {
             0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
             30% { transform: translateY(-10px); opacity: 1; }
         }
+        /* Add these new styles */
+.message-bubble {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+@media (max-width: 1023px) {
+    body {
+        position: fixed;
+        width: 100%;
+        height: 100vh;
+        overflow: hidden;
+    }
+    
+    .main-content-wrapper {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+}
+
+.message-input-area {
+    position: relative;
+    z-index: 10;
+}
+
+@media (max-width: 640px) {
+    #messageInput {
+        font-size: 16px;
+    }
+}
     </style>
 </head>
 <body class="bg-gray-50">
@@ -580,9 +612,9 @@ tailwind.config = {
             <?php endif; ?>
 
             <!-- Messages Container -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 h-[calc(100vh-250px)] flex">
+ <div class="bg-white rounded-lg shadow-sm border border-gray-200 h-[calc(100vh-250px)] flex relative overflow-hidden">
                 <!-- Contacts Sidebar -->
-                <div class="w-80 border-r border-gray-200 flex flex-col" id="contactsSidebar">
+                <div class="w-full lg:w-80 border-r border-gray-200 flex flex-col lg:relative absolute inset-0 bg-white z-20 transition-transform duration-300" id="contactsSidebar">
                     <div class="p-4 border-b border-gray-200">
                         <button class="lg:hidden mb-3 p-2 text-gray-500 hover:text-gray-700" onclick="hideMobileContacts()" id="mobileBackBtn">
                             <i class="fas fa-arrow-left"></i>
@@ -632,8 +664,8 @@ tailwind.config = {
                     </div>
                 </div>
                 <!-- Chat Area -->
-                <div class="flex-1 flex flex-col" id="chatArea">
-                    <!-- Default State - No Contact Selected -->
+                <div class="flex-1 flex flex-col relative bg-gray-50" id="chatArea">
+                                        <!-- Default State - No Contact Selected -->
                     <div class="flex-1 flex items-center justify-center" id="defaultState">
                         <div class="text-center text-gray-500">
                             <i class="fas fa-comments text-6xl mb-4 opacity-30"></i>
@@ -833,8 +865,8 @@ tailwind.config = {
             }, 3000);
 
             // Hide contacts on mobile
-            if (window.innerWidth < 1024) {
-                document.getElementById('contactsSidebar').classList.add('hidden');
+           if (window.innerWidth < 1024) {
+                hideMobileContacts();
             }
         }
 
@@ -1002,15 +1034,17 @@ tailwind.config = {
                 if (data.success) {
                     messageInput.value = '';
                     messageInput.style.height = 'auto';
+                    // Show success notification
+                    showSuccessNotification('Message sent successfully!');
                     // Reload messages to show the new one
                     loadMessages(currentContact.id, currentContact.type, false);
                 } else {
-                    alert('Failed to send message: ' + (data.error || 'Unknown error'));
+                    showErrorNotification('Failed to send message: ' + (data.error || 'Unknown error'));
                 }
             })
             .catch(error => {
                 console.error('Error sending message:', error);
-                alert('Error sending message. Please try again.');
+                showErrorNotification('Error sending message. Please try again.');
             })
             .finally(() => {
                 // Re-enable input and button
@@ -1019,6 +1053,44 @@ tailwind.config = {
                 sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
                 messageInput.focus();
             });
+        }
+
+        function showSuccessNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-20 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-slide-in';
+            notification.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-check-circle"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.classList.add('animate-slide-out');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        function showErrorNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-20 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-slide-in';
+            notification.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.classList.add('animate-slide-out');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
         }
 
         function loadUnreadCounts() {
@@ -1102,11 +1174,15 @@ tailwind.config = {
         }
 
         function showMobileContacts() {
-            document.getElementById('contactsSidebar').classList.remove('hidden');
+            const sidebar = document.getElementById('contactsSidebar');
+            sidebar.style.transform = 'translateX(0)';
         }
 
         function hideMobileContacts() {
-            document.getElementById('contactsSidebar').classList.add('hidden');
+            const sidebar = document.getElementById('contactsSidebar');
+            if (window.innerWidth < 1024) {
+                sidebar.style.transform = 'translateX(-100%)';
+            }
         }
 
         function escapeHtml(text) {
@@ -1116,9 +1192,12 @@ tailwind.config = {
         }
 
         // Handle window resize
+        // Handle window resize
         window.addEventListener('resize', function() {
             if (window.innerWidth >= 1024) {
-                document.getElementById('contactsSidebar').classList.remove('hidden');
+                document.getElementById('contactsSidebar').style.transform = 'translateX(0)';
+            } else if (!document.getElementById('activeChat').classList.contains('hidden')) {
+                hideMobileContacts();
             }
         });
 
@@ -1132,10 +1211,9 @@ tailwind.config = {
             }
         });
 
-        // Mobile responsiveness for contacts sidebar
+        // Initialize mobile state on load
         if (window.innerWidth < 1024) {
-            const contactsSidebar = document.getElementById('contactsSidebar');
-            contactsSidebar.classList.add('absolute', 'inset-0', 'z-10', 'lg:relative', 'lg:inset-auto');
+            document.getElementById('contactsSidebar').style.transform = 'translateX(0)';
         }
     </script>
 
@@ -1143,14 +1221,11 @@ tailwind.config = {
     <style>
         @media (max-width: 1024px) {
             #contactsSidebar {
-                position: absolute;
-                inset: 0;
-                z-index: 10;
-                width: 100% !important;
+                transform: translateX(0);
             }
             
-            #contactsSidebar.hidden {
-                display: none;
+            #contactsSidebar.hide-mobile {
+                transform: translateX(-100%);
             }
             
             .message-input-mobile {
@@ -1170,6 +1245,36 @@ tailwind.config = {
             .max-w-xs {
                 max-width: 280px;
             }
+        }
+
+        @keyframes slide-in {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slide-out {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        .animate-slide-in {
+            animation: slide-in 0.3s ease-out;
+        }
+
+        .animate-slide-out {
+            animation: slide-out 0.3s ease-in;
         }
     </style>
 </body>

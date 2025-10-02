@@ -209,8 +209,7 @@ tailwind.config = {
     <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
         <div class="flex items-center">
             <!-- BULSU Logos -->
-            <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-8 h-8 mr-2">
-            <img src="reqsample/bulsu1.png" alt="BULSU Logo 1" class="w-8 h-8 mr-2">
+            <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
             <!-- Brand Name -->
             <div class="flex items-center font-bold text-lg text-white">
                 <span>OnTheJob</span>

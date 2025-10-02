@@ -904,10 +904,10 @@ tailwind.config = {
                                                     <span class="text-xs text-blue-600">AI Detection</span>
                                                 </div>
                                                 <?php if ($record['facial_confidence']): ?>
-                                                    <div class="text-xs text-gray-500">
-                                                        <?php echo number_format($record['facial_confidence'] * 100, 1); ?>% confidence
-                                                    </div>
-                                                <?php endif; ?>
+    <div class="text-xs text-gray-500">
+        <?php echo number_format($record['facial_confidence'], 1); ?>% confidence
+    </div>
+<?php endif; ?>
                                             <?php else: ?>
                                                 <div class="flex items-center">
                                                     <i class="fas fa-user text-gray-600 mr-1"></i>
@@ -1389,9 +1389,9 @@ function generatePrintDocument(data) {
                 </td>
                 <td>
                     ${record.attendance_method === 'facial' ? 
-                        `<div class="method-ai">AI Detection</div>${record.facial_confidence ? `<div class="confidence">${Math.round(record.facial_confidence * 100)}%</div>` : ''}` :
-                        '<div class="method-manual">Manual Entry</div>'
-                    }
+    `<div class="method-ai">AI Detection</div>${record.facial_confidence ? `<div class="confidence">${Math.round(record.facial_confidence)}%</div>` : ''}` :
+    '<div class="method-manual">Manual Entry</div>'
+}
                 </td>
             </tr>
         `;
@@ -1758,28 +1758,7 @@ function generatePrintDocument(data) {
                 </tbody>
             </table>
             
-            <div class="signature-section">
-                <div class="signature-box">
-                    <div class="signature-line">
-                        Prepared By<br>
-                        <strong>${supervisorName}</strong><br>
-                        Company Supervisor
-                    </div>
-                </div>
-                <div class="signature-box">
-                    <div class="signature-line">
-                        Date<br>
-                        <strong>${new Date().toLocaleDateString()}</strong>
-                    </div>
-                </div>
-                <div class="signature-box">
-                    <div class="signature-line">
-                        Verified By<br>
-                        ________________________<br>
-                        HR Manager
-                    </div>
-                </div>
-            </div>
+            
             
             <div class="footer">
                 <p>This is a computer-generated document from OnTheJob Tracker System containing <strong>${records.length} total records</strong>.</p>

@@ -423,77 +423,100 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $mail->isHTML(true);
                 $mail->Subject = 'Student Ready for OJT Deployment - ' . $student_data['first_name'] . ' ' . $student_data['last_name'];
                 
-$mail->Body = '
+                $mail->Body = $mail->Body = '
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
     <div style="text-align: center; margin-bottom: 30px;">
         <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
-        <p style="color: #666; margin: 5px 0;">Bulacan State University - Student OJT Performance Monitoring System</p>
+        <p style="color: #666; margin: 5px 0;">Bulacan State University</p>
     </div>
     
-    <h2 style="color: #333;">Student Ready for OJT Deployment</h2>
-    <p style="color: #555; line-height: 1.6;">
-        Dear ' . htmlspecialchars($student_data['company_name']) . ' Team,
-    </p>
-    <p style="color: #555; line-height: 1.6;">
-        A BULSU student has completed all requirements and is ready for deployment to your company. 
-        We are pleased to inform you that all mandatory documents have been verified and approved.
-    </p>
+    <div style="background-color: #f0f9ff; padding: 20px; border-radius: 8px; border-left: 4px solid #0284c7; margin-bottom: 20px;">
+        <h2 style="color: #0c4a6e; margin: 0 0 10px 0;">
+            <i style="color: #0284c7;">✓</i> Student Ready for OJT Deployment
+        </h2>
+        <p style="color: #075985; margin: 0;">
+            A BULSU student has completed all requirements and is ready for deployment to your company.
+        </p>
+    </div>
     
-    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+    <div style="background-color: #fff; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 20px;">
         <h3 style="color: #800000; margin: 0 0 15px 0;">Student Information</h3>
-        <ul style="color: #555; line-height: 1.8; list-style: none; padding: 0;">
-            <li style="margin-bottom: 8px;"><strong>Name:</strong> ' . htmlspecialchars($student_data['first_name'] . ' ' . $student_data['last_name']) . '</li>
-            <li style="margin-bottom: 8px;"><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</li>
-            <li style="margin-bottom: 8px;"><strong>Email:</strong> ' . htmlspecialchars($student_data['email']) . '</li>
-            <li style="margin-bottom: 8px;"><strong>Department:</strong> ' . htmlspecialchars($student_data['department']) . '</li>
-            <li style="margin-bottom: 8px;"><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</li>
-            <li style="margin-bottom: 8px;"><strong>Section:</strong> ' . htmlspecialchars($student_data['section']) . '</li>
-        </ul>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Name:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['first_name'] . ' ' . $student_data['last_name']) . '</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Student ID:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['student_id']) . '</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Email:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['email']) . '</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Department:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['department']) . '</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Program:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['program']) . '</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Section:</td>
+                <td style="padding: 8px 0; color: #111827;">' . htmlspecialchars($student_data['section']) . '</td>
+            </tr>
+        </table>
     </div>
     
-    <div style="background-color: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; margin: 20px 0;">
-        <p style="margin: 0; color: #155724;">
+    <div style="background-color: #f0fdf4; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e; margin-bottom: 20px;">
+        <p style="margin: 0; color: #166534;">
             <strong>✓ All Required Documents Verified</strong><br>
-            All mandatory OJT documents have been submitted and approved by the academic adviser.
+            <span style="font-size: 14px;">All mandatory OJT documents have been submitted and approved by the academic adviser.</span>
         </p>
     </div>
     
-    <div style="background-color: #fef3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #DAA520; margin: 20px 0;">
+    <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
         <p style="margin: 0; color: #92400e;">
-            <strong>Action Required:</strong> The student is now awaiting your approval for OJT deployment. 
-            Please review and confirm the deployment schedule.
+            <strong>⚠ Action Required</strong><br>
+            <span style="font-size: 14px;">The student is now awaiting your approval for OJT deployment. Please review and confirm the deployment schedule.</span>
         </p>
     </div>
     
+    <!-- ADD THIS SECTION: Clickable Button to Access System -->
     <div style="text-align: center; margin: 30px 0;">
         <a href="https://onthejobtracker.site/" 
-           style="display: inline-block; background-color: #800000; color: white; padding: 14px 35px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+           style="display: inline-block; background: linear-gradient(135deg, #800000 0%, #6B1028 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             Access OnTheJob Tracker System
         </a>
-        <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">
+        <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 14px;">
             Click the button above to log in and review student details
         </p>
     </div>
     
     <div style="margin: 30px 0;">
-        <h4 style="color: #333;">Next Steps:</h4>
-        <ul style="color: #555; line-height: 1.8;">
-            <li>Log in to the OnTheJob Tracker system</li>
+        <h4 style="color: #333; margin-bottom: 10px;">Next Steps:</h4>
+        <ol style="color: #555; line-height: 1.8; margin: 0; padding-left: 20px;">
+            <li>Click the button above to access the OnTheJob Tracker system</li>
             <li>Review the student\'s information and qualifications</li>
             <li>Contact the student to arrange orientation and deployment schedule</li>
             <li>Coordinate with BULSU OJT Coordinator if needed</li>
             <li>Confirm deployment start date through the system</li>
-        </ul>
+        </ol>
     </div>
     
-    <p style="color: #555; line-height: 1.6;">
-        If you need assistance or have questions, please contact the BULSU OJT Coordinator at 
-        <a href="mailto:ojttracker2@gmail.com" style="color: #800000;">ojttracker2@gmail.com</a>
-    </p>
+    <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <p style="margin: 0; color: #6b7280; font-size: 14px;">
+            <strong>Need Assistance?</strong><br>
+            Contact the BULSU OJT Coordinator:<br>
+            Email: <a href="mailto:ojttracker2@gmail.com" style="color: #800000;">ojttracker2@gmail.com</a><br>
+            Website: <a href="https://onthejobtracker.site/" style="color: #800000;">https://onthejobtracker.site/</a>
+        </p>
+    </div>
     
     <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-        <p style="color: #666; margin: 0;">
-            <strong>OnTheJob Tracker Team</strong><br>
+        <p style="color: #666; margin: 0; font-size: 14px;">
+            <strong>OnTheJob Tracker System</strong><br>
             <small>Bulacan State University - AI-Powered OJT Performance Monitoring</small>
         </p>
     </div>

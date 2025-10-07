@@ -248,7 +248,24 @@ try {
     $error_message = "Error fetching dashboard data: " . $e->getMessage();
 }
 
-// Create adviser initials
+try {
+    $profile_query = "SELECT profile_picture FROM academic_adviser WHERE id = ?";
+    $profile_stmt = mysqli_prepare($conn, $profile_query);
+    mysqli_stmt_bind_param($profile_stmt, "i", $adviser_id);
+    mysqli_stmt_execute($profile_stmt);
+    $profile_result = mysqli_stmt_get_result($profile_stmt);
+    
+    if ($profile_result && mysqli_num_rows($profile_result) > 0) {
+        $profile_data = mysqli_fetch_assoc($profile_result);
+        $profile_picture = $profile_data['profile_picture'] ?? '';
+    } else {
+        $profile_picture = '';
+    }
+    mysqli_stmt_close($profile_stmt);
+} catch (Exception $e) {
+    $profile_picture = '';
+}
+
 $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
 ?>
 <!DOCTYPE html>
@@ -463,21 +480,30 @@ tailwind.config = {
                 </div>
                 
                 <!-- Profile Dropdown -->
+                 <!-- Profile Dropdown -->
                 <div class="relative">
                     <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
-                        <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
-                            <?php echo $adviser_initials; ?>
-                        </div>
+                        <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm overflow-hidden">
+    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+    <?php else: ?>
+        <?php echo $adviser_initials; ?>
+    <?php endif; ?>
+</div>
                     </button>
                     <div id="profileDropdown" class="hidden absolute right-0 mt-2 w-48 sm:w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                         <div class="p-4 border-b border-gray-200">
                             <div class="flex items-center space-x-3">
-                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
-                                    <?php echo $adviser_initials; ?>
-                                </div>
+                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
+    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+    <?php else: ?>
+        <?php echo $adviser_initials; ?>
+    <?php endif; ?>
+</div>
                                 <div>
                                     <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
-                                    <p class="text-sm text-gray-500"><?php echo ucfirst($adviser_role); ?></p>
+                                    <p class="text-sm text-gray-500">Academic Adviser</p>
                                 </div>
                             </div>
                         </div>

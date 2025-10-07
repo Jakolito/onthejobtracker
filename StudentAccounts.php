@@ -2328,11 +2328,11 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
         ` : ''}
         
         <div class="flex space-x-2">
-            <button onclick="viewDocument('${doc.file_path}')" 
-                    class="flex-1 inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50">
-                <i class="fas fa-eye mr-1"></i>
-                View
-            </button>
+           <button onclick="viewDocument('${doc.file_path}', '${doc.original_filename}')" 
+        class="flex-1 inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50">
+    <i class="fas fa-eye mr-1"></i>
+    View
+</button>
             ${doc.status === 'pending' ? `
                 <button onclick="approveDocument(${doc.id}, '${doc.original_filename}', '${doc.first_name} ${doc.last_name}')" 
                         class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700">
@@ -2723,13 +2723,113 @@ function confirmDeployment() {
            });
        }
 
-       function viewDocument(filePath) {
-           if (filePath) {
-               window.open(filePath, '_blank');
-           } else {
-               showToast('error', 'Document file not found');
-           }
-       }
+       function viewDocument(filePath, fileName) {
+    if (!filePath) {
+        showToast('error', 'Document file not found');
+        return;
+    }
+
+    // Create document viewer modal if it doesn't exist
+    let viewerModal = document.getElementById('documentViewerModal');
+    if (!viewerModal) {
+        const modalHTML = `
+            <div id="documentViewerModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 hidden modal">
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="bg-white rounded-lg shadow-2xl w-full h-full max-w-6xl flex flex-col" style="height: 90vh;">
+                        <div class="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white rounded-t-lg">
+                            <div class="flex items-center">
+                                <i class="fas fa-file-alt mr-3 text-bulsu-gold"></i>
+                                <h3 id="viewerDocumentTitle" class="text-lg font-medium">Document Viewer</h3>
+                            </div>
+                            <button onclick="closeDocumentViewer()" class="text-bulsu-light-gold hover:text-white p-1">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        <div class="flex-1 p-4 overflow-hidden">
+                            <div id="viewerDocumentContent" class="w-full h-full flex items-center justify-center">
+                                <!-- Content will be loaded here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        viewerModal = document.getElementById('documentViewerModal');
+    }
+
+    const content = document.getElementById('viewerDocumentContent');
+    const title = document.getElementById('viewerDocumentTitle');
+    
+    // Set title
+    title.textContent = fileName || 'Document Viewer';
+    
+    // Show loading
+    content.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><i class="fas fa-spinner fa-spin text-bulsu-gold text-3xl"></i><p class="mt-4 text-gray-600">Loading document...</p></div>';
+    
+    // Show modal
+    viewerModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    
+    // Get file extension
+    const ext = fileName ? fileName.toLowerCase().split('.').pop() : filePath.toLowerCase().split('.').pop();
+    
+    // Display based on file type
+    if (ext === 'pdf') {
+        content.innerHTML = `
+            <embed src="${filePath}" 
+                   type="application/pdf" 
+                   class="w-full h-full rounded-lg">
+        `;
+    } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        content.innerHTML = `
+            <div class="w-full h-full flex items-center justify-center p-4">
+                <img src="${filePath}" 
+                     alt="${fileName || 'Document'}"
+                     class="max-w-full max-h-full object-contain rounded shadow-lg">
+            </div>
+        `;
+    } else if (['doc', 'docx'].includes(ext)) {
+        const fullUrl = window.location.origin + '/' + filePath;
+        content.innerHTML = `
+            <iframe src="https://docs.google.com/gview?url=${encodeURIComponent(fullUrl)}&embedded=true" 
+                    class="w-full h-full rounded-lg"
+                    frameborder="0"
+                    style="background: white;">
+            </iframe>
+            <div class="absolute bottom-4 left-0 right-0 text-center">
+                <div class="inline-block bg-white px-4 py-2 rounded-lg shadow-lg">
+                    <p class="text-sm text-gray-600 mb-2">Preview not loading?</p>
+                    <a href="${filePath}" download="${fileName || 'document'}" 
+                       class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon text-sm">
+                        <i class="fas fa-download mr-2"></i>
+                        Download Document
+                    </a>
+                </div>
+            </div>
+        `;
+    } else {
+        content.innerHTML = `
+            <div class="text-center p-8">
+                <i class="fas fa-file text-gray-400 text-6xl mb-4"></i>
+                <p class="text-gray-600 mb-4">Cannot preview this file type.</p>
+                <a href="${filePath}" download="${fileName || 'document'}" 
+                   class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon">
+                    <i class="fas fa-download mr-2"></i>
+                    Download File
+                </a>
+            </div>
+        `;
+    }
+}
+
+function closeDocumentViewer() {
+    const modal = document.getElementById('documentViewerModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        document.body.style.overflow = 'auto';
+    }
+}
 
        // Modal management
        function closeModal(modalId) {
@@ -2764,26 +2864,36 @@ function confirmDeployment() {
        }
 
        // Close modals when clicking outside
-       window.addEventListener('click', function(event) {
-    const modals = ['studentModal', 'documentsModal', 'allPendingDocsModal', 'documentActionModal', 'deploymentConfirmModal'];
+      // Close modals when clicking outside
+window.addEventListener('click', function(event) {
+    const modals = ['studentModal', 'documentsModal', 'allPendingDocsModal', 'documentActionModal', 'deploymentConfirmModal', 'documentViewerModal'];
     
     modals.forEach(modalId => {
         const modal = document.getElementById(modalId);
         if (event.target === modal) {
-            closeModal(modalId);
+            if (modalId === 'documentViewerModal') {
+                closeDocumentViewer();
+            } else {
+                closeModal(modalId);
+            }
         }
     });
 });
 
        // Keyboard shortcuts
-       document.addEventListener('keydown', function(event) {
+      // Keyboard shortcuts
+document.addEventListener('keydown', function(event) {
     // ESC to close modals
     if (event.key === 'Escape') {
-        const modals = ['studentModal', 'documentsModal', 'allPendingDocsModal', 'documentActionModal', 'deploymentConfirmModal'];
+        const modals = ['studentModal', 'documentsModal', 'allPendingDocsModal', 'documentActionModal', 'deploymentConfirmModal', 'documentViewerModal'];
         modals.forEach(modalId => {
             const modal = document.getElementById(modalId);
-            if (!modal.classList.contains('hidden')) {
-                closeModal(modalId);
+            if (modal && !modal.classList.contains('hidden')) {
+                if (modalId === 'documentViewerModal') {
+                    closeDocumentViewer();
+                } else {
+                    closeModal(modalId);
+                }
             }
         });
     }

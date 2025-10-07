@@ -889,7 +889,7 @@ if (!empty($adviser['year_level']) && !empty($form_data['year_level'])) {
 
                     <!-- Company Information Section -->
                     <div class="mt-6">
-                        <h3 class="text-bulsu-maroon font-semibold mb-4">Company Information <span class="text-gray-400 text-sm font-normal">(Optional)</span></h3>
+                        <h3 class="text-bulsu-maroon font-semibold mb-4">Company Information <span class="text-gray-400 text-sm font-normal">(Required)</span></h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label for="company_name" class="block text-gray-700 font-medium mb-1">Company Name</label>

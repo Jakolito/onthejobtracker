@@ -777,13 +777,26 @@ tailwind.config = {
                         
                         <!-- File Upload Area -->
                         <div onclick="document.getElementById('fileInput').click()" 
-                             class="file-upload-area border-2 border-dashed border-bulsu-gold border-opacity-50 rounded-lg p-6 text-center cursor-pointer hover:border-bulsu-gold transition-colors">
-                            <div class="text-bulsu-gold mb-3">
-                                <i class="fas fa-cloud-upload-alt text-4xl"></i>
-                            </div>
-                            <p class="text-bulsu-maroon font-medium mb-1">Click to select file or drag and drop</p>
-                            <p class="text-sm text-gray-500">Supported formats: PDF, DOC, DOCX, JPG, PNG (Max: 5MB)</p>
-                        </div>
+     class="file-upload-area border-2 border-dashed border-bulsu-gold border-opacity-50 rounded-lg p-6 text-center cursor-pointer hover:border-bulsu-gold transition-colors">
+    <div class="text-bulsu-gold mb-3">
+        <i class="fas fa-cloud-upload-alt text-4xl"></i>
+    </div>
+    <p class="text-bulsu-maroon font-medium mb-1">Click to select file or drag and drop</p>
+    <div class="mt-3 space-y-1">
+        <p class="text-sm text-gray-600">
+            <i class="fas fa-file-alt mr-1 text-bulsu-gold"></i>
+            <span class="font-medium">Allowed formats:</span> PDF, DOC, DOCX, JPG, JPEG, PNG
+        </p>
+        <p class="text-sm text-gray-600">
+            <i class="fas fa-weight mr-1 text-bulsu-gold"></i>
+            <span class="font-medium">Maximum size:</span> 5MB per file
+        </p>
+        <p class="text-xs text-gray-500 mt-2">
+            <i class="fas fa-info-circle mr-1"></i>
+            Files larger than 5MB will be rejected
+        </p>
+    </div>
+</div>
                         
                         <input type="file" id="fileInput" name="document_file" class="hidden" 
                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFileSelect(this)">
@@ -839,6 +852,23 @@ tailwind.config = {
     </div>
 
     <script>
+
+        const UPLOAD_CONFIG = {
+    MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB in bytes
+    MAX_FILE_SIZE_MB: 5, // For display purposes
+    ALLOWED_EXTENSIONS: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+    ALLOWED_MIME_TYPES: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/jpg',
+        'image/png'
+    ],
+    getFormattedExtensions() {
+        return this.ALLOWED_EXTENSIONS.map(ext => ext.toUpperCase()).join(', ');
+    }
+};
         // Global variables
         let uploadModal = document.getElementById('uploadModal');
         let documentViewerModal = document.getElementById('documentViewerModal');
@@ -1036,21 +1066,43 @@ tailwind.config = {
         }
 
         function resetUploadForm() {
-            document.getElementById('uploadForm').reset();
-            document.getElementById('selectedFile').classList.add('hidden');
-            document.getElementById('submitBtn').disabled = true;
-            
-            // Reset file upload area
-            const uploadArea = document.querySelector('.file-upload-area');
-            uploadArea.classList.remove('border-green-500', 'border-red-500', 'bg-green-50', 'bg-red-50');
-            uploadArea.classList.add('border-bulsu-gold', 'border-opacity-50');
-            
-            // Remove any error messages
-            const existingError = document.querySelector('.file-error');
-            if (existingError) {
-                existingError.remove();
-            }
-        }
+    document.getElementById('uploadForm').reset();
+    document.getElementById('selectedFile').classList.add('hidden');
+    document.getElementById('submitBtn').disabled = true;
+    
+    // Reset file upload area WITH NEW CONTENT
+    const uploadArea = document.querySelector('.file-upload-area');
+    uploadArea.classList.remove('border-green-500', 'border-red-500', 'bg-green-50', 'bg-red-50');
+    uploadArea.classList.add('border-bulsu-gold', 'border-opacity-50');
+    
+    // NEW: Restore original upload area content with limits
+    uploadArea.innerHTML = `
+        <div class="text-bulsu-gold mb-3">
+            <i class="fas fa-cloud-upload-alt text-4xl"></i>
+        </div>
+        <p class="text-bulsu-maroon font-medium mb-1">Click to select file or drag and drop</p>
+        <div class="mt-3 space-y-1">
+            <p class="text-sm text-gray-600">
+                <i class="fas fa-file-alt mr-1 text-bulsu-gold"></i>
+                <span class="font-medium">Allowed formats:</span> PDF, DOC, DOCX, JPG, JPEG, PNG
+            </p>
+            <p class="text-sm text-gray-600">
+                <i class="fas fa-weight mr-1 text-bulsu-gold"></i>
+                <span class="font-medium">Maximum size:</span> 5MB per file
+            </p>
+            <p class="text-xs text-gray-500 mt-2">
+                <i class="fas fa-info-circle mr-1"></i>
+                Files larger than 5MB will be rejected
+            </p>
+        </div>
+    `;
+    
+    // Remove any error messages
+    const existingError = document.querySelector('.file-error');
+    if (existingError) {
+        existingError.remove();
+    }
+}
 
         // File handling
         function handleFileSelect(input) {
@@ -1072,70 +1124,128 @@ tailwind.config = {
         }
 
         function validateFile(file) {
-            const submitBtn = document.getElementById('submitBtn');
-            const maxSize = 5 * 1024 * 1024; // 5MB
-            const allowedTypes = ['application/pdf', 'application/msword', 
-                                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                                'image/jpeg', 'image/jpg', 'image/png'];
-            
-            let isValid = true;
-            let errorMessage = '';
-            
-            // Check file size
-            if (file.size > maxSize) {
-                isValid = false;
-                errorMessage = 'File size must be less than 5MB';
-            }
-            
-            // Check file type
-            if (!allowedTypes.includes(file.type)) {
-                isValid = false;
-                errorMessage = 'Invalid file type. Please upload PDF, DOC, DOCX, JPG, or PNG files only';
-            }
-            
-            const uploadArea = document.querySelector('.file-upload-area');
-            
-            if (isValid) {
-                submitBtn.disabled = false;
-                uploadArea.classList.remove('border-bulsu-gold', 'border-opacity-50', 'border-red-500', 'bg-red-50');
-                uploadArea.classList.add('border-green-500', 'bg-green-50');
-                
-                // Remove any existing error messages
-                const existingError = document.querySelector('.file-error');
-                if (existingError) {
-                    existingError.remove();
-                }
-            } else {
-                submitBtn.disabled = true;
-                uploadArea.classList.remove('border-bulsu-gold', 'border-opacity-50', 'border-green-500', 'bg-green-50');
-                uploadArea.classList.add('border-red-500', 'bg-red-50');
-                
-                // Show error message
-                showFileError(errorMessage);
-            }
+    const submitBtn = document.getElementById('submitBtn');
+    const uploadArea = document.querySelector('.file-upload-area');
+    
+    let isValid = true;
+    let errorMessage = '';
+    let errorDetails = '';
+    let errorIcon = 'exclamation-triangle';
+    
+    // Get file extension
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    
+    // Validation 1: File size check
+    if (file.size > UPLOAD_CONFIG.MAX_FILE_SIZE) {
+        isValid = false;
+        errorMessage = `File size exceeds limit`;
+        errorDetails = `Your file is ${fileSizeMB}MB. Maximum allowed size is ${UPLOAD_CONFIG.MAX_FILE_SIZE_MB}MB`;
+        errorIcon = 'file-excel';
+    }
+    // Validation 2: File extension check
+    else if (!UPLOAD_CONFIG.ALLOWED_EXTENSIONS.includes(fileExtension)) {
+        isValid = false;
+        errorMessage = `Invalid file type (.${fileExtension})`;
+        errorDetails = `Allowed formats: ${UPLOAD_CONFIG.getFormattedExtensions()}`;
+        errorIcon = 'ban';
+    }
+    // Validation 3: MIME type check (security)
+    else if (!UPLOAD_CONFIG.ALLOWED_MIME_TYPES.includes(file.type)) {
+        isValid = false;
+        errorMessage = 'Invalid file format detected';
+        errorDetails = 'The file appears to be corrupted or has an invalid format';
+        errorIcon = 'shield-alt';
+    }
+    // Validation 4: File size is zero
+    else if (file.size === 0) {
+        isValid = false;
+        errorMessage = 'Empty file detected';
+        errorDetails = 'The file appears to be empty (0 bytes)';
+        errorIcon = 'file';
+    }
+    
+    if (isValid) {
+        submitBtn.disabled = false;
+        uploadArea.classList.remove('border-bulsu-gold', 'border-opacity-50', 'border-red-500', 'bg-red-50');
+        uploadArea.classList.add('border-green-500', 'bg-green-50');
+        
+        // Show success state
+        uploadArea.innerHTML = `
+            <div class="text-green-600 mb-3">
+                <i class="fas fa-check-circle text-4xl"></i>
+            </div>
+            <p class="text-green-700 font-medium mb-1">
+                <i class="fas fa-check mr-2"></i>File validated successfully
+            </p>
+            <p class="text-sm text-gray-700 font-medium">${file.name}</p>
+            <p class="text-xs text-gray-600 mt-1">${fileSizeMB}MB • ${fileExtension.toUpperCase()}</p>
+            <p class="text-xs text-green-600 mt-2">
+                <i class="fas fa-info-circle mr-1"></i>Ready to upload
+            </p>
+        `;
+        
+        // Remove any existing error messages
+        const existingError = document.querySelector('.file-error');
+        if (existingError) {
+            existingError.remove();
         }
+    } else {
+        submitBtn.disabled = true;
+        uploadArea.classList.remove('border-bulsu-gold', 'border-opacity-50', 'border-green-500', 'bg-green-50');
+        uploadArea.classList.add('border-red-500', 'bg-red-50');
+        
+        // Show error state in upload area
+        uploadArea.innerHTML = `
+            <div class="text-red-600 mb-3">
+                <i class="fas fa-${errorIcon} text-4xl"></i>
+            </div>
+            <p class="text-red-700 font-medium mb-1">${errorMessage}</p>
+            <p class="text-sm text-red-600">${errorDetails}</p>
+            <p class="text-xs text-gray-600 mt-2">
+                <i class="fas fa-redo mr-1"></i>Please select a different file
+            </p>
+        `;
+        
+        // Show detailed error message below
+        showFileError(errorMessage, errorDetails, errorIcon);
+    }
+}
 
-        function showFileError(message) {
-            // Remove existing error message
-            const existingError = document.querySelector('.file-error');
-            if (existingError) {
-                existingError.remove();
-            }
-            
-            // Create new error message
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'file-error mt-3 p-3 bg-red-50 border border-red-200 rounded-md';
-            errorDiv.innerHTML = `
-                <div class="flex items-center">
-                    <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
-                    <span class="text-red-700 text-sm">${message}</span>
+
+        function showFileError(message, details = '', icon = 'exclamation-triangle') {
+    const existingError = document.querySelector('.file-error');
+    if (existingError) {
+        existingError.remove();
+    }
+    
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'file-error mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-md animate-fadeInUp';
+    errorDiv.innerHTML = `
+        <div class="flex items-start">
+            <div class="flex-shrink-0">
+                <i class="fas fa-${icon} text-red-600 text-xl"></i>
+            </div>
+            <div class="ml-3 flex-1">
+                <h4 class="text-sm font-medium text-red-800 mb-1">${message}</h4>
+                ${details ? `<p class="text-sm text-red-700">${details}</p>` : ''}
+                <div class="mt-2 text-xs text-red-600">
+                    <p><i class="fas fa-info-circle mr-1"></i>Upload requirements:</p>
+                    <ul class="list-disc list-inside mt-1 ml-4 space-y-1">
+                        <li>Maximum file size: ${UPLOAD_CONFIG.MAX_FILE_SIZE_MB}MB</li>
+                        <li>Allowed formats: ${UPLOAD_CONFIG.getFormattedExtensions()}</li>
+                    </ul>
                 </div>
-            `;
-            
-            // Insert after the file upload area
-            const uploadArea = document.querySelector('.file-upload-area');
-            uploadArea.parentNode.insertBefore(errorDiv, uploadArea.nextSibling);
-        }
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" class="flex-shrink-0 ml-2 text-red-400 hover:text-red-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+    
+    const uploadArea = document.querySelector('.file-upload-area');
+    uploadArea.parentNode.insertBefore(errorDiv, uploadArea.nextSibling);
+}
 
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 Bytes';

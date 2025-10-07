@@ -271,9 +271,15 @@ $deploy_query = "INSERT INTO student_deployments (
         }
         
         // Commit transaction
-        mysqli_commit($conn);
-        
-        $deployment_success = "Student successfully deployed!";
+       // Commit transaction
+mysqli_commit($conn);
+
+// Store success data in session for modal
+$_SESSION['deployment_success'] = true;
+$_SESSION['deployed_student_email'] = $student_data['email'];
+$_SESSION['deployed_supervisor_email'] = $supervisor_email;
+$_SESSION['deployed_student_name'] = $student_data['first_name'] . ' ' . $student_data['last_name'];
+$_SESSION['deployed_company_name'] = $company_name;
         // Create deployment notification for the student
 require_once('notification_functions.php');
 $deployment_notification_success = createDeploymentNotification(
@@ -403,7 +409,7 @@ if (!$deployment_notification_success) {
 
 // Email to Supervisor - Using same design pattern
 $mail->addAddress($supervisor_email, $supervisor_name);
-$mail->Subject = 'New Intern Assignment - OnTheJob Tracker';
+$mail->Subject = 'New Intern Student - OnTheJob Tracker';
 
 $supervisorEmailBody = '
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
@@ -412,7 +418,7 @@ $supervisorEmailBody = '
         <p style="color: #666; margin: 5px 0;">Student OJT Performance Monitoring System</p>
     </div>
     
-    <h2 style="color: #333;">New Intern Assignment</h2>
+    <h2 style="color: #333;">New Intern Student</h2>
     <p style="color: #555; line-height: 1.6;">
         A BulSU student has been assigned to your company for their On-the-Job Training. Please review the student details below and welcome them to your team.
     </p>
@@ -745,7 +751,27 @@ try {
 } catch (Exception $e) {
     $profile_picture = '';
 }
+// Check for deployment success and prepare modal data
+$show_success_modal = false;
+$success_student_email = '';
+$success_supervisor_email = '';
+$success_student_name = '';
+$success_company_name = '';
 
+if (isset($_SESSION['deployment_success']) && $_SESSION['deployment_success']) {
+    $show_success_modal = true;
+    $success_student_email = $_SESSION['deployed_student_email'] ?? '';
+    $success_supervisor_email = $_SESSION['deployed_supervisor_email'] ?? '';
+    $success_student_name = $_SESSION['deployed_student_name'] ?? '';
+    $success_company_name = $_SESSION['deployed_company_name'] ?? '';
+    
+    // Clear session variables
+    unset($_SESSION['deployment_success']);
+    unset($_SESSION['deployed_student_email']);
+    unset($_SESSION['deployed_supervisor_email']);
+    unset($_SESSION['deployed_student_name']);
+    unset($_SESSION['deployed_company_name']);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -777,7 +803,14 @@ tailwind.config = {
             transform: translateX(4px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
+@keyframes bounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
 
+.animate-bounce {
+    animation: bounce 1s ease-in-out;
+}
         .notification-badge {
             display: inline-flex;
             align-items: center;
@@ -1625,6 +1658,53 @@ tailwind.config = {
         </div>
     </div>
     </div>
+    <!-- Success Modal -->
+<div id="successModal" class="fixed inset-0 z-50 overflow-y-auto hidden">
+    <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"></div>
+
+        <div class="inline-block w-full max-w-md p-0 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+            <!-- Success Icon -->
+            <div class="flex items-center justify-center pt-8 pb-4">
+                <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center animate-bounce">
+                    <i class="fas fa-check-circle text-green-600 text-5xl"></i>
+                </div>
+            </div>
+            
+            <!-- Modal Content -->
+            <div class="px-6 pb-6 text-center">
+                <h3 class="text-2xl font-bold text-gray-900 mb-2">🎉 Deployment Successful!</h3>
+                <p class="text-gray-600 mb-1">The student has been successfully deployed.</p>
+                <p class="text-lg font-semibold mb-4" style="color: #800000;" id="success_student_name_display"></p>
+                
+                <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 text-left">
+                    <div class="flex items-start">
+                        <i class="fas fa-building text-green-600 mt-1 mr-3 text-xl"></i>
+                        <div class="text-sm text-green-800">
+                            <p class="font-medium mb-2">Deployed to: <span id="success_company_display" class="font-bold"></span></p>
+                            <p class="font-medium mb-1">📧 Email notifications sent to:</p>
+                            <ul class="list-disc list-inside space-y-1 ml-2">
+                                <li id="success_student_email">Student</li>
+                                <li id="success_supervisor_email">Supervisor</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-4">
+                    <p class="text-sm text-yellow-800">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Both parties have been notified via email with complete deployment details.
+                    </p>
+                </div>
+                
+                <button onclick="closeSuccessModal()" class="w-full px-4 py-3 text-sm font-medium text-white rounded-md transition-colors shadow-md hover:shadow-lg" style="background-color: #800000;" onmouseover="this.style.backgroundColor='#6B1028'" onmouseout="this.style.backgroundColor='#800000'">
+                    <i class="fas fa-check mr-2"></i>Continue
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <style>
 .work-day-checkbox {
     border: 2px solid #F4E4BC;
@@ -1725,7 +1805,32 @@ tailwind.config = {
 // Add event listener for section filter
 document.getElementById('sectionFilter').addEventListener('change', applyFilters);
 
+// Success Modal Functions
+function showSuccessModal(studentEmail, supervisorEmail, studentName, companyName) {
+    document.getElementById('success_student_email').textContent = `Student (${studentEmail})`;
+    document.getElementById('success_supervisor_email').textContent = `Supervisor (${supervisorEmail})`;
+    document.getElementById('success_student_name_display').textContent = studentName;
+    document.getElementById('success_company_display').textContent = companyName;
+    document.getElementById('successModal').classList.remove('hidden');
+}
 
+function closeSuccessModal() {
+    document.getElementById('successModal').classList.add('hidden');
+    // Reload page to refresh the table
+    window.location.reload();
+}
+
+// Auto-show success modal if deployment was successful
+<?php if ($show_success_modal): ?>
+document.addEventListener('DOMContentLoaded', function() {
+    showSuccessModal(
+        '<?php echo htmlspecialchars($success_student_email); ?>', 
+        '<?php echo htmlspecialchars($success_supervisor_email); ?>',
+        '<?php echo htmlspecialchars($success_student_name); ?>',
+        '<?php echo htmlspecialchars($success_company_name); ?>'
+    );
+});
+<?php endif; ?>
         // Close dropdown when clicking outside
         document.addEventListener('click', function(e) {
             const profileDropdown = document.getElementById('profileDropdown');

@@ -423,14 +423,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
     
     // Get student information including company details
-    $student_query = "SELECT first_name, last_name, student_id, email, company_name, company_email, department, program, section FROM students WHERE id = ?";
-    $student_stmt = mysqli_prepare($conn, $student_query);
-    mysqli_stmt_bind_param($student_stmt, "i", $student_id);
-    mysqli_stmt_execute($student_stmt);
-    $student_result = mysqli_stmt_get_result($student_stmt);
-    $student_data = mysqli_fetch_assoc($student_result);
-    mysqli_stmt_close($student_stmt);
-    
+    // Get student information including company details
+$student_query = "SELECT first_name, last_name, student_id, email, company_name, department, program, section FROM students WHERE id = ?";
+$student_stmt = mysqli_prepare($conn, $student_query);
+mysqli_stmt_bind_param($student_stmt, "i", $student_id);
+mysqli_stmt_execute($student_stmt);
+$student_result = mysqli_stmt_get_result($student_stmt);
+$student_data = mysqli_fetch_assoc($student_result);
+mysqli_stmt_close($student_stmt);
+
+// Get company supervisor email based on company name
+$company_email = null;
+if (!empty($student_data['company_name'])) {
+    $company_query = "SELECT email FROM company_supervisors WHERE company_name = ? AND account_status = 'Active' LIMIT 1";
+    $company_stmt = mysqli_prepare($conn, $company_query);
+    mysqli_stmt_bind_param($company_stmt, "s", $student_data['company_name']);
+    mysqli_stmt_execute($company_stmt);
+    $company_result = mysqli_stmt_get_result($company_stmt);
+    if ($company_row = mysqli_fetch_assoc($company_result)) {
+        $company_email = $company_row['email'];
+    }
+    mysqli_stmt_close($company_stmt);
+}
     // All requirements are met, proceed with marking as ready for deployment
     $update_query = "UPDATE students SET ready_for_deployment = 1 WHERE id = ?";
     $stmt = mysqli_prepare($conn, $update_query);
@@ -448,7 +462,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $email_sent = false;
         $email_error = '';
         
-        if (!empty($student_data['company_email']) && !empty($student_data['company_name'])) {
+if (!empty($company_email) && !empty($student_data['company_name'])) {
             try {
                 $mail = new PHPMailer(true);
                 $mail->isSMTP();
@@ -460,7 +474,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $mail->Port = 465;
                 
                 $mail->setFrom('ojttracker2@gmail.com', 'OnTheJob Tracker - BULSU');
-                $mail->addAddress($student_data['company_email']);
+$mail->addAddress($company_email);
                 
                 $mail->isHTML(true);
                 $mail->Subject = 'Student Ready for OJT Deployment - ' . $student_data['first_name'] . ' ' . $student_data['last_name'];
@@ -571,14 +585,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
         
-        $response_message = 'Student marked as ready for deployment! Student status has been updated.';
-        if ($email_sent) {
-            $response_message .= ' Email notification sent to company supervisor at ' . $student_data['company_email'];
-        } elseif (!empty($student_data['company_email'])) {
-            $response_message .= ' Note: Failed to send email notification to company supervisor.';
-        } else {
-            $response_message .= ' Note: No company email on record. Please ensure company information is updated.';
-        }
+       $response_message = 'Student marked as ready for deployment! Student status has been updated.';
+if ($email_sent) {
+    $response_message .= ' Email notification sent to company supervisor at ' . $company_email;
+} elseif (!empty($company_email)) {
+    $response_message .= ' Note: Failed to send email notification to company supervisor.';
+} else {
+    $response_message .= ' Note: No company email on record. Please ensure company information is updated.';
+}
         
         echo json_encode([
             'success' => true, 
@@ -1988,8 +2002,9 @@ tailwind.config = {
    <script>
        // Global variables
        let currentStudentId = null;
-       let currentDocumentId = null;
-       let currentAction = null;
+let currentStudentData = null;
+let currentDocumentId = null;
+let currentAction = null;
 
        // Mobile menu functionality
        document.getElementById('mobileMenuBtn').addEventListener('click', function() {
@@ -2094,67 +2109,79 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
        }
 
        // View student details
-       function viewStudentDetails(studentId) {
-           currentStudentId = studentId;
-           
-           const formData = new FormData();
-           formData.append('action', 'get_details');
-           formData.append('student_id', studentId);
+function viewStudentDetails(studentId) {
+    currentStudentId = studentId;
+    
+    const formData = new FormData();
+    formData.append('action', 'get_details');
+    formData.append('student_id', studentId);
 
-           fetch(window.location.href, {
-               method: 'POST',
-               body: formData
-           })
-           .then(response => response.json())
-           .then(data => {
-               if (data.success) {
-                   populateStudentDetails(data.student);
-                   loadStudentDocuments(studentId);
-                   document.getElementById('studentModal').classList.remove('hidden');
-               } else {
-                   showToast('error', data.message);
-               }
-           })
-           .catch(error => {
-               console.error('Error:', error);
-               showToast('error', 'Failed to load student details');
-           });
-       }
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            currentStudentData = data.student; // Store student data globally
+            populateStudentDetails(data.student);
+            loadStudentDocuments(studentId);
+            document.getElementById('studentModal').classList.remove('hidden');
+        } else {
+            showToast('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('error', 'Failed to load student details');
+    });
+}
 
-       function populateStudentDetails(student) {
-           const initials = student.first_name.charAt(0) + (student.last_name ? student.last_name.charAt(0) : '');
-           document.getElementById('studentInitials').textContent = initials.toUpperCase();
-           document.getElementById('studentName').textContent = `${student.first_name} ${student.last_name}`;
-           document.getElementById('studentEmail').textContent = student.email;
-           document.getElementById('studentID').textContent = student.student_id || 'Not assigned';
-           document.getElementById('studentDepartment').textContent = student.department || 'Not assigned';
-           document.getElementById('studentProgram').textContent = student.program || 'Not assigned';
-           document.getElementById('studentYear').textContent = student.year_level || 'Not assigned';
-           document.getElementById('studentSection').textContent = student.section || 'Not assigned';
-           document.getElementById('verifiedStatus').textContent = student.verified == 1 ? 'Yes' : 'No';
+      function populateStudentDetails(student) {
+    const initials = student.first_name.charAt(0) + (student.last_name ? student.last_name.charAt(0) : '');
+    document.getElementById('studentInitials').textContent = initials.toUpperCase();
+    document.getElementById('studentName').textContent = `${student.first_name} ${student.last_name}`;
+    document.getElementById('studentEmail').textContent = student.email;
+    document.getElementById('studentID').textContent = student.student_id || 'Not assigned';
+    document.getElementById('studentDepartment').textContent = student.department || 'Not assigned';
+    document.getElementById('studentProgram').textContent = student.program || 'Not assigned';
+    document.getElementById('studentYear').textContent = student.year_level || 'Not assigned';
+    document.getElementById('studentSection').textContent = student.section || 'Not assigned';
+    document.getElementById('verifiedStatus').textContent = student.verified == 1 ? 'Yes' : 'No';
 
-           // Set status badge
-           const statusBadge = document.getElementById('studentStatusBadge');
-           let statusClass = '';
-           let statusText = '';
-           
-           if (student.verified == 0) {
-               statusClass = 'status-unverified';
-               statusText = 'Unverified';
-           } else if (student.login_attempts >= 3 || student.status == 'Blocked') {
-               statusClass = 'status-blocked';
-               statusText = 'Blocked';
-           } else if (student.status == 'Active') {
-               statusClass = 'status-active';
-               statusText = 'Active';
-           } else {
-               statusClass = 'status-inactive';
-               statusText = 'Inactive';
-           }
-           
-           statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border mt-2 ${statusClass}`;
-           statusBadge.textContent = statusText;
-       }
+    // Set status badge
+    const statusBadge = document.getElementById('studentStatusBadge');
+    let statusClass = '';
+    let statusText = '';
+    
+    // Check if student is deployed or ready for deployment
+    const isDeployed = student.deployment_id || student.ready_for_deployment == 1;
+    
+    if (isDeployed) {
+        if (student.deployment_id) {
+            statusClass = 'status-deployed';
+            statusText = 'Deployed';
+        } else {
+            statusClass = 'status-ready';
+            statusText = 'Ready for Deployment';
+        }
+    } else if (student.verified == 0) {
+        statusClass = 'status-unverified';
+        statusText = 'Unverified';
+    } else if (student.login_attempts >= 3 || student.status == 'Blocked') {
+        statusClass = 'status-blocked';
+        statusText = 'Blocked';
+    } else if (student.status == 'Active') {
+        statusClass = 'status-active';
+        statusText = 'Active';
+    } else {
+        statusClass = 'status-inactive';
+        statusText = 'Inactive';
+    }
+    
+    statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border mt-2 ${statusClass}`;
+    statusBadge.textContent = statusText;
+}
 
        // Load student documents
        function loadStudentDocuments(studentId, searchTerm = '') {
@@ -2170,16 +2197,16 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
                body: formData
            })
            .then(response => response.json())
-           .then(data => {
-               if (data.success) {
-                   updateDocumentStatistics(data.statistics);
-                   displayRequirementsStatus(data);
-                   displayDocuments(data.documents);
-                   updateDeploymentButton(data.all_requirements_met);
-               } else {
-                   showToast('error', data.message);
-               }
-           })
+.then(data => {
+    if (data.success) {
+        updateDocumentStatistics(data.statistics);
+        displayRequirementsStatus(data);
+        displayDocuments(data.documents);
+        updateDeploymentButton(data.all_requirements_met, currentStudentData);
+    } else {
+        showToast('error', data.message);
+    }
+})
            .catch(error => {
                console.error('Error:', error);
                showToast('error', 'Failed to load documents');
@@ -2351,16 +2378,32 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
     return card;
 }
 
-       function updateDeploymentButton(allRequirementsMet) {
-           const button = document.getElementById('deployButton');
-           if (allRequirementsMet) {
-               button.disabled = false;
-               button.className = 'flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm bg-blue-600 text-sm font-medium text-white hover:bg-blue-700';
-           } else {
-               button.disabled = true;
-               button.className = 'flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm bg-gray-300 text-sm font-medium text-gray-500 cursor-not-allowed';
-           }
-       }
+       function updateDeploymentButton(allRequirementsMet, studentData) {
+    const button = document.getElementById('deployButton');
+    
+    // Check if student is already deployed or ready for deployment
+    const isDeployed = studentData && (studentData.deployment_id || studentData.ready_for_deployment == 1);
+    
+    if (isDeployed) {
+        // Student is already deployed or ready - disable button permanently
+        button.disabled = true;
+        button.className = 'flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm bg-gray-300 text-sm font-medium text-gray-500 cursor-not-allowed';
+        
+        if (studentData.deployment_id) {
+            button.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Already Deployed';
+        } else {
+            button.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Already Ready for Deployment';
+        }
+    } else if (allRequirementsMet) {
+        button.disabled = false;
+        button.className = 'flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm bg-blue-600 text-sm font-medium text-white hover:bg-blue-700';
+        button.innerHTML = '<i class="fas fa-rocket mr-2"></i>Mark Ready for Deployment';
+    } else {
+        button.disabled = true;
+        button.className = 'flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm bg-gray-300 text-sm font-medium text-gray-500 cursor-not-allowed';
+        button.innerHTML = '<i class="fas fa-rocket mr-2"></i>Mark Ready for Deployment';
+    }
+}
 
        // View student documents from modal
        function viewStudentDocumentsFromModal() {
@@ -2396,8 +2439,18 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
            document.getElementById('documentsModal').classList.remove('hidden');
        }
 
-      function markReadyForDeployment() {
-    if (!currentStudentId) return;
+     function markReadyForDeployment() {
+    if (!currentStudentId || !currentStudentData) return;
+
+    // Check if student is already deployed or ready for deployment
+    if (currentStudentData.deployment_id || currentStudentData.ready_for_deployment == 1) {
+        if (currentStudentData.deployment_id) {
+            showToast('error', 'This student is already deployed.');
+        } else {
+            showToast('error', 'This student is already marked as ready for deployment.');
+        }
+        return;
+    }
 
     // Get current student details and populate the modal
     const studentName = document.getElementById('studentName').textContent;
@@ -2419,6 +2472,7 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
     // Show the modal
     document.getElementById('deploymentConfirmModal').classList.remove('hidden');
 }
+
 function loadDeploymentRequirementsSummary(studentId) {
     const formData = new FormData();
     formData.append('action', 'get_documents');
@@ -2832,18 +2886,20 @@ function closeDocumentViewer() {
 }
 
        // Modal management
-       function closeModal(modalId) {
-           document.getElementById(modalId).classList.add('hidden');
-           
-           // Reset current values when closing modals
-           if (modalId === 'studentModal' || modalId === 'documentsModal') {
-               currentStudentId = null;
-           }
-           if (modalId === 'documentActionModal') {
-               currentDocumentId = null;
-               currentAction = null;
-           }
-       }
+       // Modal management
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+    
+    // Reset current values when closing modals
+    if (modalId === 'studentModal' || modalId === 'documentsModal') {
+        currentStudentId = null;
+        currentStudentData = null;
+    }
+    if (modalId === 'documentActionModal') {
+        currentDocumentId = null;
+        currentAction = null;
+    }
+}
 
        // Toast notifications
        function showToast(type, message) {

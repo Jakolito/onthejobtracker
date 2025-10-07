@@ -1932,7 +1932,8 @@ textarea:focus {
                 <!-- Form Header -->
                 <div class="form-header">
     <div class="form-logo">
-        <i class="fas fa-graduation-cap"></i>
+    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20 ">
+
     </div>
     <div class="form-title">INTERN'S PERFORMANCE APPRAISAL FORM</div>
     

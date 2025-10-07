@@ -448,6 +448,7 @@ tailwind.config = {
                 <i class="fas fa-tasks mr-3"></i>
                 Tasks
             </a>
+            
             <a href="studentReport.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-book mr-3"></i>
                 Report

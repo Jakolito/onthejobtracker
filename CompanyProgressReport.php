@@ -242,13 +242,14 @@ if ($evaluation_result->num_rows > 0) {
             JOIN student_deployments sd ON s.id = sd.student_id
             
             LEFT JOIN (
-                SELECT student_id, deployment_id,
-                       COUNT(*) as total_days,
-                       SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_days,
-                       SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days
-                FROM student_attendance 
-                GROUP BY student_id, deployment_id
-            ) att_stats ON s.id = att_stats.student_id AND sd.deployment_id = att_stats.deployment_id
+    SELECT student_id, deployment_id,
+           COUNT(*) as total_days,
+           SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_days,
+           SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days,
+           SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days
+    FROM student_attendance 
+    GROUP BY student_id, deployment_id
+) att_stats ON s.id = att_stats.student_id AND sd.deployment_id = att_stats.deployment_id
             
             LEFT JOIN (
                 SELECT student_id,
@@ -406,6 +407,9 @@ tailwind.config = {
                 <i class="fas fa-tasks mr-3"></i>
                 Tasks
             </a>
+            <a href="CompanyStudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-users mr-3 "></i>Student Accounts
+                </a>
             <a href="CompanyTimeRecord.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-clock mr-3"></i>
                 Student Time Record
@@ -1111,13 +1115,40 @@ tailwind.config = {
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <?php foreach ($students_data as $student): ?>
-                                <?php 
-                                $progress_percentage = $student['required_hours'] > 0 ? ($student['completed_hours'] / $student['required_hours']) * 100 : 0;
-                                $progress_percentage = min(100, round($progress_percentage, 1));
-                                $is_completed = $student['eligible_for_certificate'] == 1;
-                                ?>
-                                <tr class="hover:bg-gray-50 student-row <?php echo $is_completed ? 'completed-row' : ''; ?>" 
+                               <?php foreach ($students_data as $student): ?>
+<?php 
+$progress_percentage = $student['required_hours'] > 0 ? ($student['completed_hours'] / $student['required_hours']) * 100 : 0;
+$progress_percentage = min(100, round($progress_percentage, 1));
+$is_completed = $student['eligible_for_certificate'] == 1;
+
+// Calculate expected working days
+$start_date = new DateTime($student['start_date']);
+$current_date = new DateTime();
+$end_date = new DateTime($student['end_date']);
+
+// Use current date or end date, whichever is earlier
+$calc_end_date = $current_date < $end_date ? $current_date : $end_date;
+
+// Calculate business days between start and calc_end_date
+$expected_days = 0;
+$temp_date = clone $start_date;
+while ($temp_date <= $calc_end_date) {
+    $day_of_week = $temp_date->format('N'); // 1=Monday, 7=Sunday
+    if ($day_of_week < 6) { // Monday to Friday
+        $expected_days++;
+    }
+    $temp_date->modify('+1 day');
+}
+
+// Calculate actual absent days (expected days - present days - recorded absences)
+$recorded_days = $student['present_days'] + $student['absent_days'] + ($student['late_days'] ?? 0);
+$unrecorded_days = max(0, $expected_days - $recorded_days);
+$total_absent = $student['absent_days'] + $unrecorded_days;
+
+// Calculate attendance rate
+$attendance_rate = $expected_days > 0 ? round(($student['present_days'] / $expected_days) * 100, 1) : 0;
+?>
+<tr class="hover:bg-gray-50 student-row <?php echo $is_completed ? 'completed-row' : ''; ?>"
                                     data-student-name="<?php echo strtolower($student['first_name'] . ' ' . $student['last_name']); ?>"
                                     data-student-id="<?php echo strtolower($student['student_id']); ?>"
                                     data-position="<?php echo strtolower($student['position']); ?>">
@@ -1164,19 +1195,20 @@ tailwind.config = {
                                         </div>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm text-gray-900">
-                                            <?php echo $student['present_days']; ?> Present
-                                        </div>
-                                        <div class="text-xs text-gray-500">
-                                            <?php echo $student['absent_days']; ?> Absent / <?php echo $student['total_attendance_days']; ?> Total
-                                        </div>
-                                        <?php if ($student['total_attendance_days'] > 0): ?>
-                                        <div class="text-xs text-gray-500">
-                                            <?php echo round(($student['present_days'] / $student['total_attendance_days']) * 100, 1); ?>% Rate
-                                        </div>
-                                        <?php endif; ?>
-                                    </td>
+                                   <td class="px-6 py-4 whitespace-nowrap">
+    <div class="text-sm text-gray-900 font-medium">
+        <?php echo $student['present_days']; ?> Present
+    </div>
+    <div class="text-xs text-red-600 font-medium">
+        <?php echo $total_absent; ?> Absent
+    </div>
+    <div class="text-xs text-gray-500">
+        <?php echo $expected_days; ?> Expected Days
+    </div>
+    <div class="text-xs font-medium <?php echo $attendance_rate >= 90 ? 'text-green-600' : ($attendance_rate >= 75 ? 'text-yellow-600' : 'text-red-600'); ?>">
+        <?php echo $attendance_rate; ?>% Attendance Rate
+    </div>
+</td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm text-gray-900">
                                             <?php echo $student['completed_tasks']; ?>/<?php echo $student['total_tasks']; ?> Tasks

@@ -13,65 +13,210 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     exit;
 }
 
-// Get adviser information
+// Get adviser information INCLUDING ROLE
 $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
 
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
+$student_where_clause = "s.status != 'Blocked'";
+
+// Apply filters based on role and assignments
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
+// Initialize all variables with default values to prevent undefined variable errors
+$total_students = 0;
+$total_supervisors = 0;
+$prev_month_students = 0;
+$prev_month_supervisors = 0;
+$student_growth = 0;
+$supervisor_growth = 0;
+$active_students = 0;
+$completed_ojt = 0;
+$unread_messages_count = 0;
+$pending_documents_count = 0;
+$error_message = '';
+
 // Get dashboard statistics
 try {
-    // Total OJT Students
-    $total_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1 AND status != 'Blocked'";
+    // Total OJT Students (filtered by adviser's assignments)
+    $total_students_query = "SELECT COUNT(*) as total FROM students s WHERE $student_where_clause";
     $total_students_result = mysqli_query($conn, $total_students_query);
-    $total_students = mysqli_fetch_assoc($total_students_result)['total'];
+    if ($total_students_result) {
+        $total_students = mysqli_fetch_assoc($total_students_result)['total'];
+    }
 
     // Total OJT Company Supervisors
-    $total_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE account_status = 'Active'";
-    $total_supervisors_result = mysqli_query($conn, $total_supervisors_query);
-    $total_supervisors = mysqli_fetch_assoc($total_supervisors_result)['total'];
+    if ($adviser_role === 'coordinator') {
+        $total_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE account_status = 'Active'";
+        $total_supervisors_result = mysqli_query($conn, $total_supervisors_query);
+    } else {
+        // Advisers only see supervisors assigned to their students
+        $total_supervisors_query = "SELECT COUNT(DISTINCT supervisor_id) as total 
+            FROM student_deployments sd 
+            INNER JOIN students s ON sd.student_id = s.id 
+            WHERE $student_where_clause";
+        $total_supervisors_result = mysqli_query($conn, $total_supervisors_query);
+    }
+    if ($total_supervisors_result) {
+        $total_supervisors = mysqli_fetch_assoc($total_supervisors_result)['total'];
+    }
 
     // Get previous month's student count for comparison
-    $prev_month_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 1 AND status != 'Blocked' AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
-    $prev_month_students_result = mysqli_query($conn, $prev_month_students_query);
-    $prev_month_students = mysqli_fetch_assoc($prev_month_students_result)['total'];
-    $student_growth = $total_students - $prev_month_students;
+    $prev_month_query = "SELECT COUNT(*) as total FROM students s 
+        WHERE $student_where_clause AND s.created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
+    $prev_month_result = mysqli_query($conn, $prev_month_query);
+    if ($prev_month_result) {
+        $prev_month_students = mysqli_fetch_assoc($prev_month_result)['total'];
+        $student_growth = $total_students - $prev_month_students;
+    }
 
     // Get previous month's supervisor count for comparison
-    $prev_month_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors WHERE account_status = 'Active' AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
+    if ($adviser_role === 'coordinator') {
+        $prev_month_supervisors_query = "SELECT COUNT(*) as total FROM company_supervisors 
+            WHERE account_status = 'Active' AND created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH)";
+    } else {
+        $prev_month_supervisors_query = "SELECT COUNT(DISTINCT supervisor_id) as total 
+            FROM student_deployments sd 
+            INNER JOIN students s ON sd.student_id = s.id 
+            WHERE sd.created_at < DATE_SUB(NOW(), INTERVAL 1 MONTH) 
+            AND $student_where_clause";
+    }
     $prev_month_supervisors_result = mysqli_query($conn, $prev_month_supervisors_query);
-    $prev_month_supervisors = mysqli_fetch_assoc($prev_month_supervisors_result)['total'];
-    $supervisor_growth = $total_supervisors - $prev_month_supervisors;
+    if ($prev_month_supervisors_result) {
+        $prev_month_supervisors = mysqli_fetch_assoc($prev_month_supervisors_result)['total'];
+        $supervisor_growth = $total_supervisors - $prev_month_supervisors;
+    }
 
     // Get active students count from student_deployments
-    $active_students_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE status = 'Active' OR ojt_status = 'Active'";
+    $active_students_query = "SELECT COUNT(DISTINCT sd.student_id) as total 
+        FROM student_deployments sd 
+        INNER JOIN students s ON sd.student_id = s.id 
+        WHERE (sd.status = 'Active' OR sd.ojt_status = 'Active') AND $student_where_clause";
     $active_students_result = mysqli_query($conn, $active_students_query);
-    $active_students = mysqli_fetch_assoc($active_students_result)['total'];
+    if ($active_students_result) {
+        $active_students = mysqli_fetch_assoc($active_students_result)['total'];
+    }
 
     // Get completed OJT count from student_deployments
-    $completed_ojt_query = "SELECT COUNT(DISTINCT student_id) as total FROM student_deployments WHERE (status = 'Completed' OR ojt_status = 'Completed') AND updated_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)";
+    $completed_ojt_query = "SELECT COUNT(DISTINCT sd.student_id) as total 
+        FROM student_deployments sd 
+        INNER JOIN students s ON sd.student_id = s.id 
+        WHERE (sd.status = 'Completed' OR sd.ojt_status = 'Completed') 
+        AND sd.updated_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR) AND $student_where_clause";
     $completed_ojt_result = mysqli_query($conn, $completed_ojt_query);
-    $completed_ojt = mysqli_fetch_assoc($completed_ojt_result)['total'];
+    if ($completed_ojt_result) {
+        $completed_ojt = mysqli_fetch_assoc($completed_ojt_result)['total'];
+    }
 
-    // Get recent messages sent to adviser
+    // Get recent messages sent to adviser (from assigned students only)
     $recent_messages_query = "SELECT 
         m.id, m.message, m.sent_at, m.is_read, m.message_type,
         s.first_name, s.last_name, s.student_id, s.program 
         FROM messages m 
         JOIN students s ON m.sender_id = s.id 
         WHERE m.recipient_type = 'adviser' AND m.sender_type = 'student' 
-        AND m.is_deleted_by_recipient = 0 
+        AND m.is_deleted_by_recipient = 0 AND $student_where_clause
         ORDER BY m.sent_at DESC 
         LIMIT 10";
     $recent_messages_result = mysqli_query($conn, $recent_messages_query);
+    if (!$recent_messages_result) {
+        $recent_messages_result = mysqli_query($conn, "SELECT 1 WHERE 1=0"); // Empty result set
+    }
 
     // Get notification counts
-    $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
+    $unread_messages_query = "SELECT COUNT(*) as count 
+        FROM messages m 
+        JOIN students s ON m.sender_id = s.id 
+        WHERE m.recipient_type = 'adviser' AND m.sender_type = 'student' 
+        AND m.is_read = 0 AND m.is_deleted_by_recipient = 0 AND $student_where_clause";
     $unread_messages_result = mysqli_query($conn, $unread_messages_query);
-    $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+    if ($unread_messages_result) {
+        $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+    }
 
-    $pending_documents_query = "SELECT COUNT(*) as count FROM student_documents sd JOIN students s ON sd.student_id = s.id WHERE sd.status = 'pending' AND s.verified = 1";
+    // Get pending documents count
+    $pending_documents_query = "SELECT COUNT(*) as count 
+        FROM student_documents sd 
+        JOIN students s ON sd.student_id = s.id 
+        WHERE sd.status = 'pending' AND $student_where_clause";
     $pending_documents_result = mysqli_query($conn, $pending_documents_query);
-    $pending_documents_count = mysqli_fetch_assoc($pending_documents_result)['count'];
+    if ($pending_documents_result) {
+        $pending_documents_count = mysqli_fetch_assoc($pending_documents_result)['count'];
+    }
 
     // Get recent document submissions
     $recent_documents_query = "SELECT 
@@ -79,19 +224,25 @@ try {
         s.first_name, s.last_name, s.student_id, s.program 
         FROM student_documents sd 
         JOIN students s ON sd.student_id = s.id 
-        WHERE s.verified = 1 
+        WHERE $student_where_clause
         ORDER BY sd.submitted_at DESC 
         LIMIT 10";
     $recent_documents_result = mysqli_query($conn, $recent_documents_query);
+    if (!$recent_documents_result) {
+        $recent_documents_result = mysqli_query($conn, "SELECT 1 WHERE 1=0"); // Empty result set
+    }
 
     // Get students for evaluation
     $students_for_evaluation_query = "SELECT 
         s.id, s.first_name, s.last_name, s.student_id, s.program, s.year_level, s.section, s.status, s.last_login 
         FROM students s 
-        WHERE s.verified = 1 AND s.status IN ('Active', 'Completed') 
+        WHERE $student_where_clause AND s.status IN ('Active', 'Completed') 
         ORDER BY s.last_login DESC 
         LIMIT 10";
     $students_for_evaluation_result = mysqli_query($conn, $students_for_evaluation_query);
+    if (!$students_for_evaluation_result) {
+        $students_for_evaluation_result = mysqli_query($conn, "SELECT 1 WHERE 1=0"); // Empty result set
+    }
 
 } catch (Exception $e) {
     $error_message = "Error fetching dashboard data: " . $e->getMessage();
@@ -100,7 +251,6 @@ try {
 // Create adviser initials
 $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -120,11 +270,11 @@ tailwind.config = {
     theme: {
         extend: {
             colors: {
-                'bulsu-maroon': '#800000',     // Primary Maroon
-                'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                'bulsu-gold': '#DAA520',       // Official Gold
-                'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                'bulsu-white': '#FFFFFF'       // Supporting White
+                'bulsu-maroon': '#800000',
+                'bulsu-dark-maroon': '#6B1028',
+                'bulsu-gold': '#DAA520',
+                'bulsu-light-gold': '#F4E4BC',
+                'bulsu-white': '#FFFFFF'
             }
         }
     }
@@ -151,7 +301,7 @@ tailwind.config = {
             border-radius: 10px;
             animation: pulse 2s infinite;
         }
-        /* Custom CSS for features not easily achievable with Tailwind */
+        
         .sidebar {
             transition: transform 0.3s ease-in-out;
         }
@@ -267,18 +417,30 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            
+            <!-- NEW: Academic Accounts - Only visible to coordinators -->
+            <?php if ($adviser_role === 'coordinator'): ?>
+            <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                <i class="fas fa-user-tie mr-3"></i>
+                Academic Accounts
+            </a>
+            <?php endif; ?>
         </nav>
     </div>
     
     <!-- User Profile -->
     <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
         <div class="flex items-center space-x-3">
-            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm">
-                <?php echo $adviser_initials; ?>
-            </div>
+            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
+    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+    <?php else: ?>
+        <?php echo $adviser_initials; ?>
+    <?php endif; ?>
+</div>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
             </div>
         </div>
     </div>
@@ -315,7 +477,7 @@ tailwind.config = {
                                 </div>
                                 <div>
                                     <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
-                                    <p class="text-sm text-gray-500">Academic Adviser</p>
+                                    <p class="text-sm text-gray-500"><?php echo ucfirst($adviser_role); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -336,14 +498,7 @@ tailwind.config = {
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
             <!-- Error Message Display -->
-            <?php if (isset($error_message)): ?>
-                <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <div class="flex items-start">
-                        <i class="fas fa-exclamation-triangle text-red-600 mt-1 mr-3"></i>
-                        <p class="text-red-700"><?php echo htmlspecialchars($error_message); ?></p>
-                    </div>
-                </div>
-            <?php endif; ?>
+           
 
             <!-- Welcome Section -->
             <div class="mb-6 sm:mb-8">
@@ -351,6 +506,7 @@ tailwind.config = {
                 <p class="text-gray-600">Here's your OJT program overview for today.</p>
             </div>
 
+            <!-- Rest of the dashboard content remains the same -->
             <!-- Statistics Grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
                 <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-green-500">

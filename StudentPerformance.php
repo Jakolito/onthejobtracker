@@ -18,6 +18,20 @@ $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
 
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
 $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
 $unread_messages_result = mysqli_query($conn, $unread_messages_query);
 $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
@@ -31,16 +45,81 @@ $company_filter = '';
 $total_pages = 1; // Initialize to prevent undefined variable error
 
 // Initialize $where_clause early to prevent undefined variable error
-$where_clause = "s.verified = 1 AND s.status != 'Blocked' AND sd.status IN ('Active', 'Completed') AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))";
+// BUILD WHERE CLAUSE BASED ON ROLE AND ASSIGNMENTS (SAME AS STUDENT RECORDS)
+$student_where_clause = "1=1"; // Base condition
+
+// Apply filters based on role and assignments (SAME AS STUDENT RECORDS)
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
 
 // Only get filter values if we're not viewing a specific student
 $view_student = isset($_GET['view_student']) ? $_GET['view_student'] : null;
 
 if (!$view_student) {
     $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
-    $department_filter = isset($_GET['department']) ? mysqli_real_escape_string($conn, $_GET['department']) : '';
+    // Department filter removed - using adviser's department only
     $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : '';
-    $status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : ''; // Now used for risk levels
+    $status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
     $company_filter = isset($_GET['company']) ? mysqli_real_escape_string($conn, $_GET['company']) : '';
 }
 
@@ -461,25 +540,27 @@ $view_student = isset($_GET['view_student']) ? $_GET['view_student'] : null;
 // Only fetch filter dropdown data if not viewing specific student
 if (!$view_student) {
     // GET FILTER DROPDOWN DATA
+   // GET FILTER DROPDOWN DATA (with role-based filtering)
     try {
-        // Get unique departments for filter dropdown
-        $departments_query = "SELECT DISTINCT s.department FROM students s 
-                             INNER JOIN student_deployments sd ON s.id = sd.student_id 
-                             WHERE s.department IS NOT NULL AND s.department != '' 
-                             ORDER BY s.department";
-        $departments_result = mysqli_query($conn, $departments_query);
+        // Get unique departments for filter dropdown (from visible students only)
 
-        // Get unique sections for filter dropdown  
+
+        // Get unique sections for filter dropdown (from visible students only)
         $sections_query = "SELECT DISTINCT s.section FROM students s 
-                          INNER JOIN student_deployments sd ON s.id = sd.student_id 
-                          WHERE s.section IS NOT NULL AND s.section != '' 
-                          ORDER BY s.section";
+                  INNER JOIN student_deployments sd ON s.id = sd.student_id 
+                  WHERE s.section IS NOT NULL AND s.section != '' 
+                  AND $student_where_clause
+                  AND sd.status IN ('Active', 'Completed')
+                  ORDER BY s.section";
         $sections_result = mysqli_query($conn, $sections_query);
 
-        // Get unique companies for filter dropdown
+        // Get unique companies for filter dropdown (from visible students only)
         $companies_query = "SELECT DISTINCT sd.company_name FROM student_deployments sd 
-                           WHERE sd.company_name IS NOT NULL AND sd.company_name != '' 
-                           ORDER BY sd.company_name";
+                   INNER JOIN students s ON sd.student_id = s.id
+                   WHERE sd.company_name IS NOT NULL AND sd.company_name != '' 
+                   AND $student_where_clause
+                   AND sd.status IN ('Active', 'Completed')
+                   ORDER BY sd.company_name";
         $companies_result = mysqli_query($conn, $companies_query);
 
     } catch (Exception $e) {
@@ -554,15 +635,13 @@ if ($view_student) {
     // MAIN FILTERED QUERY with real data for predictions
     try {
         // BUILD WHERE CONDITIONS FOR FILTERING
+       // BUILD WHERE CONDITIONS FOR FILTERING
         $where_conditions = array();
         
         if (!empty($search)) {
             $where_conditions[] = "(s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%' OR s.student_id LIKE '%$search%' OR s.email LIKE '%$search%' OR sd.company_name LIKE '%$search%')";
         }
 
-        if (!empty($department_filter)) {
-            $where_conditions[] = "s.department = '$department_filter'";
-        }
 
         if (!empty($section_filter)) {
             $where_conditions[] = "s.section = '$section_filter'";
@@ -572,15 +651,22 @@ if ($view_student) {
             $where_conditions[] = "sd.company_name = '$company_filter'";
         }
 
-        // Base condition
-        $base_condition = "s.verified = 1 AND s.status != 'Blocked' AND sd.status IN ('Active', 'Completed') AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))";
-        
-        // Combine conditions
+        // Combine role-based filter with other conditions
         if (count($where_conditions) > 0) {
-            $where_clause = $base_condition . " AND (" . implode(' AND ', $where_conditions) . ")";
+            $where_clause = $student_where_clause . " AND (" . implode(' AND ', $where_conditions) . ")";
         } else {
-            $where_clause = $base_condition;
+            $where_clause = $student_where_clause;
         }
+        
+        // Add deployment status filter
+        $where_clause .= " AND sd.status IN ('Active', 'Completed') AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))";
+        // Combine conditions
+       // Combine base condition with filter conditions
+if (count($where_conditions) > 0) {
+    $where_clause = $student_where_clause . " AND (" . implode(' AND ', $where_conditions) . ")";
+} else {
+    $where_clause = $student_where_clause;
+}
 
         // Count total records for pagination (before risk filter)
         $count_query = "SELECT COUNT(DISTINCT s.id) as total 
@@ -603,10 +689,12 @@ if ($view_student) {
           cs.work_schedule_start, cs.work_schedule_end, cs.work_days
           
     FROM students s
-    INNER JOIN student_deployments sd ON s.id = sd.student_id
+    INNER JOIN student_deployments sd ON s.id = sd.student_id 
+        AND sd.status IN ('Active', 'Completed') 
+        AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))
     LEFT JOIN company_supervisors cs ON sd.supervisor_id = cs.supervisor_id
     
-    WHERE $where_clause
+    WHERE $where_clause AND sd.deployment_id IS NOT NULL
     ORDER BY s.last_name, s.first_name
 ";
 
@@ -932,6 +1020,12 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <?php if ($adviser_role === 'coordinator'): ?>
+            <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                <i class="fas fa-user-tie mr-3"></i>
+                Academic Accounts
+            </a>
+            <?php endif; ?>
         </nav>
     </div>
     
@@ -945,9 +1039,9 @@ tailwind.config = {
         <?php echo $adviser_initials; ?>
     <?php endif; ?>
 </div>
-            <div class="flex-1 min-w-0">
+             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
             </div>
         </div>
     </div>
@@ -1028,7 +1122,7 @@ tailwind.config = {
     <div class="p-4 sm:p-6">
         <!-- Filter Form -->
         <form method="GET" action="" id="filterForm">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <!-- Search Input -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Search Students</label>
@@ -1044,22 +1138,15 @@ tailwind.config = {
                 </div>
 
                 <!-- Department Filter -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Department</label>
-                    <select name="department" id="departmentFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">All Departments</option>
-                        <?php 
-                        if (isset($departments_result)) {
-                            mysqli_data_seek($departments_result, 0); // Reset result pointer
-                            while ($dept = mysqli_fetch_assoc($departments_result)): ?>
-                                <option value="<?php echo htmlspecialchars($dept['department']); ?>" 
-                                        <?php echo $department_filter === $dept['department'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($dept['department']); ?>
-                                </option>
-                            <?php endwhile;
-                        } ?>
-                    </select>
-                </div>
+                <!-- Department (Read-Only) -->
+<div>
+    <label class="block text-sm font-medium text-gray-700 mb-2">Department</label>
+    <input type="text" 
+           class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" 
+           value="<?php echo htmlspecialchars($adviser_department ?? 'Not Assigned'); ?>" 
+           readonly 
+           title="Your assigned department">
+</div>
                 
                 <!-- Section Filter -->
                 <div>
@@ -1283,77 +1370,77 @@ tailwind.config = {
                     
                     <!-- Pagination - Now positioned at the bottom of the table -->
                     <!-- Pagination - Now positioned at the bottom of the table -->
-                    <?php if (isset($total_pages) && $total_pages > 1): ?>
-                        <div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
-                            <!-- Mobile pagination -->
-                            <div class="flex-1 flex justify-between sm:hidden">
-                                <?php if ($page > 1): ?>
-                                    <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
-                                       class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                        Previous
-                                    </a>
-                                <?php endif; ?>
-                                
-                                <?php if ($page < $total_pages): ?>
-                                    <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
-                                       class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                        Next
-                                    </a>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <!-- Desktop pagination - CENTERED -->
-                            <div class="hidden sm:flex sm:flex-col sm:items-center sm:space-y-3">
-                                <!-- Results info -->
-                                <div>
-                                    <p class="text-sm text-gray-700">
-                                        Showing 
-                                        <span class="font-medium"><?php echo (($page - 1) * $records_per_page) + 1; ?></span>
-                                        to 
-                                        <span class="font-medium"><?php echo min($page * $records_per_page, $total_records); ?></span>
-                                        of 
-                                        <span class="font-medium"><?php echo $total_records; ?></span>
-                                        results
-                                    </p>
-                                </div>
-                                
-                                <!-- Pagination controls - CENTERED -->
-                                <div>
-                                    <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                                        <!-- Previous Button -->
-                                        <?php if ($page > 1): ?>
-                                            <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
-                                               class="relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                                                <i class="fas fa-chevron-left mr-1"></i>
-                                                Previous
-                                            </a>
-                                        <?php endif; ?>
-                                        
-                                        <!-- Page Numbers -->
-                                        <?php
-                                        $start_page = max(1, $page - 2);
-                                        $end_page = min($total_pages, $page + 2);
-                                        
-                                        for ($i = $start_page; $i <= $end_page; $i++): ?>
-                                            <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
-                                               class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium <?php echo $i == $page ? 'text-blue-600 bg-blue-50 border-blue-500' : 'text-gray-700 hover:bg-gray-50'; ?>">
-                                                <?php echo $i; ?>
-                                            </a>
-                                        <?php endfor; ?>
-                                        
-                                        <!-- Next Button -->
-                                        <?php if ($page < $total_pages): ?>
-                                            <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&department=<?php echo urlencode($department_filter); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
-                                               class="relative inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                                                Next
-                                                <i class="fas fa-chevron-right ml-1"></i>
-                                            </a>
-                                        <?php endif; ?>
-                                    </nav>
-                                </div>
-                            </div>
-                        </div>
+                   <?php if (isset($total_pages) && $total_pages > 1): ?>
+    <div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
+        <!-- Mobile pagination -->
+        <div class="flex-1 flex justify-between sm:hidden">
+            <?php if ($page > 1): ?>
+                <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                   class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Previous
+                </a>
+            <?php endif; ?>
+            
+            <?php if ($page < $total_pages): ?>
+                <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                   class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Next
+                </a>
+            <?php endif; ?>
+        </div>
+        
+        <!-- Desktop pagination - CENTERED -->
+        <div class="hidden sm:flex sm:flex-col sm:items-center sm:space-y-3">
+            <!-- Results info -->
+            <div>
+                <p class="text-sm text-gray-700">
+                    Showing 
+                    <span class="font-medium"><?php echo (($page - 1) * $records_per_page) + 1; ?></span>
+                    to 
+                    <span class="font-medium"><?php echo min($page * $records_per_page, $total_records); ?></span>
+                    of 
+                    <span class="font-medium"><?php echo $total_records; ?></span>
+                    results
+                </p>
+            </div>
+            
+            <!-- Pagination controls - CENTERED -->
+            <div>
+                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    <!-- Previous Button -->
+                    <?php if ($page > 1): ?>
+                        <a href="?page=<?php echo ($page - 1); ?>&search=<?php echo urlencode($search); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                           class="relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            <i class="fas fa-chevron-left mr-1"></i>
+                            Previous
+                        </a>
                     <?php endif; ?>
+                    
+                    <!-- Page Numbers -->
+                    <?php
+                    $start_page = max(1, $page - 2);
+                    $end_page = min($total_pages, $page + 2);
+                    
+                    for ($i = $start_page; $i <= $end_page; $i++): ?>
+                        <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                           class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium <?php echo $i == $page ? 'text-blue-600 bg-blue-50 border-blue-500' : 'text-gray-700 hover:bg-gray-50'; ?>">
+                            <?php echo $i; ?>
+                        </a>
+                    <?php endfor; ?>
+                    
+                    <!-- Next Button -->
+                    <?php if ($page < $total_pages): ?>
+                        <a href="?page=<?php echo ($page + 1); ?>&search=<?php echo urlencode($search); ?>&section=<?php echo urlencode($section_filter); ?>&status=<?php echo urlencode($status_filter); ?>&company=<?php echo urlencode($company_filter); ?>" 
+                           class="relative inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            Next
+                            <i class="fas fa-chevron-right ml-1"></i>
+                        </a>
+                    <?php endif; ?>
+                </nav>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
                 </div>
             <?php else: ?>
                 <!-- Individual Student Detailed View -->
@@ -1852,21 +1939,19 @@ document.addEventListener('DOMContentLoaded', function() {
     // ===========================================
     
     function applyFilters() {
-        const search = searchInput?.value || '';
-        const department = document.getElementById('departmentFilter')?.value || '';
-        const section = document.getElementById('sectionFilter')?.value || '';
-        const status = document.getElementById('statusFilter')?.value || '';
-        const company = document.getElementById('companyFilter')?.value || '';
-        
-        const params = new URLSearchParams();
-        if (search) params.append('search', search);
-        if (department) params.append('department', department);
-        if (section) params.append('section', section);
-        if (status) params.append('status', status);
-        if (company) params.append('company', company);
-        
-        window.location.href = `${window.location.pathname}?${params.toString()}`;
-    }
+    const search = searchInput?.value || '';
+    const section = document.getElementById('sectionFilter')?.value || '';
+    const status = document.getElementById('statusFilter')?.value || '';
+    const company = document.getElementById('companyFilter')?.value || '';
+    
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (section) params.append('section', section);
+    if (status) params.append('status', status);
+    if (company) params.append('company', company);
+    
+    window.location.href = `${window.location.pathname}?${params.toString()}`;
+}
 
     // Search input Enter key
     if (searchInput) {
@@ -1878,7 +1963,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Filter dropdowns
-    const filters = ['departmentFilter', 'sectionFilter', 'statusFilter', 'companyFilter'];
+const filters = ['sectionFilter', 'statusFilter', 'companyFilter'];
     filters.forEach(filterId => {
         const filterElement = document.getElementById(filterId);
         if (filterElement) {

@@ -34,7 +34,6 @@
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
-                    <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
             <button id="menu-btn" class="md:hidden block focus:outline-none z-50">
@@ -66,49 +65,58 @@
     </header>
 
     <main class="flex-1 flex items-center justify-center px-4 py-8">
-        <div class="bg-white bg-opacity-95 rounded-2xl shadow-2xl p-8 md:p-12 max-w-4xl w-full text-center animate-fadeInUp">
-            <div class="mb-8">
-                <div class="mb-6">
-                    <h3 class="text-bulsu-gold font-semibold text-lg mb-2">Bulacan State University</h3>
-                    <div class="w-24 h-1 bg-bulsu-gold mx-auto rounded"></div>
-                </div>
-                <h1 class="text-bulsu-maroon text-3xl md:text-4xl font-bold mb-4">Create Your Account</h1>
-                <p class="text-gray-600 text-lg md:text-xl">Select your role to register and join the BULSU OJT Performance Monitoring System</p>
+    <div class="bg-white bg-opacity-95 rounded-2xl shadow-2xl p-8 md:p-12 max-w-4xl w-full text-center animate-fadeInUp">
+        <div class="mb-8">
+            <div class="mb-6">
+                <h3 class="text-bulsu-gold font-semibold text-lg mb-2">Bulacan State University</h3>
+                <div class="w-24 h-1 bg-bulsu-gold mx-auto rounded"></div>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mt-8 max-w-3xl mx-auto">
-                <!-- Student Signup -->
-                <a href="signup.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
-                    <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">🎓</div>
-                    <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">BULSU Student</h3>
-                    <p class="text-gray-600 text-center">Register as a BULSU student to track your OJT progress, complete tasks, and receive evaluations</p>
-                    <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Sign Up →</div>
-                </a>
-
-                <!-- Company Supervisor Signup -->
-                <a href="supervisor-signup.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
-                    <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">👔</div>
-                    <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">Company Supervisor</h3>
-                    <p class="text-gray-600 text-center">Register your company to supervise BULSU interns, assign tasks, and evaluate their performance</p>
-                    <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Sign Up →</div>
-                </a>
-            </div>   
-            <!-- Already have an account -->
-            <div class="mt-8 text-center">
-                <p class="text-gray-600 mb-4">Already have an account?</p>
-                <a href="login.php" class="inline-block bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white px-8 py-3 rounded-lg font-semibold shadow-lg hover:from-bulsu-dark-maroon hover:to-black transition transform hover:scale-105">
-                    Login Here
-                </a>
-            </div>
-
-            <!-- Back to Landing Page -->
-            <div class="mt-6 text-center">
-                <a href="index.php" class="inline-block text-bulsu-maroon hover:text-bulsu-gold transition font-medium">
-                    ← Back to Landing Page
-                </a>
-            </div>
+            <h1 class="text-bulsu-maroon text-3xl md:text-4xl font-bold mb-4">Create Your Account</h1>
+            <p class="text-gray-600 text-lg md:text-xl">Select your role to register and join the BULSU OJT Performance Monitoring System</p>
         </div>
-    </main>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 mt-8">
+            <!-- Student Signup -->
+            <a href="signup.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
+                <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">🎓</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">BULSU Student</h3>
+                <p class="text-gray-600 text-center">Register as a BULSU student to track your OJT progress, complete tasks, and receive evaluations</p>
+                <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Sign Up →</div>
+            </a>
+
+            <!-- Academic Adviser Signup -->
+            <a href="academic_adviser_signup.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
+                <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">👨‍🏫</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">Academic Adviser</h3>
+                <p class="text-gray-600 text-center">Register as an academic adviser to monitor and guide students throughout their OJT journey</p>
+                <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Sign Up →</div>
+            </a>
+
+            <!-- Company Supervisor Signup -->
+            <a href="supervisor-signup.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
+                <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">👔</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">Company Supervisor</h3>
+                <p class="text-gray-600 text-center">Register your company to supervise BULSU interns, assign tasks, and evaluate their performance</p>
+                <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Sign Up →</div>
+            </a>
+        </div>
+
+        <!-- Already have an account -->
+        <div class="mt-8 text-center">
+            <p class="text-gray-600 mb-4">Already have an account?</p>
+            <a href="login.php" class="inline-block bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white px-8 py-3 rounded-lg font-semibold shadow-lg hover:from-bulsu-dark-maroon hover:to-black transition transform hover:scale-105">
+                Login Here
+            </a>
+        </div>
+
+        <!-- Back to Landing Page -->
+        <div class="mt-6 text-center">
+            <a href="index.php" class="inline-block text-bulsu-maroon hover:text-bulsu-gold transition font-medium">
+                ← Back to Landing Page
+            </a>
+        </div>
+    </div>
+</main>
 
     <footer class="bg-gradient-to-r from-bulsu-dark-maroon to-black text-white py-8 px-4 mt-auto">
         <div class="max-w-6xl mx-auto text-center">

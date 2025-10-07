@@ -28,7 +28,7 @@
 </head>
 
 <body class="bg-gray-100 text-gray-800">
-    <header class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white shadow-lg">
+<header class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white shadow-lg sticky top-0 z-50">
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
                 <!-- BULSU Logos -->
@@ -39,7 +39,6 @@
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
-                    <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
             <!-- Hamburger Button (Mobile) -->
@@ -292,15 +291,7 @@
         });
 
         // Add scroll effect for hero section
-        window.addEventListener('scroll', () => {
-            const heroSection = document.querySelector('main section:first-child');
-            const scrolled = window.pageYOffset;
-            const parallax = scrolled * 0.5;
-            
-            if (heroSection) {
-                heroSection.style.transform = `translateY(${parallax}px)`;
-            }
-        });
+        
     </script>
 </body>
 

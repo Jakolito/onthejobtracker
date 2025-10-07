@@ -34,6 +34,108 @@ try {
     echo "Error: " . $e->getMessage();
     exit();
 }
+
+// Get adviser role and assignment details from database
+// Get adviser role and assigned_groups
+$adviser_query = "SELECT role, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
+// Build WHERE clause for student filtering (REMOVED verified check)
+$student_where_clause = "1=1";  // Changed from "s.verified = 1"
+
+// Apply filters based on role and assignments
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
+// Get students for messaging (filtered by adviser's assignments)
+
+$adviser_id = $_SESSION['adviser_id'];
+
+// Fetch adviser data
+try {
+    $stmt = $conn->prepare("SELECT id, name, email FROM academic_adviser WHERE id = ?");
+    $stmt->bind_param("i", $adviser_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        $adviser = $result->fetch_assoc();
+        $adviser_name = $adviser['name'];
+        $adviser_initials = strtoupper(substr($adviser['name'], 0, 1) . substr(substr($adviser['name'], strpos($adviser['name'], ' ') + 1), 0, 1));
+    } else {
+        header("Location: adviserlogin.php");
+        exit();
+    }
+} catch (Exception $e) {
+    echo "Error: " . $e->getMessage();
+    exit();
+}
  $message = '';
 $message_type = '';
 
@@ -63,7 +165,7 @@ try {
                AND m.sender_id = s.id AND m.sender_type = 'student'
             ) as unread_count
         FROM students s
-        WHERE s.verified = 1
+        WHERE $student_where_clause
         ORDER BY 
             CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
             last_message_time DESC,
@@ -389,7 +491,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                    AND m.sender_id = s.id AND m.sender_type = 'student'
                 ) as unread_count
             FROM students s
-            WHERE s.verified = 1
+            WHERE $student_where_clause
             ORDER BY 
                 CASE WHEN last_message_time IS NULL THEN 1 ELSE 0 END,
                 last_message_time DESC,
@@ -599,6 +701,13 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <!-- NEW: Academic Accounts - Only visible to coordinators -->
+<?php if ($adviser_role === 'coordinator'): ?>
+<a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+    <i class="fas fa-user-tie mr-3"></i>
+    Academic Accounts
+</a>
+<?php endif; ?>
         </nav>
     </div>
     
@@ -613,9 +722,9 @@ tailwind.config = {
     <?php endif; ?>
 </div>
             <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
-            </div>
+    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
+    <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
+</div>
         </div>
     </div>
 </div>

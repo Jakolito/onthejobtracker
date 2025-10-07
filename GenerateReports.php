@@ -2,7 +2,7 @@
 include('connect.php');
 session_start();
 
-// Prevent caching - add these headers at the top
+// Prevent caching
 header("Cache-Control: no-cache, no-store, must-revalidate");
 header("Pragma: no-cache");
 header("Expires: 0");
@@ -13,10 +13,99 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     exit;
 }
 
-// Get adviser information
+// Get adviser information INCLUDING ROLE
 $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
+
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
+// Build WHERE clause for filtering students based on adviser's role and assignments
+function buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions = '') {
+    $student_where_clause = "s.status != 'Blocked'";
+    
+    // Apply filters based on role and assignments
+    if ($adviser_role === 'coordinator') {
+        // Coordinators can see all OR filter by their assigned groups
+        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+            $group_conditions = [];
+            
+            foreach ($groups as $group) {
+                if (!empty($group)) {
+                    $group_escaped = mysqli_real_escape_string($conn, $group);
+                    
+                    // Try both formats (space and hyphen)
+                    $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                    $group_with_space = str_replace('-G', ' G', $group_escaped);
+                    
+                    $group_conditions[] = "(
+                        TRIM(s.section) = TRIM('$group_escaped')
+                        OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                        OR TRIM(s.section) = TRIM('$group_with_space')
+                    )";
+                }
+            }
+            
+            if (!empty($group_conditions)) {
+                $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+            }
+        }
+        // If coordinator has no assigned groups, they see ALL students (no additional filter)
+        
+    } elseif ($adviser_role === 'adviser') {
+        // Regular advisers MUST have assigned groups
+        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+            $group_conditions = [];
+            
+            foreach ($groups as $group) {
+                if (!empty($group)) {
+                    $group_escaped = mysqli_real_escape_string($conn, $group);
+                    
+                    // Try both formats (space and hyphen)
+                    $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                    $group_with_space = str_replace('-G', ' G', $group_escaped);
+                    
+                    $group_conditions[] = "(
+                        TRIM(s.section) = TRIM('$group_escaped')
+                        OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                        OR TRIM(s.section) = TRIM('$group_with_space')
+                    )";
+                }
+            }
+            
+            if (!empty($group_conditions)) {
+                $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+            } else {
+                // Adviser with no groups sees NO students
+                $student_where_clause .= " AND 1=0";
+            }
+        } else {
+            // Adviser with no assigned groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    }
+    
+    // Add any additional conditions
+    if (!empty($additional_conditions)) {
+        $student_where_clause .= " AND " . $additional_conditions;
+    }
+    
+    return $student_where_clause;
+}
 
 // Handle report generation
 if (isset($_POST['generate_report'])) {
@@ -25,36 +114,40 @@ if (isset($_POST['generate_report'])) {
     $date_to = $_POST['date_to'];
     $student_filter = $_POST['student_filter'] ?? '';
     
-    // Generate report based on type
-    $report_data = generateReport($conn, $report_type, $date_from, $date_to, $student_filter);
+    // Generate report based on type with adviser filtering
+    $report_data = generateReport($conn, $report_type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
 }
 
-function generateReport($conn, $type, $date_from, $date_to, $student_filter) {
+function generateReport($conn, $type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
     $data = array();
     
     switch($type) {
         case 'student_information':
-            $data = generateStudentInformationReport($conn, $date_from, $date_to, $student_filter);
+            $data = generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
             break;
         case 'student_deployment':
-            $data = generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter);
+            $data = generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
             break;
         case 'student_attendance':
-            $data = generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter);
+            $data = generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
             break;
         case 'student_complete_ojt':
-            $data = generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter);
+            $data = generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
             break;
     }
     
     return $data;
 }
 
-function generateStudentInformationReport($conn, $date_from, $date_to, $student_filter) {
-    $where_clause = "WHERE s.created_at BETWEEN '$date_from' AND '$date_to'";
+function generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+    // For student information, use created_at OR allow all students (more flexible)
+    $additional_conditions = "(s.created_at BETWEEN '$date_from' AND '$date_to' OR s.created_at IS NOT NULL)";
+    
     if (!empty($student_filter)) {
-        $where_clause .= " AND s.id = '$student_filter'";
+        $additional_conditions .= " AND s.id = '$student_filter'";
     }
+    
+    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
     
     $query = "SELECT 
         s.id,
@@ -82,7 +175,7 @@ function generateStudentInformationReport($conn, $date_from, $date_to, $student_
             ELSE 'Unknown Status'
         END as verification_status
     FROM students s
-    $where_clause
+    WHERE $where_clause
     ORDER BY s.created_at DESC, s.last_name ASC";
     
     $result = mysqli_query($conn, $query);
@@ -97,12 +190,15 @@ function generateStudentInformationReport($conn, $date_from, $date_to, $student_
     return array('students' => $students, 'type' => 'student_information');
 }
 
-
-function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter) {
-    $where_clause = "WHERE sd.created_at BETWEEN '$date_from' AND '$date_to'";
+function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+    // For deployments, filter by deployment creation date OR show all deployments
+    $additional_conditions = "sd.deployment_id IS NOT NULL AND (sd.created_at BETWEEN '$date_from' AND '$date_to' OR sd.start_date BETWEEN '$date_from' AND '$date_to' OR sd.end_date BETWEEN '$date_from' AND '$date_to')";
+    
     if (!empty($student_filter)) {
-        $where_clause .= " AND s.id = '$student_filter'";
+        $additional_conditions .= " AND s.id = '$student_filter'";
     }
+    
+    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
     
     $query = "SELECT 
         s.student_id,
@@ -130,7 +226,7 @@ function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_f
         ROUND((sd.completed_hours / sd.required_hours) * 100, 2) as completion_percentage
     FROM students s
     LEFT JOIN student_deployments sd ON s.id = sd.student_id
-    $where_clause AND sd.deployment_id IS NOT NULL
+    WHERE $where_clause
     ORDER BY sd.created_at DESC";
     
     $result = mysqli_query($conn, $query);
@@ -144,11 +240,15 @@ function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_f
     return array('deployments' => $deployments, 'type' => 'student_deployment');
 }
 
-function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter) {
-    $where_clause = "WHERE sa.date BETWEEN '$date_from' AND '$date_to'";
+function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+    // For attendance, filter by attendance date (this one should stay strict)
+    $additional_conditions = "sa.attendance_id IS NOT NULL AND sa.date BETWEEN '$date_from' AND '$date_to'";
+    
     if (!empty($student_filter)) {
-        $where_clause .= " AND s.id = '$student_filter'";
+        $additional_conditions .= " AND s.id = '$student_filter'";
     }
+    
+    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
     
     $query = "SELECT 
         s.student_id,
@@ -167,7 +267,7 @@ function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_f
         MAX(sa.date) as last_attendance_date
     FROM students s
     LEFT JOIN student_attendance sa ON s.id = sa.student_id
-    $where_clause AND sa.attendance_id IS NOT NULL
+    WHERE $where_clause
     GROUP BY s.id
     ORDER BY attendance_rate DESC, total_hours_completed DESC";
     
@@ -183,12 +283,15 @@ function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_f
     return array('attendance_data' => $attendance_data, 'type' => 'student_attendance');
 }
 
-function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter) {
-    // Changed the WHERE clause to filter by ojt_status instead of status
-    $where_clause = "WHERE sd.updated_at BETWEEN '$date_from' AND '$date_to' AND sd.ojt_status = 'Completed'";
+function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+    // For completed OJT, filter by completion date OR show all completed
+    $additional_conditions = "sd.ojt_status = 'Completed' AND (sd.updated_at BETWEEN '$date_from' AND '$date_to' OR sd.end_date BETWEEN '$date_from' AND '$date_to')";
+    
     if (!empty($student_filter)) {
-        $where_clause .= " AND s.id = '$student_filter'";
+        $additional_conditions .= " AND s.id = '$student_filter'";
     }
+    
+    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
     
     $query = "SELECT 
         s.student_id,
@@ -212,21 +315,18 @@ function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_
             ELSE 'Incomplete Hours'
         END as completion_status,
         ROUND((sd.completed_hours / sd.required_hours) * 100, 2) as hours_completion_rate,
-        -- Get average evaluation score from new schema
         (SELECT AVG(se.equivalent_rating) 
          FROM student_evaluations se 
          WHERE se.student_id = s.id) as avg_evaluation_score,
-        -- Get total score average
         (SELECT AVG(se.total_score) 
          FROM student_evaluations se 
          WHERE se.student_id = s.id) as avg_total_score,
-        -- Get task completion rate
         (SELECT ROUND((COUNT(CASE WHEN t.status = 'Completed' THEN 1 END) / COUNT(t.task_id)) * 100, 2)
          FROM tasks t 
          WHERE t.student_id = s.id) as task_completion_rate
     FROM students s
     JOIN student_deployments sd ON s.id = sd.student_id
-    $where_clause
+    WHERE $where_clause
     ORDER BY sd.updated_at DESC";
     
     $result = mysqli_query($conn, $query);
@@ -240,7 +340,8 @@ function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_
     
     return array('completed_ojt' => $completed_ojt, 'type' => 'student_complete_ojt');
 }
-// Helper Functions
+
+// Helper Functions (keep all your existing helper functions)
 function calculateAge($date_of_birth) {
     $today = new DateTime();
     $birthDate = new DateTime($date_of_birth);
@@ -272,6 +373,7 @@ function generateStudentInfoInsights($data) {
     
     return empty($insights) ? "Student profile appears complete and active." : implode(" ", $insights);
 }
+
 function generateDeploymentStatusInsights($data) {
     $insights = array();
     
@@ -336,7 +438,6 @@ function generateOJTCompletionInsights($data) {
     }
     
     if ($data['avg_evaluation_score']) {
-        // Using equivalent_rating (decimal 5,2) - assuming scale is 1.00-5.00
         if ($data['avg_evaluation_score'] >= 4.0) {
             $insights[] = "Excellent performance with " . round($data['avg_evaluation_score'], 2) . "/5.00 average evaluation rating.";
         } elseif ($data['avg_evaluation_score'] >= 3.0) {
@@ -347,7 +448,6 @@ function generateOJTCompletionInsights($data) {
     }
     
     if ($data['avg_total_score']) {
-        // Assuming total_score is out of 40 (based on your evaluation criteria)
         $percentage = ($data['avg_total_score'] / 40) * 100;
         $insights[] = "Average total evaluation score: " . round($data['avg_total_score'], 1) . "/40 (" . round($percentage, 1) . "%).";
     }
@@ -390,7 +490,6 @@ function generateAttendanceRecommendations($data) {
 function generatePerformanceAnalysis($data) {
     $analysis = array();
     
-    // Overall assessment based on equivalent_rating and task completion
     if ($data['avg_evaluation_score'] >= 4.0 && $data['task_completion_rate'] >= 90) {
         $analysis[] = "Outstanding overall performance - excellent candidate for recognition";
     } elseif ($data['avg_evaluation_score'] >= 3.0 && $data['task_completion_rate'] >= 70) {
@@ -399,7 +498,6 @@ function generatePerformanceAnalysis($data) {
         $analysis[] = "Performance below expectations - may need additional support in future placements";
     }
     
-    // Add analysis based on total score if available
     if ($data['avg_total_score']) {
         $score_percentage = ($data['avg_total_score'] / 40) * 100;
         if ($score_percentage >= 85) {
@@ -414,12 +512,25 @@ function generatePerformanceAnalysis($data) {
     return $analysis;
 }
 
- $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
-    $unread_messages_result = mysqli_query($conn, $unread_messages_query);
-    $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+// Get unread messages count with filtering
+$unread_messages_query = "SELECT COUNT(*) as count 
+    FROM messages m 
+    JOIN students s ON m.sender_id = s.id 
+    WHERE m.recipient_type = 'adviser' 
+    AND m.sender_type = 'student' 
+    AND m.is_read = 0 
+    AND m.is_deleted_by_recipient = 0 
+    AND " . buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups);
+$unread_messages_result = mysqli_query($conn, $unread_messages_query);
+$unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
 
-// Get filter options for students
-$students_query = "SELECT id, CONCAT(first_name, ' ', last_name) as name, student_id FROM students WHERE verified = 1 ORDER BY first_name";
+// Get filter options for students with adviser filtering
+// Get filter options for students with adviser filtering (ALL students, verified or not)
+$students_where = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups);
+$students_query = "SELECT s.id, CONCAT(s.first_name, ' ', s.last_name) as name, s.student_id, s.section 
+                   FROM students s 
+                   WHERE $students_where 
+                   ORDER BY s.first_name";
 $students_result = mysqli_query($conn, $students_query);
 
 // Create adviser initials
@@ -427,15 +538,15 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
 
 // Fetch adviser profile picture
 try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
+    $adviser_query = "SELECT profile_picture FROM academic_adviser WHERE id = ?";
     $adviser_stmt = mysqli_prepare($conn, $adviser_query);
     mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
     mysqli_stmt_execute($adviser_stmt);
     $adviser_result = mysqli_stmt_get_result($adviser_stmt);
     
     if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
-        $adviser_data = mysqli_fetch_assoc($adviser_result);
-        $profile_picture = $adviser_data['profile_picture'] ?? '';
+        $adviser_data_pic = mysqli_fetch_assoc($adviser_result);
+        $profile_picture = $adviser_data_pic['profile_picture'] ?? '';
     } else {
         $profile_picture = '';
     }
@@ -443,6 +554,7 @@ try {
     $profile_picture = '';
 }
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -809,6 +921,13 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+             <?php if ($adviser_role === 'coordinator'): ?>
+            <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                <i class="fas fa-user-tie mr-3"></i>
+                Academic Accounts
+            </a>
+            <?php endif; ?>
+        </nav>
         </nav>
     </div>
     
@@ -824,7 +943,7 @@ tailwind.config = {
 </div>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
             </div>
         </div>
     </div>

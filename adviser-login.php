@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($email) || empty($password)) {
         $error_message = 'Please fill in all fields.';
     } else {
-        // Check if user is an Academic Adviser - FIXED: lowercase table name
+        // Check if user is an Academic Adviser
         $adviser_query = "SELECT * FROM academic_adviser WHERE email = ?";
         $adviser_stmt = mysqli_prepare($conn, $adviser_query);
         mysqli_stmt_bind_param($adviser_stmt, "s", $email);
@@ -28,8 +28,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (mysqli_num_rows($adviser_result) > 0) {
             $adviser = mysqli_fetch_assoc($adviser_result);
             
+            // Check if account is blocked
+            if ($adviser['status'] === 'blocked') {
+                $error_message = 'Your account has been blocked. Please contact the administrator for assistance.';
+            }
+            // Check if account is inactive
+            elseif ($adviser['status'] === 'inactive') {
+                $error_message = 'Your account is inactive. Please contact the administrator to activate your account.';
+            }
             // Verify password for adviser
-            if (password_verify($password, $adviser['password'])) {
+            elseif (password_verify($password, $adviser['password'])) {
                 // Login successful for adviser
                 $_SESSION['adviser_id'] = $adviser['id'];
                 $_SESSION['email'] = $adviser['email'];

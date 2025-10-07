@@ -24,6 +24,86 @@ $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $name_parts = explode(' ', trim($adviser_name));
 
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
+// Build base WHERE clause for student filtering based on role
+$student_where_clause = "1=1"; // Start with true condition
+
+// Apply filters based on role and assignments
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
+
 if (count($name_parts) >= 2) {
     $adviser_initials = strtoupper(substr($name_parts[0], 0, 1) . substr($name_parts[count($name_parts)-1], 0, 1));
 } else {
@@ -236,208 +316,166 @@ if (!$deployment_notification_success) {
             
             // Email to Student - Enhanced with supervisor details
             if ($student_email) {
-                $mail->setFrom('ojttracker2@gmail.com', 'OnTheJob Tracker - BulSU');
-                $mail->addAddress($student_email, $student_data['first_name'] . ' ' . $student_data['last_name']);
+    $mail->setFrom('ojttracker2@gmail.com', 'OnTheJob Tracker');
+    $mail->addAddress($student_email, $student_data['first_name'] . ' ' . $student_data['last_name']);
+    
+    $mail->isHTML(true);
+    $mail->Subject = 'OJT Deployment Notification - OnTheJob Tracker';
+    
+    $studentEmailBody = '
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
+            <p style="color: #666; margin: 5px 0;">Student OJT Performance Monitoring System</p>
+        </div>
+        
+        <h2 style="color: #333;">Congratulations, ' . htmlspecialchars($student_data['first_name']) . '!</h2>
+        <p style="color: #555; line-height: 1.6;">
+            You have been successfully deployed for your On-the-Job Training! We wish you the best of luck in this exciting learning opportunity.
+        </p>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #800000; margin: 0 0 15px 0;">Your OJT Assignment Details:</h3>
+            <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+                <li><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</li>
+                <li><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</li>
+                <li><strong>Company:</strong> ' . htmlspecialchars($company_name) . '</li>
+                <li><strong>Company Address:</strong> ' . htmlspecialchars($company_address) . '</li>
+                <li><strong>Position:</strong> ' . htmlspecialchars($position) . '</li>
+                <li><strong>Industry Field:</strong> ' . htmlspecialchars($supervisor_data['industry_field']) . '</li>
+                <li><strong>Work Mode:</strong> ' . htmlspecialchars($supervisor_data['work_mode']) . '</li>
+            </ul>
+        </div>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #800000; margin: 0 0 15px 0;">Your Supervisor:</h3>
+            <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+                <li><strong>Name:</strong> ' . htmlspecialchars($supervisor_name) . '</li>
+                <li><strong>Position:</strong> ' . htmlspecialchars($supervisor_position) . '</li>
+                <li><strong>Email:</strong> ' . htmlspecialchars($supervisor_email) . '</li>
+                <li><strong>Phone:</strong> ' . htmlspecialchars($supervisor_phone) . '</li>
+            </ul>
+        </div>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #800000; margin: 0 0 15px 0;">Schedule & Duration:</h3>
+            <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+                <li><strong>Start Date:</strong> ' . date('F j, Y', strtotime($start_date)) . '</li>
+                <li><strong>End Date:</strong> ' . date('F j, Y', strtotime($end_date)) . '</li>
+                <li><strong>Required Hours:</strong> ' . htmlspecialchars($required_hours) . ' hours</li>';
                 
-                $mail->isHTML(true);
-                $mail->Subject = 'OJT Deployment Notification - Bulacan State University';
-                
-                $studentEmailBody = '
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-                    
-                    <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                        
-                        <!-- BulSU Header -->
-                        <div style="text-align: center; padding: 30px; background-color: #8B0000; color: white;">
-                            <h1 style="margin: 0; font-size: 24px; font-weight: bold;">
-                                OnTheJob Tracker
-                            </h1>
-                            <p style="margin: 5px 0 0 0; font-size: 16px; color: #FFD700;">
-                                Student OJT Performance Monitoring System
-                            </p>
-                        </div>
-                        
-                        <!-- Content -->
-                        <div style="padding: 30px;">
-                            <h2 style="color: #8B0000; margin: 0 0 20px 0; font-size: 20px;">
-                                Congratulations, ' . htmlspecialchars($student_data['first_name']) . '!
-                            </h2>
-                            
-                            <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0 0 25px 0;">
-                                You have been successfully deployed for your On-the-Job Training! 
-                                We wish you the best of luck in this exciting learning opportunity.
-                            </p>
-                            
-                            <!-- Deployment Details -->
-                            <div style="background-color: #FFF8DC; border-left: 4px solid #B8860B; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                                <h3 style="color: #8B0000; margin: 0 0 15px 0; font-size: 18px;">
-                                    Your OJT Assignment Details:
-                                </h3>
-                                
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Company:</strong> ' . htmlspecialchars($company_name) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Company Address:</strong> ' . htmlspecialchars($company_address) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Position:</strong> ' . htmlspecialchars($position) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Industry Field:</strong> ' . htmlspecialchars($supervisor_data['industry_field']) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Mode:</strong> ' . htmlspecialchars($supervisor_data['work_mode']) . '</p>
-                            </div>
-                            
-                            <!-- Supervisor Information -->
-                            <div style="background-color: #E8F5E8; border-left: 4px solid #4CAF50; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                                <h3 style="color: #8B0000; margin: 0 0 15px 0; font-size: 18px;">
-                                    Your Supervisor:
-                                </h3>
-                                
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Name:</strong> ' . htmlspecialchars($supervisor_name) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Position:</strong> ' . htmlspecialchars($supervisor_position) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Email:</strong> ' . htmlspecialchars($supervisor_email) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Phone:</strong> ' . htmlspecialchars($supervisor_phone) . '</p>
-                            </div>
-                            
-                            <!-- Schedule Information -->
-                            <div style="background-color: #F0F8FF; border-left: 4px solid #2196F3; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                                <h3 style="color: #8B0000; margin: 0 0 15px 0; font-size: 18px;">
-                                    Schedule & Duration:
-                                </h3>
-                                
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Start Date:</strong> ' . date('F j, Y', strtotime($start_date)) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>End Date:</strong> ' . date('F j, Y', strtotime($end_date)) . '</p>
-                                <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Required Hours:</strong> ' . htmlspecialchars($required_hours) . ' hours</p>';
-                                
-                if (!empty($display_work_days)) {
-                    $studentEmailBody .= '<p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Days:</strong> ' . htmlspecialchars($display_work_days) . '</p>';
-                }
-                
-                if (!empty($work_schedule)) {
-                    $studentEmailBody .= '<p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Hours:</strong> ' . htmlspecialchars($work_schedule) . '</p>';
-                }
-                
-                $studentEmailBody .= '
-                            </div>
-                            
-                            <!-- Success Message -->
-                            <div style="background-color: #E8F5E8; border: 1px solid #4CAF50; padding: 15px; margin: 20px 0; border-radius: 4px; text-align: center;">
-                                <p style="margin: 0; color: #2E7D32; font-size: 16px; font-weight: bold;">
-                                    🎉 Best of luck with your OJT journey! Make the most of this valuable learning experience.
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <!-- Footer -->
-                        <div style="background-color: #2D3748; padding: 20px; text-align: center; color: white;">
-                            <h4 style="margin: 0 0 5px 0; color: #FFD700; font-size: 16px;">
-                                Bulacan State University
-                            </h4>
-                            <p style="margin: 0; color: #CBD5E0; font-size: 12px;">
-                                OnTheJob Tracker - AI-Powered OJT Performance Monitoring
-                            </p>
-                        </div>
-                    </div>
-                </div>';
-                
-                $mail->Body = $studentEmailBody;
-                $mail->send();
-                
-                // Clear recipients for supervisor email
-                $mail->clearAddresses();
-            }
+    if (!empty($display_work_days)) {
+        $studentEmailBody .= '<li><strong>Work Days:</strong> ' . htmlspecialchars($display_work_days) . '</li>';
+    }
+    
+    if (!empty($work_schedule)) {
+        $studentEmailBody .= '<li><strong>Work Hours:</strong> ' . htmlspecialchars($work_schedule) . '</li>';
+    }
+    
+    $studentEmailBody .= '
+            </ul>
+        </div>
+        
+        <div style="background-color: #fef3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #DAA520; margin: 20px 0;">
+            <p style="margin: 0; color: #92400e;">
+                <strong>🎉 Best of luck with your OJT journey!</strong> Make the most of this valuable learning experience.
+            </p>
+        </div>
+        
+        <p style="color: #555; line-height: 1.6;">
+            If you have any questions or concerns, please contact your coordinator or supervisor immediately.
+        </p>
+        
+        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+            <p style="color: #666; margin: 0;">
+                <strong>OnTheJob Tracker Team</strong><br>
+                <small>AI-Powered OJT Performance Monitoring</small>
+            </p>
+        </div>
+    </div>';
+    
+    $mail->Body = $studentEmailBody;
+    $mail->send();
+    
+    // Clear recipients for supervisor email
+    $mail->clearAddresses();
+}
+
+// Email to Supervisor - Using same design pattern
+$mail->addAddress($supervisor_email, $supervisor_name);
+$mail->Subject = 'New Intern Assignment - OnTheJob Tracker';
+
+$supervisorEmailBody = '
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
+        <p style="color: #666; margin: 5px 0;">Student OJT Performance Monitoring System</p>
+    </div>
+    
+    <h2 style="color: #333;">New Intern Assignment</h2>
+    <p style="color: #555; line-height: 1.6;">
+        A BulSU student has been assigned to your company for their On-the-Job Training. Please review the student details below and welcome them to your team.
+    </p>
+    
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #800000; margin: 0 0 15px 0;">Student Information:</h3>
+        <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+            <li><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</li>
+            <li><strong>Name:</strong> ' . htmlspecialchars($student_data['first_name'] . ' ' . $student_data['last_name']) . '</li>
+            <li><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</li>
+            <li><strong>Year Level:</strong> ' . htmlspecialchars($student_data['year_level']) . '</li>
+            <li><strong>Email:</strong> ' . htmlspecialchars($student_email) . '</li>
+        </ul>
+    </div>
+    
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #800000; margin: 0 0 15px 0;">Internship Details:</h3>
+        <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+            <li><strong>Position:</strong> ' . htmlspecialchars($position) . '</li>
+            <li><strong>Start Date:</strong> ' . date('F j, Y', strtotime($start_date)) . '</li>
+            <li><strong>End Date:</strong> ' . date('F j, Y', strtotime($end_date)) . '</li>
+            <li><strong>Required Hours:</strong> ' . htmlspecialchars($required_hours) . ' hours</li>
+            <li><strong>Work Mode:</strong> ' . htmlspecialchars($supervisor_data['work_mode']) . '</li>';
             
-            // Email to Supervisor - Enhanced with complete information
-            $mail->addAddress($supervisor_email, $supervisor_name);
-            $mail->Subject = 'New BulSU Intern Assignment - OnTheJob Tracker';
-            
-            $supervisorEmailBody = '
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-                
-                <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                    
-                    <!-- BulSU Header -->
-                    <div style="text-align: center; padding: 30px; background-color: #8B0000; color: white;">
-                        <h1 style="margin: 0; font-size: 24px; font-weight: bold;">
-                            OnTheJob Tracker
-                        </h1>
-                        <p style="margin: 5px 0 0 0; font-size: 16px; color: #FFD700;">
-                            Student OJT Performance Monitoring System
-                        </p>
-                    </div>
-                    
-                    <!-- Content -->
-                    <div style="padding: 30px;">
-                        <h2 style="color: #8B0000; margin: 0 0 20px 0; font-size: 20px;">
-                            New Intern Assignment
-                        </h2>
-                        
-                        <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0 0 25px 0;">
-                            A BulSU student has been assigned to your company for their On-the-Job Training. 
-                            Please review the student details below and welcome them to your team.
-                        </p>
-                        
-                        <!-- Student Details -->
-                        <div style="background-color: #F0FFF4; border-left: 4px solid #4CAF50; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                            <h3 style="color: #8B0000; margin: 0 0 15px 0; font-size: 18px;">
-                                Student Information:
-                            </h3>
-                            
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Name:</strong> ' . htmlspecialchars($student_data['first_name'] . ' ' . $student_data['last_name']) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Year Level:</strong> ' . htmlspecialchars($student_data['year_level']) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Email:</strong> ' . htmlspecialchars($student_email) . '</p>
-                        </div>
-                        
-                        <!-- Internship Details -->
-                        <div style="background-color: #FFF8DC; border-left: 4px solid #B8860B; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                            <h3 style="color: #8B0000; margin: 0 0 15px 0; font-size: 18px;">
-                                Internship Details:
-                            </h3>
-                            
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Position:</strong> ' . htmlspecialchars($position) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Start Date:</strong> ' . date('F j, Y', strtotime($start_date)) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>End Date:</strong> ' . date('F j, Y', strtotime($end_date)) . '</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Required Hours:</strong> ' . htmlspecialchars($required_hours) . ' hours</p>
-                            <p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Mode:</strong> ' . htmlspecialchars($supervisor_data['work_mode']) . '</p>';
-                            
-            if (!empty($display_work_days)) {
-                $supervisorEmailBody .= '<p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Days:</strong> ' . htmlspecialchars($display_work_days) . '</p>';
-            }
-            
-            if (!empty($work_schedule)) {
-                $supervisorEmailBody .= '<p style="margin: 8px 0; color: #333; font-size: 14px;"><strong>Work Hours:</strong> ' . htmlspecialchars($work_schedule) . '</p>';
-            }
-            
-            $supervisorEmailBody .= '
-                        </div>
-                        
-                        <!-- Welcome Message -->
-                        <div style="background-color: #E3F2FD; border: 1px solid #2196F3; padding: 15px; margin: 20px 0; border-radius: 4px; text-align: center;">
-                            <p style="margin: 0; color: #1976D2; font-size: 14px; font-weight: bold;">
-                                Thank you for providing this valuable learning opportunity to our BulSU student!
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <!-- Footer -->
-                    <div style="background-color: #2D3748; padding: 20px; text-align: center; color: white;">
-                        <h4 style="margin: 0 0 5px 0; color: #FFD700; font-size: 16px;">
-                            Bulacan State University
-                        </h4>
-                        <p style="margin: 0; color: #CBD5E0; font-size: 12px;">
-                            OnTheJob Tracker - AI-Powered OJT Performance Monitoring
-                        </p>
-                    </div>
-                </div>
-            </div>';
-            
-            $mail->Body = $supervisorEmailBody;
-            $mail->send();
-            
-            $email_status = "Deployment successful! Email notifications sent to both student and supervisor.";
-            
-        } catch (Exception $e) {
-            $email_status = "Deployment successful, but email notification failed: " . $e->getMessage();
-            error_log("Email notification error: " . $e->getMessage());
-        }
+if (!empty($display_work_days)) {
+    $supervisorEmailBody .= '<li><strong>Work Days:</strong> ' . htmlspecialchars($display_work_days) . '</li>';
+}
+
+if (!empty($work_schedule)) {
+    $supervisorEmailBody .= '<li><strong>Work Hours:</strong> ' . htmlspecialchars($work_schedule) . '</li>';
+}
+
+$supervisorEmailBody .= '
+        </ul>
+    </div>
+    
+    <div style="background-color: #fef3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #DAA520; margin: 20px 0;">
+        <p style="margin: 0; color: #92400e;">
+            <strong>Thank you</strong> for providing this valuable learning opportunity to our BulSU student!
+        </p>
+    </div>
+    
+    <p style="color: #555; line-height: 1.6;">
+        If you have any questions or need assistance, please don\'t hesitate to contact us.
+    </p>
+    
+    <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+        <p style="color: #666; margin: 0;">
+            <strong>OnTheJob Tracker Team</strong><br>
+            <small>AI-Powered OJT Performance Monitoring</small>
+        </p>
+    </div>
+</div>';
+
+$mail->Body = $supervisorEmailBody;
+$mail->send();
+
+$email_status = "Deployment successful! Email notifications sent to both student and supervisor.";
+
+} catch (Exception $e) {
+    $email_status = "Deployment successful, but email notification failed: " . $e->getMessage();
+    error_log("Email notification error: " . $e->getMessage());
+}
         
     } catch (Exception $e) {
         // Rollback transaction
@@ -468,7 +506,7 @@ if (!empty($section_filter)) {
 }
 
 // Base condition for deployment-eligible students
-$base_stats_condition = "(
+$base_stats_condition = "(" . str_replace('s.', '', $student_where_clause) . ") AND (
     (ready_for_deployment = 1 AND verified = 1 AND status != 'Deployed')
     OR 
     (status = 'Deployed' AND id IN (SELECT student_id FROM student_deployments WHERE status = 'Active'))
@@ -484,7 +522,8 @@ if (count($stats_where_conditions) > 0) {
 // Get statistics with filtering applied
 $stats_query = "SELECT 
     (SELECT COUNT(*) FROM students s 
-     WHERE s.ready_for_deployment = 1 
+     WHERE $student_where_clause
+     AND s.ready_for_deployment = 1 
      AND s.verified = 1 
      AND s.status != 'Deployed' 
      AND s.id NOT IN (SELECT sd.student_id FROM student_deployments sd WHERE sd.status = 'Active')
@@ -492,18 +531,19 @@ $stats_query = "SELECT
     ) as ready_count,
     (SELECT COUNT(*) FROM students s2 
      INNER JOIN student_deployments sd2 ON s2.id = sd2.student_id 
-     WHERE sd2.status = 'Active'
+     WHERE " . str_replace('s.', 's2.', $student_where_clause) . "
+     AND sd2.status = 'Active'
      " . (count($stats_where_conditions) > 0 ? " AND (" . str_replace(array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'), array('s2.first_name', 's2.last_name', 's2.email', 's2.student_id', 's2.department', 's2.section'), implode(' AND ', $stats_where_conditions)) . ")" : "") . "
     ) as deployed_count";
 
 $stats_result = mysqli_query($conn, $stats_query);
 $stats = mysqli_fetch_assoc($stats_result);
-// Get unique departments for filter dropdown
-$departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' ORDER BY department";
-$departments_result = mysqli_query($conn, $departments_query);
 
-// Get unique sections for filter dropdown  
-$sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' ORDER BY section";
+
+$departments_query = "SELECT DISTINCT s.department FROM students s WHERE $student_where_clause AND s.department IS NOT NULL AND s.department != '' ORDER BY s.department";
+$departments_result = mysqli_query($conn, $departments_query);
+// Get unique sections for filter dropdown (only from assigned students)
+$sections_query = "SELECT DISTINCT s.section FROM students s WHERE $student_where_clause AND s.section IS NOT NULL AND s.section != '' ORDER BY s.section";
 $sections_result = mysqli_query($conn, $sections_query);
 // Build where conditions
 $where_conditions = array();
@@ -537,7 +577,7 @@ if (!empty($status_filter)) {
 }
 
 // Base condition: only show students that meet deployment criteria or are already deployed
-$base_condition = "(
+$base_condition = "(" . $student_where_clause . ") AND (
     (s.ready_for_deployment = 1 AND s.verified = 1 AND s.status != 'Deployed')
     OR 
     (s.status = 'Deployed' AND s.id IN (SELECT student_id FROM student_deployments WHERE status = 'Active'))
@@ -560,6 +600,7 @@ $total_records = mysqli_fetch_assoc($count_result)['total'];
 $total_pages = ceil($total_records / $records_per_page);
 
 // Main students query with filtering and enhanced supervisor data
+// Main students query with filtering and enhanced supervisor data
 $students_query = "SELECT 
     s.id, 
     s.first_name, 
@@ -573,6 +614,8 @@ $students_query = "SELECT
     s.verified,
     s.year_level,
     s.email,
+    s.company_name,
+    s.company_email,
     s.login_attempts,
     s.created_at,
     s.last_login,
@@ -596,17 +639,18 @@ $students_query = "SELECT
     cs.work_schedule_end,
     cs.work_mode,
     cs.industry_field,
-    cs.work_days as supervisor_work_days, -- This was missing proper aliasing
+    cs.work_days as supervisor_work_days,
     CASE 
         WHEN sd.work_days IS NOT NULL AND sd.work_days != '' THEN sd.work_days
         WHEN cs.work_days IS NOT NULL AND cs.work_days != '' THEN cs.work_days
         ELSE 'Monday,Tuesday,Wednesday,Thursday,Friday'
-    END as display_work_days -- Use deployment work_days first, then supervisor work_days
+    END as display_work_days
 FROM students s 
 LEFT JOIN student_deployments sd ON s.id = sd.student_id AND sd.status = 'Active'
 LEFT JOIN company_supervisors cs ON sd.supervisor_id = cs.supervisor_id
 WHERE $where_clause
 ORDER BY 
+    s.created_at DESC,
     CASE WHEN s.status = 'Deployed' THEN 0 ELSE 1 END,
     sd.created_at DESC,
     s.last_name, 
@@ -755,43 +799,44 @@ tailwind.config = {
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.3s ease; }
         .work-day-checkbox {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 8px 12px;
-            border: 2px solid #e5e7eb;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            background: white;
-            color: #6b7280;
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-        .work-day-checkbox:hover {
-            border-color: #3b82f6;
-            transform: translateY(-1px);
-        }
-        .work-day-checkbox.selected {
-            background: #10b981;
-            border-color: #10b981;
-            color: white;
-        }
-        .work-day-checkbox.disabled {
-            background-color: #f3f4f6;
-            border-color: #d1d5db;
-            color: #9ca3af;
-            cursor: not-allowed;
-        }
-        .work-day-checkbox.disabled.selected {
-            background-color: #10b981;
-            border-color: #10b981;
-            color: white;
-            opacity: 0.8;
-        }
-        .work-day-checkbox input[type="checkbox"] {
-            display: none;
-        }
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border: 2px solid #F4E4BC;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: white;
+    color: #6b7280;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+.work-day-checkbox:hover {
+    border-color: #DAA520;
+    background-color: #FFFBF0;
+    transform: translateY(-1px);
+}
+.work-day-checkbox.selected {
+    background: #800000;
+    border-color: #800000;
+    color: white;
+}
+.work-day-checkbox.disabled {
+    background-color: #FFFBF0;
+    border-color: #F4E4BC;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+.work-day-checkbox.disabled.selected {
+    background-color: #800000;
+    border-color: #800000;
+    color: white;
+    opacity: 0.9;
+}
+.work-day-checkbox input[type="checkbox"] {
+    display: none;
+}   
     </style>
 </head>
 <body class="bg-gray-50">
@@ -869,6 +914,12 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <?php if ($adviser_role === 'coordinator'): ?>
+<a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+    <i class="fas fa-user-tie mr-3"></i>
+    Academic Accounts
+</a>
+<?php endif; ?>
         </nav>
     </div>
     
@@ -883,9 +934,9 @@ tailwind.config = {
     <?php endif; ?>
 </div>
             <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
-            </div>
+    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
+    <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
+</div>
         </div>
     </div>
 </div>
@@ -928,9 +979,9 @@ tailwind.config = {
     <?php endif; ?>
 </div>
                                 <div>
-                                    <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
-                                    <p class="text-sm text-gray-500">Academic Adviser</p>
-                                </div>
+    <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
+    <p class="text-sm text-gray-500"><?php echo ucfirst($adviser_role); ?></p>
+</div>
                             </div>
                         </div>
                         <a href="AdviserAccountSettings.php" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
@@ -1012,7 +1063,7 @@ tailwind.config = {
                             </div>
                         </div>
 
-                        <div>
+                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Department</label>
                             <select id="departmentFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
                                 <option value="">All Departments</option>
@@ -1254,14 +1305,16 @@ tailwind.config = {
         </div>
     <?php else: ?>
         <!-- For students ready for deployment, show deploy button -->
-        <button type="button" 
-                class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors" 
-                onclick="openDeploymentModal(<?php echo $student['id']; ?>, 
-                                           '<?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>', 
-                                           '<?php echo htmlspecialchars($student['student_id']); ?>')">
-            <i class="fas fa-paper-plane mr-2"></i>
-            Deploy
-        </button>
+       <button type="button" 
+    class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors" 
+    onclick="openDeploymentModal(<?php echo $student['id']; ?>, 
+                               '<?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>', 
+                               '<?php echo htmlspecialchars($student['student_id']); ?>',
+                               '<?php echo htmlspecialchars($student['company_name'] ?? ''); ?>',
+                               '<?php echo htmlspecialchars($student['company_email'] ?? ''); ?>')">
+    <i class="fas fa-paper-plane mr-2"></i>
+    Deploy
+</button>
     <?php endif; ?>
 </td>
                                     </tr>
@@ -1321,7 +1374,7 @@ tailwind.config = {
 
             <div class="inline-block w-full max-w-4xl p-0 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
                 <!-- Modal Header -->
-                <div class="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 flex items-center justify-between">
+                <div class="px-6 py-4 flex items-center justify-between" style="background: linear-gradient(to right, #800000, #6B1028);">
                     <h3 class="text-lg font-medium text-white">Deploy Student to Company</h3>
                     <button onclick="closeDeploymentModal()" class="text-white hover:text-gray-200 transition-colors">
                         <i class="fas fa-times text-xl"></i>
@@ -1334,8 +1387,8 @@ tailwind.config = {
                     
                     <!-- Student Information Section -->
                     <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-user-graduate text-blue-600 mr-2"></i>
+                        <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+                            <i class="fas fa-user-graduate mr-2" style="color: #800000;"></i>
                             Student Information
                         </h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1351,106 +1404,114 @@ tailwind.config = {
                     </div>
 
                     <!-- Company Selection Section -->
-                    <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-building text-blue-600 mr-2"></i>
-                            Company & Supervisor Selection
-                        </h4>
-                        <div>
-                            <label for="supervisor_id" class="block text-sm font-medium text-gray-700 mb-2">Select Company Supervisor *</label>
-                            <select name="supervisor_id" id="supervisor_id" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required onchange="populateCompanyDetails()">
-                                <option value="">Select a supervisor...</option>
-                                <?php 
-                                mysqli_data_seek($supervisors_result, 0);
-                                while ($supervisor = mysqli_fetch_assoc($supervisors_result)): 
-                                ?>
-                                    <option value="<?php echo $supervisor['supervisor_id']; ?>"
-                                            data-company="<?php echo htmlspecialchars($supervisor['company_name']); ?>"
-                                            data-address="<?php echo htmlspecialchars($supervisor['company_address']); ?>"
-                                            data-contact="<?php echo htmlspecialchars($supervisor['company_contact_number']); ?>"
-                                            data-supervisor-name="<?php echo htmlspecialchars($supervisor['full_name']); ?>"
-                                            data-supervisor-position="<?php echo htmlspecialchars($supervisor['position']); ?>"
-                                            data-supervisor-email="<?php echo htmlspecialchars($supervisor['email']); ?>"
-                                            data-supervisor-phone="<?php echo htmlspecialchars($supervisor['phone_number']); ?>"
-                                            data-role-position="<?php echo htmlspecialchars($supervisor['role_position']); ?>"
-                                            data-students-needed="<?php echo htmlspecialchars($supervisor['students_needed']); ?>"
-                                            data-work-days="<?php echo htmlspecialchars($supervisor['work_days']); ?>"
-                                            data-work-start="<?php echo htmlspecialchars($supervisor['work_schedule_start']); ?>"
-                                            data-work-end="<?php echo htmlspecialchars($supervisor['work_schedule_end']); ?>"
-                                            data-work-mode="<?php echo htmlspecialchars($supervisor['work_mode']); ?>"
-                                            data-internship-duration="<?php echo htmlspecialchars($supervisor['internship_duration']); ?>"
-                                            data-internship-start="<?php echo htmlspecialchars($supervisor['internship_start_date']); ?>"
-                                            data-internship-end="<?php echo htmlspecialchars($supervisor['internship_end_date']); ?>"
-                                            data-industry="<?php echo htmlspecialchars($supervisor['industry_field']); ?>"
-                                            data-required-skills="<?php echo htmlspecialchars($supervisor['required_skills']); ?>">
-                                        <?php echo htmlspecialchars($supervisor['full_name'] . ' - ' . $supervisor['company_name'] . ' (' . $supervisor['industry_field'] . ')'); ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                            <p class="text-sm text-gray-500 mt-1">All fields below will be automatically filled based on supervisor preferences</p>
-                        </div>
-                    </div>
+                    <!-- Company Supervisor Section -->
+<div class="mb-6">
+    <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+        <i class="fas fa-building mr-2" style="color: #800000;"></i>
+        Company Supervisor <span class="text-sm ml-2" style="color: #DAA520;">(Auto-selected)</span>
+    </h4>
+    <div>
+        <label for="supervisor_display" class="block text-sm font-medium text-gray-700 mb-2">Company Supervisor</label>
+        <input type="text" id="supervisor_display" class="w-full px-3 py-2 border rounded-md cursor-not-allowed" style="border-color: #F4E4BC; background-color: #FFFBF0;" readonly>
+        <input type="hidden" name="supervisor_id" id="supervisor_id">
+        
+        <!-- Slots Available Info -->
+        <div id="slots_info" class="hidden mt-2 text-sm font-medium" style="color: #800000;">
+            <i class="fas fa-info-circle mr-1" style="color: #DAA520;"></i>
+            <span id="slots_text"></span>
+        </div>
+        
+        <!-- Filter Info Box -->
+        <div id="filter_info_box" class="hidden border-l-4 p-4 mt-4" style="background-color: #FFF8DC; border-color: #DAA520;">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-info-circle" style="color: #DAA520;"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm" style="color: #800000;">
+                        <strong>Auto-selected from student's company:</strong> <span id="student_company_name" style="color: #6B1028;"></span>
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- No Supervisor Warning -->
+        <div id="no_supervisor_warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 mt-4">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-yellow-700">
+                        <strong>No supervisors available</strong> from <strong id="warning_company_name"></strong>. 
+                        The student's preferred company has no active supervisors.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
                     <!-- Company Information -->
                     <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-building text-blue-600 mr-2"></i>
-                            Company Information <span class="text-sm text-green-600 ml-2">(Auto-populated)</span>
+                        <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+                            <i class="fas fa-building mr-2" style="color: #800000;"></i>
+                            Company Information <span class="text-sm ml-2" style="color: #DAA520;">(Auto-populated)</span>
                         </h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label for="company_name" class="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
-                                <input type="text" name="company_name" id="company_name" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="text" name="company_name" id="company_name" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                             <div>
                                 <label for="company_contact_number" class="block text-sm font-medium text-gray-700 mb-2">Company Contact Number *</label>
-                                <input type="text" name="company_contact_number" id="company_contact_number" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="text" name="company_contact_number" id="company_contact_number" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                         </div>
                         <div>
                             <label for="company_address" class="block text-sm font-medium text-gray-700 mb-2">Company Address *</label>
-                            <textarea name="company_address" id="company_address" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" rows="2" required readonly></textarea>
+                            <textarea name="company_address" id="company_address" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" rows="2" required readonly></textarea>
                         </div>
                     </div>
 
                     <!-- Supervisor Details -->
                     <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-user-tie text-blue-600 mr-2"></i>
-                            Supervisor Details <span class="text-sm text-green-600 ml-2">(Auto-populated)</span>
+                        <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+                            <i class="fas fa-user-tie mr-2" style="color: #800000;"></i>
+                            Supervisor Details <span class="text-sm ml-2" style="color: #DAA520;">(Auto-populated)</span>
                         </h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label for="supervisor_name" class="block text-sm font-medium text-gray-700 mb-2">Supervisor Name *</label>
-                                <input type="text" name="supervisor_name" id="supervisor_name" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="text" name="supervisor_name" id="supervisor_name" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                             <div>
                                 <label for="supervisor_position" class="block text-sm font-medium text-gray-700 mb-2">Supervisor Position *</label>
-                                <input type="text" name="supervisor_position" id="supervisor_position" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="text" name="supervisor_position" id="supervisor_position" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label for="supervisor_email" class="block text-sm font-medium text-gray-700 mb-2">Supervisor Email *</label>
-                                <input type="email" name="supervisor_email" id="supervisor_email" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="email" name="supervisor_email" id="supervisor_email" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                             <div>
                                 <label for="supervisor_phone" class="block text-sm font-medium text-gray-700 mb-2">Supervisor Phone *</label>
-                                <input type="text" name="supervisor_phone" id="supervisor_phone" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required readonly>
+                                <input type="text" name="supervisor_phone" id="supervisor_phone" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required readonly>
                             </div>
                         </div>
                     </div>
 
                     <!-- Position and Schedule Section -->
                     <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-briefcase text-blue-600 mr-2"></i>
-                            Position & Schedule <span class="text-sm text-green-600 ml-2">(Based on supervisor preferences)</span>
+                        <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+                            <i class="fas fa-briefcase mr-2" style="color: #800000;"></i>
+                            Position & Schedule <span class="text-sm ml-2" style="color: #DAA520;">(Based on supervisor preferences)</span>
                         </h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label for="position" class="block text-sm font-medium text-gray-700 mb-2">Student Position *</label>
-                                <select name="position" id="position" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required onchange="toggleCustomPosition()">
+                                <select name="position" id="position" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required onchange="toggleCustomPosition()">
                                     <option value="">Will be auto-filled...</option>
                                     <option value="Software Developer Intern">Software Developer Intern</option>
                                     <option value="Web Developer Intern">Web Developer Intern</option>
@@ -1475,24 +1536,24 @@ tailwind.config = {
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
                                 <label for="start_date" class="block text-sm font-medium text-gray-700 mb-2">Start Date *</label>
-                                <input type="date" name="start_date" id="start_date" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required>
+                                <input type="date" name="start_date" id="start_date" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required>
                                 <p class="text-xs text-gray-500 mt-1" id="start_date_info">Will be set based on supervisor's internship schedule</p>
                             </div>
                             <div>
                                 <label for="end_date" class="block text-sm font-medium text-gray-700 mb-2">End Date *</label>
-                                <input type="date" name="end_date" id="end_date" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" required>
+                                <input type="date" name="end_date" id="end_date" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" required>
                                 <p class="text-xs text-gray-500 mt-1" id="end_date_info">Will be set based on supervisor's internship schedule</p>
                             </div>
                             <div>
                                 <label for="required_hours" class="block text-sm font-medium text-gray-700 mb-2">Required Hours *</label>
-                                <input type="number" name="required_hours" id="required_hours" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" min="1" max="1000" required>
+                                <input type="number" name="required_hours" id="required_hours" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" min="1" max="1000" required>
                                 <p class="text-xs text-gray-500 mt-1" id="hours_info">Based on supervisor requirements and industry standards</p>
                             </div>
                         </div>
 
                         <!-- Work Days Section -->
                         <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Work Days * <span class="text-sm text-green-600">(Auto-selected based on company schedule)</span></label>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Work Days * <span class="text-sm" style="color: #DAA520;">(Auto-selected based on company schedule)</span></label>
                             <div class="grid grid-cols-3 md:grid-cols-7 gap-2">
                                 <div class="work-day-checkbox" onclick="toggleWorkDay(this, 'Monday')">
                                     <input type="checkbox" name="work_days[]" value="Monday" id="monday">
@@ -1529,23 +1590,23 @@ tailwind.config = {
 
                     <!-- Additional Information -->
                     <div class="mb-6">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                            <i class="fas fa-info-circle text-blue-600 mr-2"></i>
+                        <h4 class="text-lg font-medium mb-4 flex items-center" style="color: #800000;">
+                            <i class="fas fa-info-circle mr-2" style="color: #800000;"></i>
                             Additional Information
                         </h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label for="industry_display" class="block text-sm font-medium text-gray-700 mb-2">Industry Field</label>
-                                <input type="text" id="industry_display" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" readonly placeholder="Will be auto-filled">
+                                <input type="text" id="industry_display" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" readonly placeholder="Will be auto-filled">
                             </div>
                             <div>
                                 <label for="duration_display" class="block text-sm font-medium text-gray-700 mb-2">Internship Duration</label>
-                                <input type="text" id="duration_display" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" readonly placeholder="Will be auto-filled">
+                                <input type="text" id="duration_display" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" readonly placeholder="Will be auto-filled">
                             </div>
                         </div>
                         <div>
                             <label for="required_skills_display" class="block text-sm font-medium text-gray-700 mb-2">Required Skills</label>
-                            <textarea id="required_skills_display" class="w-full px-3 py-2 border border-green-300 rounded-md bg-green-50" rows="2" readonly placeholder="Will be auto-filled"></textarea>
+                            <textarea id="required_skills_display" class="w-full px-3 py-2 border rounded-md" style="border-color: #F4E4BC; background-color: #FFFBF0;" rows="2" readonly placeholder="Will be auto-filled"></textarea>
                             <p class="text-xs text-gray-500 mt-1">Skills preferred by the supervisor for this position</p>
                         </div>
                     </div>
@@ -1555,7 +1616,7 @@ tailwind.config = {
                         <button type="button" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors" onclick="closeDeploymentModal()">
                             <i class="fas fa-times mr-2"></i>Cancel
                         </button>
-                        <button type="submit" name="deploy_student" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+                        <button type="submit" name="deploy_student" class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors" style="background-color: #800000;" onmouseover="this.style.backgroundColor='#6B1028'" onmouseout="this.style.backgroundColor='#800000'">
                             <i class="fas fa-paper-plane mr-2"></i>Deploy Student
                         </button>
                     </div>
@@ -1563,7 +1624,43 @@ tailwind.config = {
             </div>
         </div>
     </div>
+    </div>
+<style>
+.work-day-checkbox {
+    border: 2px solid #F4E4BC;
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
 
+.work-day-checkbox:hover {
+    background-color: #FFFBF0;
+    border-color: #DAA520;
+}
+
+.work-day-checkbox input[type="checkbox"] {
+    display: none;
+}
+
+.work-day-checkbox input[type="checkbox"]:checked + label {
+    color: white;
+}
+
+.work-day-checkbox.selected {
+    background-color: #800000;
+    border-color: #800000;
+    color: white;
+}
+
+.work-day-checkbox label {
+    cursor: pointer;
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+</style>
     <!-- Scripts -->
     <script>
          let currentStudentId = null;
@@ -1638,35 +1735,240 @@ document.getElementById('sectionFilter').addEventListener('change', applyFilters
         });
 
         // Modal functions
-        function openDeploymentModal(studentId, studentName, studentIdDisplay) {
-            document.getElementById('modal_student_id').value = studentId;
-            document.getElementById('modal_student_name').value = studentName;
-            document.getElementById('modal_student_id_display').value = studentIdDisplay;
-            
-            // Reset form
-            document.getElementById('deploymentForm').reset();
-            document.getElementById('modal_student_id').value = studentId;
-            document.getElementById('modal_student_name').value = studentName;
-            document.getElementById('modal_student_id_display').value = studentIdDisplay;
-            
-            // Reset work days checkboxes
-            resetWorkDays();
-            
-            // Clear auto-filled fields
-            clearAutoFilledFields();
-            
-            // Set minimum date to today
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('start_date').min = today;
-            document.getElementById('end_date').min = today;
-            
-            document.getElementById('deploymentModal').classList.remove('hidden');
-        }
+function openDeploymentModal(studentId, studentName, studentIdDisplay, studentCompanyName, studentCompanyEmail) {
+    document.getElementById('modal_student_id').value = studentId;
+    document.getElementById('modal_student_name').value = studentName;
+    document.getElementById('modal_student_id_display').value = studentIdDisplay;
+    
+    // Reset form
+    document.getElementById('deploymentForm').reset();
+    document.getElementById('modal_student_id').value = studentId;
+    document.getElementById('modal_student_name').value = studentName;
+    document.getElementById('modal_student_id_display').value = studentIdDisplay;
+    
+    // Reset work days checkboxes
+    resetWorkDays();
+    
+    // Clear auto-filled fields
+    clearAutoFilledFields();
+    
+    // Hide all info boxes
+    document.getElementById('filter_info_box').classList.add('hidden');
+    document.getElementById('no_supervisor_warning').classList.add('hidden');
+    document.getElementById('slots_info').classList.add('hidden');
+    
+    // Set minimum date to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('start_date').min = today;
+    document.getElementById('end_date').min = today;
+    
+    // Auto-select supervisor based on student's company
+    if (studentCompanyName && studentCompanyName.trim() !== '') {
+        autoSelectSupervisorByCompany(studentCompanyName, studentCompanyEmail);
+    } else {
+        document.getElementById('supervisor_display').value = 'No company assigned to student';
+    }
+    
+    document.getElementById('deploymentModal').classList.remove('hidden');
+}
 
-        function closeDeploymentModal() {
-            document.getElementById('deploymentModal').classList.add('hidden');
+function autoSelectSupervisorByCompany(companyName, companyEmail) {
+    const supervisorData = [
+        <?php 
+        mysqli_data_seek($supervisors_result, 0);
+        $supervisors_array = [];
+        while ($supervisor = mysqli_fetch_assoc($supervisors_result)) {
+            $supervisors_array[] = json_encode([
+                'id' => $supervisor['supervisor_id'],
+                'name' => $supervisor['full_name'],
+                'company' => $supervisor['company_name'],
+                'address' => $supervisor['company_address'],
+                'contact' => $supervisor['company_contact_number'],
+                'position' => $supervisor['position'],
+                'email' => $supervisor['email'],
+                'phone' => $supervisor['phone_number'],
+                'role_position' => $supervisor['role_position'],
+                'students_needed' => $supervisor['students_needed'],
+                'work_days' => $supervisor['work_days'],
+                'work_start' => $supervisor['work_schedule_start'],
+                'work_end' => $supervisor['work_schedule_end'],
+                'work_mode' => $supervisor['work_mode'],
+                'duration' => $supervisor['internship_duration'],
+                'start_date' => $supervisor['internship_start_date'],
+                'end_date' => $supervisor['internship_end_date'],
+                'industry' => $supervisor['industry_field'],
+                'skills' => $supervisor['required_skills']
+            ]);
         }
+        echo implode(',', $supervisors_array);
+        ?>
+    ];
+    
+    // Filter supervisors by company name
+    const matchingSupervisors = supervisorData.filter(sup => sup.company === companyName);
+    
+    if (matchingSupervisors.length === 0) {
+        // No supervisors found
+        document.getElementById('supervisor_display').value = 'No supervisors available for ' + companyName;
+        document.getElementById('supervisor_id').value = '';
+        document.getElementById('no_supervisor_warning').classList.remove('hidden');
+        document.getElementById('warning_company_name').textContent = companyName;
+        document.getElementById('filter_info_box').classList.add('hidden');
+        return;
+    }
+    
+    // Show filter info
+    document.getElementById('filter_info_box').classList.remove('hidden');
+    document.getElementById('student_company_name').textContent = companyName;
+    document.getElementById('no_supervisor_warning').classList.add('hidden');
+    
+    // Try to match by email first, otherwise use the first supervisor
+    let selectedSupervisor = matchingSupervisors.find(sup => sup.email === companyEmail) || matchingSupervisors[0];
+    
+    // Check if supervisor has available slots
+    if (selectedSupervisor.students_needed <= 0) {
+        document.getElementById('supervisor_display').value = selectedSupervisor.name + ' (No slots available)';
+        document.getElementById('supervisor_id').value = '';
+        return;
+    }
+    
+    // Set supervisor display and hidden field
+    document.getElementById('supervisor_display').value = selectedSupervisor.name + ' - ' + selectedSupervisor.company;
+    document.getElementById('supervisor_id').value = selectedSupervisor.id;
+    
+    // Show slots info
+    const slotsText = selectedSupervisor.students_needed === 1 ? '1 slot available' : selectedSupervisor.students_needed + ' slots available';
+    document.getElementById('slots_text').textContent = slotsText;
+    document.getElementById('slots_info').classList.remove('hidden');
+    
+    // Auto-populate all fields
+    populateFieldsFromSupervisor(selectedSupervisor);
+}
 
+function populateFieldsFromSupervisor(supervisor) {
+    // Company details
+    document.getElementById('company_name').value = supervisor.company || '';
+    document.getElementById('company_address').value = supervisor.address || '';
+    document.getElementById('company_contact_number').value = supervisor.contact || '';
+    
+    // Supervisor details
+    document.getElementById('supervisor_name').value = supervisor.name || '';
+    document.getElementById('supervisor_position').value = supervisor.position || '';
+    document.getElementById('supervisor_email').value = supervisor.email || '';
+    document.getElementById('supervisor_phone').value = supervisor.phone || '';
+    
+    // Position
+    const rolePosition = supervisor.role_position;
+    if (rolePosition && rolePosition.trim() !== '') {
+        const positionSelect = document.getElementById('position');
+        let positionMatched = false;
+        
+        for (let i = 0; i < positionSelect.options.length; i++) {
+            if (positionSelect.options[i].value === 'custom') continue;
+            
+            const optionText = positionSelect.options[i].text.toLowerCase();
+            const roleText = rolePosition.toLowerCase();
+            
+            if (roleText.includes(optionText.replace(' intern', '')) || 
+                optionText.includes(roleText) || 
+                roleText === optionText.replace(' intern', '')) {
+                positionSelect.value = positionSelect.options[i].value;
+                positionMatched = true;
+                document.getElementById('position_info').textContent = `Auto-filled from supervisor's role: ${rolePosition}`;
+                break;
+            }
+        }
+        
+        if (!positionMatched) {
+            positionSelect.value = 'custom';
+            document.getElementById('custom_position').value = rolePosition + ' Intern';
+            toggleCustomPosition();
+            document.getElementById('position_info').textContent = `Custom position from supervisor's role: ${rolePosition}`;
+        }
+    } else {
+        document.getElementById('position').value = 'Software Developer Intern';
+        document.getElementById('position_info').textContent = 'Default position selected';
+    }
+    
+    // Additional info
+    document.getElementById('industry_display').value = supervisor.industry || '';
+    document.getElementById('duration_display').value = supervisor.duration || '';
+    document.getElementById('required_skills_display').value = supervisor.skills || '';
+    
+    // Required hours
+    const duration = supervisor.duration;
+    let defaultHours = 500;
+    
+    if (duration) {
+        if (duration.includes('3') && duration.includes('month')) defaultHours = 400;
+        else if (duration.includes('4') && duration.includes('month')) defaultHours = 500;
+        else if (duration.includes('5') && duration.includes('month')) defaultHours = 600;
+        else if (duration.includes('6') && duration.includes('month')) defaultHours = 700;
+    }
+    
+    document.getElementById('required_hours').value = defaultHours;
+    document.getElementById('hours_info').textContent = `Calculated based on ${duration || 'standard internship duration'}`;
+    
+    // Work days
+    const workDays = supervisor.work_days;
+    const workStart = supervisor.work_start;
+    const workEnd = supervisor.work_end;
+    
+    if (workDays && workDays.trim() !== '' && workDays !== 'null') {
+        const workDaysArray = workDays.split(',')
+            .map(day => day.trim())
+            .filter(day => day.length > 0);
+        
+        if (workDaysArray.length > 0) {
+            setWorkDays(workDaysArray);
+        } else {
+            setWorkDays(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+        }
+    } else {
+        setWorkDays(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+    }
+    
+    if (workStart && workEnd && workStart !== 'null' && workEnd !== 'null') {
+        const startTime = formatTime(workStart);
+        const endTime = formatTime(workEnd);
+        document.getElementById('work_schedule_display').textContent = `${startTime} - ${endTime}`;
+    } else {
+        document.getElementById('work_schedule_display').textContent = 'Standard business hours (8:00 AM - 5:00 PM)';
+    }
+    
+    // Dates
+    const startDate = supervisor.start_date;
+    const endDate = supervisor.end_date;
+    
+    if (startDate && startDate !== '' && startDate !== 'null') {
+        document.getElementById('start_date').value = startDate;
+        document.getElementById('start_date_info').textContent = 'Set based on supervisor\'s preferred start date';
+    } else {
+        const suggestedStart = getNextMondayOrWeekFromNow();
+        document.getElementById('start_date').value = suggestedStart;
+        document.getElementById('start_date_info').textContent = 'Suggested start date (can be modified)';
+    }
+    
+    if (endDate && endDate !== '' && endDate !== 'null') {
+        document.getElementById('end_date').value = endDate;
+        document.getElementById('end_date_info').textContent = 'Set based on supervisor\'s preferred end date';
+    } else {
+        const startDateValue = document.getElementById('start_date').value;
+        if (startDateValue && duration) {
+            const calculatedEndDate = calculateEndDate(startDateValue, duration);
+            document.getElementById('end_date').value = calculatedEndDate;
+            document.getElementById('end_date_info').textContent = `Calculated based on ${duration}`;
+        }
+    }
+    
+    showAutoPopulationSuccess();
+}
+
+function closeDeploymentModal() {
+    document.getElementById('deploymentModal').classList.add('hidden');
+}
+
+       
         function clearAutoFilledFields() {
             const autoFilledFields = ['company_name', 'company_address', 'company_contact_number', 
                                     'supervisor_name', 'supervisor_position', 'supervisor_email', 
@@ -1938,21 +2240,34 @@ function formatTime(timeString) {
         }
 
         function setWorkDays(workDaysArray) {
-            resetWorkDays();
-            
-            workDaysArray.forEach(day => {
-                const dayLower = day.trim().toLowerCase();
-                const checkbox = document.getElementById(dayLower);
-                if (checkbox) {
-                    checkbox.checked = true;
-                    checkbox.disabled = true;
-                    const container = checkbox.closest('.work-day-checkbox');
-                    container.classList.add('selected', 'disabled');
-                    container.onclick = null;
-                }
-            });
+    // First, disable ALL checkboxes and make them unclickable
+    const allCheckboxes = document.querySelectorAll('.work-day-checkbox');
+    allCheckboxes.forEach(element => {
+        const checkbox = element.querySelector('input[type="checkbox"]');
+        checkbox.checked = false;
+        checkbox.disabled = true;
+        element.classList.remove('selected');
+        element.classList.add('disabled');
+        element.onclick = null; // Remove click handler
+        
+        // Change cursor to not-allowed for ALL days initially
+        element.style.cursor = 'not-allowed';
+    });
+    
+    // Then, ONLY enable and select the days from supervisor
+    workDaysArray.forEach(day => {
+        const dayLower = day.trim().toLowerCase();
+        const checkbox = document.getElementById(dayLower);
+        if (checkbox) {
+            checkbox.checked = true;
+            checkbox.disabled = true; // Keep disabled so they can't uncheck
+            const container = checkbox.closest('.work-day-checkbox');
+            container.classList.add('selected');
+            // Keep disabled class but make it look active
+            container.style.cursor = 'not-allowed';
         }
-
+    });
+}
         function resetWorkDays() {
             const checkboxes = document.querySelectorAll('.work-day-checkbox');
             checkboxes.forEach(element => {

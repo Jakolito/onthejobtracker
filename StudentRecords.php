@@ -13,10 +13,24 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     exit;
 }
 
-// Get adviser information
+// Get adviser information INCLUDING ROLE
 $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
+
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
 
 // Create adviser initials
 $name_parts = explode(' ', trim($adviser_name));
@@ -37,32 +51,98 @@ $departments = [];
 $sections = [];
 $error_message = '';
 
-// Enhanced filter parameters - same as first code
+// Enhanced filter parameters
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 $department_filter = isset($_GET['department']) ? mysqli_real_escape_string($conn, $_GET['department']) : '';
 $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : '';
 
 // Pagination settings
-$records_per_page = 10; // You can adjust this as needed
+$records_per_page = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $records_per_page;
 
+// BUILD WHERE CLAUSE BASED ON ROLE AND ASSIGNMENTS
+$student_where_clause = "1=1"; // Base condition
+
+// Apply filters based on role and assignments (SAME AS DASHBOARD)
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
+
 try {
-    // Get unique departments for filter dropdown
-    $departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' AND verified = 1 ORDER BY department";
-    $departments_result = mysqli_query($conn, $departments_query);
-    if ($departments_result) {
-        $departments = mysqli_fetch_all($departments_result, MYSQLI_ASSOC);
+    // Get unique departments for filter dropdown (from visible students only)
+    $departments = [];
+    if (!empty($adviser_department)) {
+        $departments[] = ['department' => $adviser_department];
     }
 
-    // Get unique sections for filter dropdown  
-    $sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' AND verified = 1 ORDER BY section";
+    // Get unique sections for filter dropdown (from visible students only)
+    $sections_query = "SELECT DISTINCT section FROM students s WHERE section IS NOT NULL AND section != '' AND $student_where_clause ORDER BY section";
     $sections_result = mysqli_query($conn, $sections_query);
     if ($sections_result) {
         $sections = mysqli_fetch_all($sections_result, MYSQLI_ASSOC);
     }
 
-    // Build WHERE conditions - same logic as first code
+    // Build additional WHERE conditions for filters
     $where_conditions = array();
 
     if (!empty($search)) {
@@ -77,16 +157,11 @@ try {
         $where_conditions[] = "s.section = '$section_filter'";
     }
 
-
-
-    // Base condition: show verified students
-    $base_condition = "s.verified = 1";
-
     // Combine base condition with filter conditions
     if (count($where_conditions) > 0) {
-        $where_clause = $base_condition . " AND (" . implode(' AND ', $where_conditions) . ")";
+        $where_clause = $student_where_clause . " AND (" . implode(' AND ', $where_conditions) . ")";
     } else {
-        $where_clause = $base_condition;
+        $where_clause = $student_where_clause;
     }
 
     // Count query for pagination
@@ -98,7 +173,7 @@ try {
     $total_records = mysqli_fetch_assoc($count_result)['total'];
     $total_pages = ceil($total_records / $records_per_page);
 
-    // Enhanced main query with all the filtering
+    // Main query with all the filtering
     $query = "SELECT 
         s.id,
         s.student_id,
@@ -153,12 +228,11 @@ try {
     
 } catch (Exception $e) {
     $error_message = "Database error: " . $e->getMessage();
-    error_log($error_message); // Log the error for debugging
+    error_log($error_message);
 }
 
-// Helper function to get student status - same as first code
+// Helper function to get student status
 function getStudentStatus($student) {
-    // Check if student is deployed first
     if ($student['deployment_id'] !== null) {
         return ['status' => 'deployed', 'text' => 'Deployed'];
     } elseif ($student['ready_for_deployment'] == 1) {
@@ -174,24 +248,37 @@ function getStudentStatus($student) {
     }
 }
 
-// Get statistics for dashboard
+// Get statistics for dashboard (filtered by visible students)
 $stats_query = "SELECT 
-    (SELECT COUNT(*) FROM students WHERE verified = 1) as total_verified,
-    (SELECT COUNT(*) FROM students WHERE ready_for_deployment = 1 AND verified = 1 AND status != 'Deployed' AND id NOT IN (SELECT student_id FROM student_deployments WHERE status = 'Active')) as ready_count,
-    (SELECT COUNT(*) FROM student_deployments WHERE status = 'Active') as deployed_count,
-    (SELECT COUNT(*) FROM students WHERE verified = 0) as unverified_count,
-    (SELECT COUNT(*) FROM students WHERE status = 'Blocked' OR login_attempts >= 3) as blocked_count";
+    (SELECT COUNT(*) FROM students s WHERE $student_where_clause) as total_verified,
+    (SELECT COUNT(*) FROM students s WHERE ready_for_deployment = 1 AND status != 'Deployed' AND id NOT IN (SELECT student_id FROM student_deployments WHERE status = 'Active') AND $student_where_clause) as ready_count,
+    (SELECT COUNT(*) FROM student_deployments sd INNER JOIN students s ON sd.student_id = s.id WHERE sd.status = 'Active' AND $student_where_clause) as deployed_count,
+    (SELECT COUNT(*) FROM students s WHERE verified = 0 AND $student_where_clause) as unverified_count,
+    (SELECT COUNT(*) FROM students s WHERE (status = 'Blocked' OR login_attempts >= 3) AND $student_where_clause) as blocked_count";
 $stats_result = mysqli_query($conn, $stats_query);
 $stats = mysqli_fetch_assoc($stats_result);
 
-// Handle AJAX requests for student details
+// Handle AJAX requests for student details (keeping existing code)
 if (isset($_GET['action']) && $_GET['action'] === 'get_student_details' && isset($_GET['student_id'])) {
     $student_id = intval($_GET['student_id']);
     
     if ($student_id > 0) {
         try {
+            // Verify student is visible to this adviser
+            $verify_query = "SELECT COUNT(*) as count FROM students s WHERE s.id = ? AND $student_where_clause";
+            $verify_stmt = mysqli_prepare($conn, $verify_query);
+            mysqli_stmt_bind_param($verify_stmt, "i", $student_id);
+            mysqli_stmt_execute($verify_stmt);
+            $verify_result = mysqli_stmt_get_result($verify_stmt);
+            $verify_data = mysqli_fetch_assoc($verify_result);
+            mysqli_stmt_close($verify_stmt);
+            
+            if ($verify_data['count'] == 0) {
+                throw new Exception("Access denied: You don't have permission to view this student");
+            }
+            
             // Get complete student information
-            $student_query = "SELECT * FROM students WHERE id = ? AND verified = 1";
+            $student_query = "SELECT * FROM students WHERE id = ?";
             $student_stmt = mysqli_prepare($conn, $student_query);
             mysqli_stmt_bind_param($student_stmt, "i", $student_id);
             mysqli_stmt_execute($student_stmt);
@@ -313,6 +400,7 @@ try {
     $profile_picture = '';
 }
 ?>
+<!-- Keep the rest of your HTML exactly as is in document 2 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -501,6 +589,14 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+
+            <!-- NEW: Academic Accounts - Only visible to coordinators -->
+            <?php if ($adviser_role === 'coordinator'): ?>
+            <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                <i class="fas fa-user-tie mr-3"></i>
+                Academic Accounts
+            </a>
+            <?php endif; ?>
         </nav>
     </div>
     
@@ -516,7 +612,7 @@ tailwind.config = {
 </div>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
             </div>
         </div>
     </div>
@@ -607,18 +703,12 @@ tailwind.config = {
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Department</label>
-                            <select id="departmentFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">All Departments</option>
-                                <?php 
-                                mysqli_data_seek($departments_result, 0); // Reset result pointer
-                                while ($dept = mysqli_fetch_assoc($departments_result)): ?>
-                                    <option value="<?php echo htmlspecialchars($dept['department']); ?>" 
-                                            <?php echo $department_filter === $dept['department'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($dept['department']); ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
+                            <label class="block text-sm font-medium text-gray-700 mb-2"> Department</label>
+                            <input type="text" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" 
+                                   value="<?php echo htmlspecialchars($adviser_department ?? 'Not Assigned'); ?>" 
+                                   readonly 
+                                   title="Your assigned department">
                         </div>
                         <div>
     <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Section</label>
@@ -1123,18 +1213,15 @@ document.getElementById('searchInput').addEventListener('keyup', function(e) {
     }
 });
 
-document.getElementById('departmentFilter').addEventListener('change', applyFilters);
 document.getElementById('sectionFilter').addEventListener('change', applyFilters); // This was missing!
 
 // Updated filter functionality
 function applyFilters() {
     const search = document.getElementById('searchInput').value;
-    const department = document.getElementById('departmentFilter').value;
     const section = document.getElementById('sectionFilter').value;
     
     const params = new URLSearchParams();
     if (search) params.append('search', search);
-    if (department) params.append('department', department);
     if (section) params.append('section', section);
     
     window.location.href = `${window.location.pathname}?${params.toString()}`;
@@ -1153,7 +1240,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // All dropdown filters with immediate change detection
-    const filters = ['departmentFilter', 'sectionFilter'];
+    const filters = ['sectionFilter'];
     filters.forEach(filterId => {
         const filterElement = document.getElementById(filterId);
         if (filterElement) {

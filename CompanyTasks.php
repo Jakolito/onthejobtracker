@@ -174,20 +174,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_task'])) {
     }
 }
 
-// Get deployed students for this supervisor (exclude completed OJT students)
+// Get deployed students for this supervisor with task statistics
 try {
     $students_query = "SELECT d.deployment_id, d.student_id, 
                               CONCAT(s.first_name, ' ', IFNULL(s.middle_name, ''), ' ', s.last_name) as student_name,
                               s.student_id as student_id_number, 
-                              d.position, d.start_date, d.end_date, d.status, d.ojt_status
+                              d.position, d.start_date, d.end_date, d.status, d.ojt_status,
+                              COUNT(DISTINCT t.task_id) as total_tasks,
+                              COUNT(DISTINCT CASE WHEN ts.status = 'Approved' THEN ts.submission_id END) as approved_tasks
                        FROM student_deployments d 
                        JOIN students s ON d.student_id = s.id 
+                       LEFT JOIN tasks t ON d.student_id = t.student_id AND t.supervisor_id = ?
+                       LEFT JOIN task_submissions ts ON t.task_id = ts.task_id AND ts.student_id = d.student_id
                        WHERE d.supervisor_id = ? AND d.status = 'Active'
+                       GROUP BY d.deployment_id, d.student_id, s.first_name, s.middle_name, s.last_name, 
+                                s.student_id, d.position, d.start_date, d.end_date, d.status, d.ojt_status
                        ORDER BY s.first_name ASC, s.last_name ASC";
     
     $stmt = mysqli_prepare($conn, $students_query);
     if ($stmt) {
-        mysqli_stmt_bind_param($stmt, "i", $supervisor_id);
+        mysqli_stmt_bind_param($stmt, "ii", $supervisor_id, $supervisor_id);
         mysqli_stmt_execute($stmt);
         $students_result = mysqli_stmt_get_result($stmt);
         mysqli_stmt_close($stmt);
@@ -245,18 +251,17 @@ tailwind.config = {
     theme: {
         extend: {
             colors: {
-                'bulsu-maroon': '#800000',     // Primary Maroon
-                'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                'bulsu-gold': '#DAA520',       // Official Gold
-                'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                'bulsu-white': '#FFFFFF'       // Supporting White
+                'bulsu-maroon': '#800000',
+                'bulsu-dark-maroon': '#6B1028',
+                'bulsu-gold': '#DAA520',
+                'bulsu-light-gold': '#F4E4BC',
+                'bulsu-white': '#FFFFFF'
             }
         }
     }
 }
 </script>
     <style>
-        /* Custom CSS for features not easily achievable with Tailwind */
         .sidebar {
             transition: transform 0.3s ease-in-out;
         }
@@ -277,19 +282,15 @@ tailwind.config = {
 
     <!-- Sidebar -->
     <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
-    <!-- Close button for mobile -->
     <div class="flex justify-end p-4 lg:hidden">
         <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
             <i class="fas fa-times text-xl"></i>
         </button>
     </div>
 
-    <!-- Logo Section with BULSU Branding -->
     <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
         <div class="flex items-center">
-            <!-- BULSU Logos -->
             <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
-            <!-- Brand Name -->
             <div class="flex items-center font-bold text-lg text-white">
                 <span>OnTheJob</span>
                 <span class="ml-1">Tracker</span>
@@ -297,7 +298,6 @@ tailwind.config = {
         </div>
     </div>
     
-    <!-- Navigation -->
     <div class="px-4 py-6">
         <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
         <nav class="space-y-2">
@@ -309,6 +309,9 @@ tailwind.config = {
                 <i class="fas fa-tasks mr-3 text-bulsu-gold"></i>
                 Tasks
             </a>
+            <a href="CompanyStudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-users mr-3 "></i>Student Accounts
+                </a>
             <a href="CompanyTimeRecord.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-clock mr-3"></i>
                 Student Time Record
@@ -332,7 +335,6 @@ tailwind.config = {
         </nav>
     </div>
     
-    <!-- User Profile -->
     <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
         <div class="flex items-center space-x-3">
             <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm">
@@ -355,18 +357,15 @@ tailwind.config = {
         <!-- Header -->
         <div class="bg-white shadow-sm border-b border-gray-200">
             <div class="flex items-center justify-between px-4 sm:px-6 py-4">
-                <!-- Mobile Menu Button -->
                 <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                     <i class="fas fa-bars text-xl"></i>
                 </button>
 
-                <!-- Header Title -->
                 <div class="flex-1 lg:ml-0 ml-4">
                     <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Task Management</h1>
                     <p class="text-sm sm:text-base text-gray-500 hidden sm:block">Manage tasks for deployed students</p>
                 </div>
                 
-                <!-- Profile Dropdown -->
                 <div class="relative">
                     <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
                         <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
@@ -410,7 +409,6 @@ tailwind.config = {
 
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
-            <!-- Error Message Display -->
             <?php if (isset($error_message) && !empty($error_message)): ?>
                 <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                     <div class="flex items-start">
@@ -420,7 +418,6 @@ tailwind.config = {
                 </div>
             <?php endif; ?>
 
-            <!-- Success Message Display -->
             <?php if (isset($success_message) && !empty($success_message)): ?>
                 <div class="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
                     <div class="flex items-start">
@@ -495,238 +492,273 @@ tailwind.config = {
 
             <!-- Students Table -->
             <div class="bg-white rounded-lg shadow-sm border border-bulsu-maroon overflow-hidden">
-    <!-- Header -->
-    <div class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon px-6 py-4">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-            <!-- Title + Icon -->
-            <div class="flex items-center">
-                <i class="fas fa-users text-bulsu-gold mr-3"></i>
-                <h3 class="text-lg font-medium text-white">Deployed Students</h3>
-            </div>
-            <!-- Actions -->
-            <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-                <!-- Refresh Button -->
-                <button onclick="refreshStudents()" 
-                        class="flex items-center justify-center px-4 py-2 text-sm font-medium text-bulsu-dark-maroon bg-bulsu-light-gold hover:bg-bulsu-gold rounded-md transition-colors">
-                    <i class="fas fa-sync-alt mr-2"></i>
-                    <span class="hidden sm:inline">Refresh</span>
-                </button>
-                <!-- Search Box -->
-                <div class="relative">
-                    <input type="text" id="searchStudents" placeholder="Search students..." 
-                           class="pl-10 pr-4 py-2 border border-bulsu-gold rounded-md text-sm focus:ring-2 focus:ring-bulsu-gold focus:border-bulsu-maroon">
-                    <i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-               <div class="overflow-x-auto">
-        <table class="w-full">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-                <?php if ($students_result && mysqli_num_rows($students_result) > 0): ?>
-                    <?php while ($student = mysqli_fetch_assoc($students_result)): ?>
-                        <tr class="hover:bg-gray-50 student-row" 
-                            data-student-name="<?php echo strtolower($student['student_name']); ?>"
-                            data-student-id="<?php echo strtolower($student['student_id_number']); ?>"
-                            data-position="<?php echo strtolower($student['position']); ?>">
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
-                                <div class="flex items-center">
-                                    <div class="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                                        <?php echo strtoupper(substr($student['student_name'], 0, 1) . substr(strstr($student['student_name'], ' '), 1, 1)); ?>
-                                    </div>
-                                    <div class="ml-3">
-                                        <p class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($student['student_name']); ?></p>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                <?php echo htmlspecialchars($student['student_id_number']); ?>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                <?php echo htmlspecialchars($student['position']); ?>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                <?php echo date('M d, Y', strtotime($student['start_date'])); ?>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                <?php echo date('M d, Y', strtotime($student['end_date'])); ?>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
-                                <?php 
-                                $ojt_status = strtolower($student['ojt_status']);
-                                $status_class = '';
-                                $status_icon = '';
-                                
-                                switch($ojt_status) {
-                                    case 'completed':
-                                        $status_class = 'bg-green-100 text-green-800';
-                                        $status_icon = 'fas fa-check-circle';
-                                        break;
-                                    case 'ongoing':
-                                        $status_class = 'bg-blue-100 text-blue-800';
-                                        $status_icon = 'fas fa-clock';
-                                        break;
-                                    case 'pending':
-                                        $status_class = 'bg-yellow-100 text-yellow-800';
-                                        $status_icon = 'fas fa-hourglass-half';
-                                        break;
-                                    default:
-                                        $status_class = 'bg-gray-100 text-gray-800';
-                                        $status_icon = 'fas fa-question-circle';
-                                }
-                                ?>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $status_class; ?>">
-                                    <i class="<?php echo $status_icon; ?> mr-1"></i>
-                                    <?php echo ucfirst($student['ojt_status']); ?>
-                                </span>
-                            </td>
-                            <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                <?php if (strtolower($student['ojt_status']) === 'completed'): ?>
-                                    <span class="text-gray-400">
-                                        <i class="fas fa-ban mr-1"></i>
-                                        OJT Completed
-                                    </span>
-                                <?php else: ?>
-                                    <button onclick="openCreateTaskModal(<?php echo $student['deployment_id']; ?>, <?php echo $student['student_id']; ?>, '<?php echo addslashes($student['student_name']); ?>')" 
-                                            class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                                        <i class="fas fa-plus mr-1"></i>
-                                        Create Task
-                                    </button>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endwhile; ?>
-                <?php else: ?>
-                    <tr>
-                        <td colspan="7" class="px-4 sm:px-6 py-12 text-center">
-                            <div class="flex flex-col items-center justify-center">
-                                <i class="fas fa-users text-gray-300 text-4xl mb-4"></i>
-                                <h3 class="text-lg font-medium text-gray-900 mb-2">No Students Found</h3>
-                                <p class="text-gray-500 max-w-md">You don't have any deployed students at the moment. Students will appear here once they are assigned to you.</p>
+                <div class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon px-6 py-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+                        <div class="flex items-center">
+                            <i class="fas fa-users text-bulsu-gold mr-3"></i>
+                            <h3 class="text-lg font-medium text-white">Deployed Students</h3>
+                        </div>
+                        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                            <button onclick="refreshStudents()" 
+                                    class="flex items-center justify-center px-4 py-2 text-sm font-medium text-bulsu-dark-maroon bg-bulsu-light-gold hover:bg-bulsu-gold rounded-md transition-colors">
+                                <i class="fas fa-sync-alt mr-2"></i>
+                                <span class="hidden sm:inline">Refresh</span>
+                            </button>
+                            <div class="relative">
+                                <input type="text" id="searchStudents" placeholder="Search students..." 
+                                       class="pl-10 pr-4 py-2 border border-bulsu-gold rounded-md text-sm focus:ring-2 focus:ring-bulsu-gold focus:border-bulsu-maroon">
+                                <i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i>
                             </div>
-                        </td>
-                    </tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-    <!-- Create Task Modal -->
-    <div id="createTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-screen overflow-y-auto">
-                <div class="p-6 border-b border-gray-200">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-medium text-gray-900">Create New Task</h3>
-                        <button onclick="closeCreateTaskModal()" class="text-gray-400 hover:text-gray-600">
-                            <i class="fas fa-times text-xl"></i>
-                        </button>
+                        </div>
                     </div>
                 </div>
 
-                <form method="POST" class="p-6">
-                    <input type="hidden" name="create_task" value="1">
-                    <input type="hidden" id="modal_deployment_id" name="deployment_id" value="">
-                    <input type="hidden" id="modal_student_id" name="student_id" value="">
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task Progress</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <?php if ($students_result && mysqli_num_rows($students_result) > 0): ?>
+                                <?php while ($student = mysqli_fetch_assoc($students_result)): ?>
+                                    <tr class="hover:bg-gray-50 student-row" 
+                                        data-student-name="<?php echo strtolower($student['student_name']); ?>"
+                                        data-student-id="<?php echo strtolower($student['student_id_number']); ?>"
+                                        data-position="<?php echo strtolower($student['position']); ?>">
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                                            <div class="flex items-center">
+                                                <div class="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                                    <?php echo strtoupper(substr($student['student_name'], 0, 1) . substr(strstr($student['student_name'], ' '), 1, 1)); ?>
+                                                </div>
+                                                <div class="ml-3">
+                                                    <p class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($student['student_name']); ?></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            <?php echo htmlspecialchars($student['student_id_number']); ?>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            <?php echo htmlspecialchars($student['position']); ?>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                                            <div class="flex items-center">
+                                                <span class="text-lg font-bold text-gray-900">
+                                                    <span class="text-green-600"><?php echo $student['approved_tasks']; ?></span>
+                                                    <span class="text-gray-400">/</span>
+                                                    <span class="text-blue-600"><?php echo $student['total_tasks']; ?></span>
+                                                </span>
+                                                <div class="ml-3">
+                                                    <?php 
+                                                    $total = $student['total_tasks'];
+                                                    $approved = $student['approved_tasks'];
+                                                    $percentage = $total > 0 ? round(($approved / $total) * 100) : 0;
+                                                    
+                                                    if ($percentage >= 80) {
+                                                        $progress_color = 'text-green-600';
+                                                        $icon = 'fa-check-circle';
+                                                    } elseif ($percentage >= 50) {
+                                                        $progress_color = 'text-blue-600';
+                                                        $icon = 'fa-clock';
+                                                    } elseif ($percentage > 0) {
+                                                        $progress_color = 'text-yellow-600';
+                                                        $icon = 'fa-hourglass-half';
+                                                    } else {
+                                                        $progress_color = 'text-gray-400';
+                                                        $icon = 'fa-circle';
+                                                    }
+                                                    ?>
+                                                    <i class="fas <?php echo $icon; ?> <?php echo $progress_color; ?>"></i>
+                                                </div>
+                                            </div>
+                                            <?php if ($total > 0): ?>
+                                                <div class="mt-1 w-full bg-gray-200 rounded-full h-1.5">
+                                                    <div class="bg-gradient-to-r from-green-500 to-green-600 h-1.5 rounded-full" 
+                                                         style="width: <?php echo $percentage; ?>%"></div>
+                                                </div>
+                                                <span class="text-xs text-gray-500"><?php echo $percentage; ?>% completed</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            <?php echo date('M d, Y', strtotime($student['start_date'])); ?>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            <?php echo date('M d, Y', strtotime($student['end_date'])); ?>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                                            <?php 
+                                            $ojt_status = strtolower($student['ojt_status']);
+                                            $status_class = '';
+                                            $status_icon = '';
+                                            
+                                            switch($ojt_status) {
+                                                case 'completed':
+                                                    $status_class = 'bg-green-100 text-green-800';
+                                                    $status_icon = 'fas fa-check-circle';
+                                                    break;
+                                                case 'ongoing':
+                                                    $status_class = 'bg-blue-100 text-blue-800';
+                                                    $status_icon = 'fas fa-clock';
+                                                    break;
+                                                case 'pending':
+                                                    $status_class = 'bg-yellow-100 text-yellow-800';
+                                                    $status_icon = 'fas fa-hourglass-half';
+                                                    break;
+                                                default:
+                                                    $status_class = 'bg-gray-100 text-gray-800';
+                                                    $status_icon = 'fas fa-question-circle';
+                                            }
+                                            ?>
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $status_class; ?>">
+                                                <i class="<?php echo $status_icon; ?> mr-1"></i>
+                                                <?php echo ucfirst($student['ojt_status']); ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <?php if (strtolower($student['ojt_status']) === 'completed'): ?>
+                                                <span class="text-gray-400">
+                                                    <i class="fas fa-ban mr-1"></i>
+                                                    OJT Completed
+                                                </span>
+                                            <?php else: ?>
+                                                <button onclick="openCreateTaskModal(<?php echo $student['deployment_id']; ?>, <?php echo $student['student_id']; ?>, '<?php echo addslashes($student['student_name']); ?>')" 
+                                                        class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+                                                    <i class="fas fa-plus mr-1"></i>
+                                                    Create Task
+                                                </button>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="8" class="px-4 sm:px-6 py-12 text-center">
+                                        <div class="flex flex-col items-center justify-center">
+                                            <i class="fas fa-users text-gray-300 text-4xl mb-4"></i>
+                                            <h3 class="text-lg font-medium text-gray-900 mb-2">No Students Found</h3>
+                                            <p class="text-gray-500 max-w-md">You don't have any deployed students at the moment. Students will appear here once they are assigned to you.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Student</label>
-                        <div class="p-3 bg-gray-50 rounded-md">
-                            <span id="modal_student_name" class="text-sm font-medium text-gray-900"></span>
+            <!-- Create Task Modal -->
+            <div id="createTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-screen overflow-y-auto">
+                        <div class="p-6 border-b border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-lg font-medium text-gray-900">Create New Task</h3>
+                                <button onclick="closeCreateTaskModal()" class="text-gray-400 hover:text-gray-600">
+                                    <i class="fas fa-times text-xl"></i>
+                                </button>
+                            </div>
                         </div>
+
+                        <form method="POST" class="p-6">
+                            <input type="hidden" name="create_task" value="1">
+                            <input type="hidden" id="modal_deployment_id" name="deployment_id" value="">
+                            <input type="hidden" id="modal_student_id" name="student_id" value="">
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Student</label>
+                                <div class="p-3 bg-gray-50 rounded-md">
+                                    <span id="modal_student_name" class="text-sm font-medium text-gray-900"></span>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label for="task_title" class="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
+                                    <input type="text" id="task_title" name="task_title" required 
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                           placeholder="Enter task title">
+                                </div>
+
+                                <div>
+                                    <label for="task_category" class="block text-sm font-medium text-gray-700 mb-2">Category *</label>
+                                    <select id="task_category" name="task_category" required 
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">Select Category</option>
+                                        <option value="Development">Development</option>
+                                        <option value="Documentation">Documentation</option>
+                                        <option value="Testing">Testing</option>
+                                        <option value="Research">Research</option>
+                                        <option value="Meeting">Meeting</option>
+                                        <option value="Training">Training</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="task_description" class="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                                <textarea id="task_description" name="task_description" rows="4" required 
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                          placeholder="Enter task description"></textarea>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label for="due_date" class="block text-sm font-medium text-gray-700 mb-2">Due Date *</label>
+                                    <input type="date" id="due_date" name="due_date" required 
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+
+                                <div>
+                                    <label for="priority" class="block text-sm font-medium text-gray-700 mb-2">Priority *</label>
+                                    <select id="priority" name="priority" required 
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">Select Priority</option>
+                                        <option value="Low">Low</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High</option>
+                                        <option value="Urgent">Urgent</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="instructions" class="block text-sm font-medium text-gray-700 mb-2">Instructions</label>
+                                <textarea id="instructions" name="instructions" rows="3" 
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                          placeholder="Enter specific instructions for the task"></textarea>
+                            </div>
+
+                            <div class="mb-6">
+                                <label for="remarks" class="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
+                                <textarea id="remarks" name="remarks" rows="2" 
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                          placeholder="Enter any additional remarks or notes"></textarea>
+                            </div>
+
+                            <div class="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
+                                <button type="button" onclick="closeCreateTaskModal()" 
+                                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
+                                    Cancel
+                                </button>
+                                <button type="submit" 
+                                        class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                                    <i class="fas fa-plus mr-2"></i>
+                                    Create Task
+                                </button>
+                            </div>
+                        </form>
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label for="task_title" class="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
-                            <input type="text" id="task_title" name="task_title" required 
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                   placeholder="Enter task title">
-                        </div>
-
-                        <div>
-                            <label for="task_category" class="block text-sm font-medium text-gray-700 mb-2">Category *</label>
-                            <select id="task_category" name="task_category" required 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Select Category</option>
-                                <option value="Development">Development</option>
-                                <option value="Documentation">Documentation</option>
-                                <option value="Testing">Testing</option>
-                                <option value="Research">Research</option>
-                                <option value="Meeting">Meeting</option>
-                                <option value="Training">Training</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label for="task_description" class="block text-sm font-medium text-gray-700 mb-2">Description *</label>
-                        <textarea id="task_description" name="task_description" rows="4" required 
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  placeholder="Enter task description"></textarea>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label for="due_date" class="block text-sm font-medium text-gray-700 mb-2">Due Date *</label>
-                            <input type="date" id="due_date" name="due_date" required 
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label for="priority" class="block text-sm font-medium text-gray-700 mb-2">Priority *</label>
-                            <select id="priority" name="priority" required 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Select Priority</option>
-                                <option value="Low">Low</option>
-                                <option value="Medium">Medium</option>
-                                <option value="High">High</option>
-                                <option value="Urgent">Urgent</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label for="instructions" class="block text-sm font-medium text-gray-700 mb-2">Instructions</label>
-                        <textarea id="instructions" name="instructions" rows="3" 
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  placeholder="Enter specific instructions for the task"></textarea>
-                    </div>
-
-                    <div class="mb-6">
-                        <label for="remarks" class="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
-                        <textarea id="remarks" name="remarks" rows="2" 
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  placeholder="Enter any additional remarks or notes"></textarea>
-                    </div>
-
-                    <div class="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
-                        <button type="button" onclick="closeCreateTaskModal()" 
-                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
-                            Cancel
-                        </button>
-                        <button type="submit" 
-                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
-                            <i class="fas fa-plus mr-2"></i>
-                            Create Task
-                        </button>
-                    </div>
-                </form>
+                </div>
             </div>
         </div>
     </div>
@@ -811,26 +843,27 @@ tailwind.config = {
         function confirmLogout() {
             return confirm('Are you sure you want to logout?');
         }
+
         // Search functionality
-const searchInput = document.getElementById('searchStudents');
-if (searchInput) {
-    searchInput.addEventListener('input', function() {
-        const searchTerm = this.value.toLowerCase();
-        const studentRows = document.querySelectorAll('.student-row');
-        
-        studentRows.forEach(function(row) {
-            const studentName = row.getAttribute('data-student-name');
-            const studentId = row.getAttribute('data-student-id');
-            const position = row.getAttribute('data-position');
-            
-            const matches = studentName.includes(searchTerm) || 
-                           studentId.includes(searchTerm) || 
-                           position.includes(searchTerm);
-            
-            row.style.display = matches ? '' : 'none';
-        });
-    });
-}
+        const searchInput = document.getElementById('searchStudents');
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const studentRows = document.querySelectorAll('.student-row');
+                
+                studentRows.forEach(function(row) {
+                    const studentName = row.getAttribute('data-student-name');
+                    const studentId = row.getAttribute('data-student-id');
+                    const position = row.getAttribute('data-position');
+                    
+                    const matches = studentName.includes(searchTerm) || 
+                                   studentId.includes(searchTerm) || 
+                                   position.includes(searchTerm);
+                    
+                    row.style.display = matches ? '' : 'none';
+                });
+            });
+        }
 
         // Auto-hide success/error messages after 5 seconds
         document.addEventListener('DOMContentLoaded', function() {

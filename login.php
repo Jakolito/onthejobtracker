@@ -37,7 +37,6 @@
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
-                    <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
             <!-- Hamburger Button (Mobile) -->

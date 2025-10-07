@@ -110,15 +110,14 @@ unset($_SESSION['verified_email']);
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
-                    <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
             <!-- Hamburger Button (Mobile) -->
             <button id="menu-btn" class="md:hidden block focus:outline-none z-50">
                 <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-            </button>
+                    </svg>
+                </button>
             <!-- Navigation Links (Desktop only) -->
             <ul id="nav-links" class="hidden md:flex space-x-8 font-medium">
                 <li><a href="index.php#features" class="hover:text-bulsu-gold transition">Features</a></li>  

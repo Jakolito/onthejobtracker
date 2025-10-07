@@ -18,7 +18,7 @@ include_once('notification_functions.php');
 $unread_count = getUnreadNotificationCount($conn, $user_id);
 // Fetch student data
 try {
-    $stmt = $conn->prepare("SELECT first_name, middle_name, last_name, email, student_id, department, program, year_level, profile_picture, verified FROM students WHERE id = ?");
+$stmt = $conn->prepare("SELECT first_name, middle_name, last_name, email, student_id, department, program, year_level, profile_picture, verified, academic_adviser_id FROM students WHERE id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -60,28 +60,31 @@ try {
 }
 
 // Get available contacts
+// Get available contacts
 $contacts = [];
 
-// Always add academic adviser
-try {
-    $adviser_stmt = $conn->prepare("SELECT id, name, email FROM academic_adviser ORDER BY name ASC");
-    $adviser_stmt->execute();
-    $adviser_result = $adviser_stmt->get_result();
-    
-    while ($row = $adviser_result->fetch_assoc()) {
-        $contacts[] = [
-            'id' => 'adviser_' . $row['id'],
-            'name' => $row['name'],
-            'role' => 'Academic Adviser',
-            'email' => $row['email'],
-            'type' => 'adviser',
-            'available' => true
-        ];
+// Add only the assigned academic adviser
+if ($student['academic_adviser_id']) {
+    try {
+        $adviser_stmt = $conn->prepare("SELECT id, name, email FROM academic_adviser WHERE id = ? AND status = 'active'");
+        $adviser_stmt->bind_param("i", $student['academic_adviser_id']);
+        $adviser_stmt->execute();
+        $adviser_result = $adviser_stmt->get_result();
+        
+        if ($row = $adviser_result->fetch_assoc()) {
+            $contacts[] = [
+                'id' => 'adviser_' . $row['id'],
+                'name' => $row['name'],
+                'role' => 'Academic Adviser',
+                'email' => $row['email'],
+                'type' => 'adviser',
+                'available' => true
+            ];
+        }
+    } catch (Exception $e) {
+        // Handle error
     }
-} catch (Exception $e) {
-    // Handle error
 }
-
 // Add company supervisor if deployed
 if ($is_deployed && $deployment_info && $deployment_info['supervisor_id']) {
     try {
@@ -481,7 +484,7 @@ tailwind.config = {
         <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
         <nav class="space-y-2">
             <a href="studentdashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-th-large mr-3 text-bulsu-gold"></i>
+                <i class="fas fa-th-large mr-3"></i>
                 Dashboard
             </a>
             <a href="studentAttendance.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">

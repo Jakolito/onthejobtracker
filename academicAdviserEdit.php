@@ -13,85 +13,108 @@ $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
 
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+mysqli_stmt_close($adviser_stmt);
+
 // Handle form submissions
 $message = '';
 $message_type = '';
 
- $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
-    $unread_messages_result = mysqli_query($conn, $unread_messages_query);
-    $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+$unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
+$unread_messages_result = mysqli_query($conn, $unread_messages_query);
+$unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
             
-case 'add_document':
-    $document_name = trim($_POST['document_name']);
-    $document_description = trim($_POST['document_description']);
-    $is_required = isset($_POST['is_required']) ? 1 : 0;
-    $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
-    
-    if (!empty($document_name)) {
-        try {
-            $stmt = $conn->prepare("INSERT INTO document_requirements (name, description, is_required, submission_deadline, created_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-            if (!$stmt) {
-                throw new Exception("Prepare failed: " . $conn->error);
-            }
-            
-            $stmt->bind_param("ssisi", $document_name, $document_description, $is_required, $submission_deadline, $adviser_id);
-            
-            if ($stmt->execute()) {
-                $message = "Document requirement '{$document_name}' has been added successfully.";
-                $message_type = 'success';
-            } else {
-                throw new Exception("Execute failed: " . $stmt->error);
-            }
-            $stmt->close();
-        } catch (Exception $e) {
-            $message = "Database error: " . $e->getMessage();
-            $message_type = 'error';
-        }
-    } else {
-        $message = "Document name is required.";
-        $message_type = 'error';
-    }
-    break;
-
-// Also update the edit_document case
-case 'edit_document':
-    $doc_id = intval($_POST['doc_id']);
-    $document_name = trim($_POST['document_name']);
-    $document_description = trim($_POST['document_description']);
-    $is_required = isset($_POST['is_required']) ? 1 : 0;
-    $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
-    
-    if (!empty($document_name) && $doc_id > 0) {
-        try {
-            $stmt = $conn->prepare("UPDATE document_requirements SET name = ?, description = ?, is_required = ?, submission_deadline = ? WHERE id = ?");
-            if (!$stmt) {
-                throw new Exception("Prepare update failed: " . $conn->error);
-            }
-            
-            $stmt->bind_param("ssisi", $document_name, $document_description, $is_required, $submission_deadline, $doc_id);
-            
-            if ($stmt->execute()) {
-                if ($stmt->affected_rows > 0) {
-                    $message = "Document requirement has been updated successfully.";
-                    $message_type = 'success';
+            case 'add_document':
+                $document_name = trim($_POST['document_name']);
+                $document_description = trim($_POST['document_description']);
+                $is_required = isset($_POST['is_required']) ? 1 : 0;
+                $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
+                
+                if (!empty($document_name)) {
+                    try {
+                        $stmt = $conn->prepare("INSERT INTO document_requirements (name, description, is_required, submission_deadline, created_by, academic_adviser_id, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+                        if (!$stmt) {
+                            throw new Exception("Prepare failed: " . $conn->error);
+                        }
+                        
+                        $stmt->bind_param("ssiiii", $document_name, $document_description, $is_required, $submission_deadline, $adviser_id, $adviser_id);
+                        
+                        if ($stmt->execute()) {
+                            $message = "Document requirement '{$document_name}' has been added successfully.";
+                            $message_type = 'success';
+                        } else {
+                            throw new Exception("Execute failed: " . $stmt->error);
+                        }
+                        $stmt->close();
+                    } catch (Exception $e) {
+                        $message = "Database error: " . $e->getMessage();
+                        $message_type = 'error';
+                    }
                 } else {
-                    $message = "No changes were made to the document requirement.";
-                    $message_type = 'info';
+                    $message = "Document name is required.";
+                    $message_type = 'error';
                 }
-            } else {
-                throw new Exception("Execute update failed: " . $stmt->error);
-            }
-            $stmt->close();
-        } catch (Exception $e) {
-            $message = "Database error: " . $e->getMessage();
-            $message_type = 'error';
-        }
-    }
-    break;
+                break;
+
+            case 'edit_document':
+                $doc_id = intval($_POST['doc_id']);
+                $document_name = trim($_POST['document_name']);
+                $document_description = trim($_POST['document_description']);
+                $is_required = isset($_POST['is_required']) ? 1 : 0;
+                $submission_deadline = !empty($_POST['submission_deadline']) ? $_POST['submission_deadline'] : NULL;
+                
+                if (!empty($document_name) && $doc_id > 0) {
+                    try {
+                        // Check ownership before editing
+                        $check_stmt = $conn->prepare("SELECT academic_adviser_id FROM document_requirements WHERE id = ?");
+                        $check_stmt->bind_param("i", $doc_id);
+                        $check_stmt->execute();
+                        $check_result = $check_stmt->get_result();
+                        if ($check_row = $check_result->fetch_assoc()) {
+                            if ($check_row['academic_adviser_id'] != $adviser_id && $check_row['academic_adviser_id'] !== NULL) {
+                                throw new Exception("You don't have permission to edit this document requirement.");
+                            }
+                        } else {
+                            throw new Exception("Document requirement not found.");
+                        }
+                        $check_stmt->close();
+                        
+                        $stmt = $conn->prepare("UPDATE document_requirements SET name = ?, description = ?, is_required = ?, submission_deadline = ? WHERE id = ?");
+                        if (!$stmt) {
+                            throw new Exception("Prepare update failed: " . $conn->error);
+                        }
+                        
+                        $stmt->bind_param("ssisi", $document_name, $document_description, $is_required, $submission_deadline, $doc_id);
+                        
+                        if ($stmt->execute()) {
+                            if ($stmt->affected_rows > 0) {
+                                $message = "Document requirement has been updated successfully.";
+                                $message_type = 'success';
+                            } else {
+                                $message = "No changes were made to the document requirement.";
+                                $message_type = 'info';
+                            }
+                        } else {
+                            throw new Exception("Execute update failed: " . $stmt->error);
+                        }
+                        $stmt->close();
+                    } catch (Exception $e) {
+                        $message = "Database error: " . $e->getMessage();
+                        $message_type = 'error';
+                    }
+                }
+                break;
                 
             case 'toggle_requirement':
                 $doc_id = intval($_POST['doc_id']);
@@ -100,7 +123,7 @@ case 'edit_document':
                     try {
                         $conn->autocommit(FALSE);
                         
-                        $stmt = $conn->prepare("SELECT is_required FROM document_requirements WHERE id = ?");
+                        $stmt = $conn->prepare("SELECT is_required, academic_adviser_id FROM document_requirements WHERE id = ?");
                         if (!$stmt) {
                             throw new Exception("Prepare select failed: " . $conn->error);
                         }
@@ -113,6 +136,11 @@ case 'edit_document':
                         $result = $stmt->get_result();
                         
                         if ($row = $result->fetch_assoc()) {
+                            // Check ownership before toggling
+                            if ($row['academic_adviser_id'] != $adviser_id && $row['academic_adviser_id'] !== NULL) {
+                                throw new Exception("You don't have permission to modify this document requirement.");
+                            }
+                            
                             $new_status = $row['is_required'] ? 0 : 1;
                             $stmt->close();
                             
@@ -160,7 +188,7 @@ case 'edit_document':
                     try {
                         $conn->autocommit(FALSE);
                         
-                        $check_stmt = $conn->prepare("SELECT name FROM document_requirements WHERE id = ?");
+                        $check_stmt = $conn->prepare("SELECT name, academic_adviser_id FROM document_requirements WHERE id = ?");
                         if (!$check_stmt) {
                             throw new Exception("Prepare check failed: " . $conn->error);
                         }
@@ -175,6 +203,12 @@ case 'edit_document':
                         
                         $doc_data = $check_result->fetch_assoc();
                         $doc_name = $doc_data['name'];
+                        
+                        // Check ownership before deleting
+                        if ($doc_data['academic_adviser_id'] != $adviser_id && $doc_data['academic_adviser_id'] !== NULL) {
+                            throw new Exception("You don't have permission to delete this document requirement.");
+                        }
+                        
                         $check_stmt->close();
                         
                         $stmt = $conn->prepare("DELETE FROM document_requirements WHERE id = ?");
@@ -213,14 +247,18 @@ case 'edit_document':
     }
 }
 
-// Fetch all document requirements from database
+// Fetch document requirements - only show documents created by this adviser
 $documents = [];
 try {
-        $stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at, created_by FROM document_requirements ORDER BY created_at DESC");
+    $stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at, created_by 
+    FROM document_requirements 
+    WHERE academic_adviser_id = ? 
+    ORDER BY created_at DESC");
     if (!$stmt) {
         throw new Exception("Prepare select failed: " . $conn->error);
     }
     
+    $stmt->bind_param("i", $adviser_id);
     $stmt->execute();
     $result = $stmt->get_result();
     
@@ -427,6 +465,12 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3 text-bulsu-gold"></i>
                 Edit Document
             </a>
+            <?php if ($adviser_role === 'coordinator'): ?>
+<a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+    <i class="fas fa-user-tie mr-3"></i>
+    Academic Accounts
+</a>
+<?php endif; ?>
         </nav>
     </div>
     
@@ -441,9 +485,10 @@ tailwind.config = {
     <?php endif; ?>
 </div>
             <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
-            </div>
+    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
+    <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
+</div>
+        </div>
         </div>
     </div>
 </div>

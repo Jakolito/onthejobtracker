@@ -2,6 +2,12 @@
 include('connect.php');
 session_start();
 
+require './PHPMailer/PHPMailer/src/Exception.php';
+require './PHPMailer/PHPMailer/src/PHPMailer.php';
+require './PHPMailer/PHPMailer/src/SMTP.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
 // Check if user is logged in and is an adviser
 if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     header("Location: login.php");
@@ -10,9 +16,24 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
 include_once('notification_functions.php'); // Include the notification functions
 
 // Get adviser information
+// Get adviser information INCLUDING ROLE
 $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
+
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
 
 // Get filter parameters
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
@@ -29,123 +50,169 @@ $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
 $records_per_page = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $records_per_page;
+$student_where_clause = "1=1"; // Start with true condition
 
+// Apply filters based on role and assignments
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
 try {
-   
-$total_students_query = "SELECT COUNT(*) as total FROM students";
-$total_students_result = mysqli_query($conn, $total_students_query);
-$total_students = mysqli_fetch_assoc($total_students_result)['total'];
+  
+    // Get unique departments for filter dropdown (only from assigned students)
+$departments_query = "SELECT DISTINCT s.department FROM students s WHERE $student_where_clause AND s.department IS NOT NULL AND s.department != '' ORDER BY s.department";
+$departments_result = mysqli_query($conn, $departments_query);
 
-// Get blocked students count
-$blocked_students_query = "SELECT COUNT(*) as total FROM students WHERE (status = 'Blocked' OR login_attempts >= 3)";
-$blocked_students_result = mysqli_query($conn, $blocked_students_query);
-$blocked_students = mysqli_fetch_assoc($blocked_students_result)['total'];
+// Get unique sections for filter dropdown (only from assigned students)
+$sections_query = "SELECT DISTINCT s.section FROM students s WHERE $student_where_clause AND s.section IS NOT NULL AND s.section != '' ORDER BY s.section";
+$sections_result = mysqli_query($conn, $sections_query);
 
-// Get unverified students count
-$unverified_students_query = "SELECT COUNT(*) as total FROM students WHERE verified = 0";
-$unverified_students_result = mysqli_query($conn, $unverified_students_query);
-$unverified_students = mysqli_fetch_assoc($unverified_students_result)['total'];
-
-// Get deployed students count - NEW CARD
-$deployed_students_query = "SELECT COUNT(*) as total FROM students WHERE id IN (SELECT student_id FROM student_deployments)";
-$deployed_students_result = mysqli_query($conn, $deployed_students_query);
-$deployed_students = mysqli_fetch_assoc($deployed_students_result)['total'];
-
-    // Get unique departments for filter dropdown - INCLUDE ALL students
-    $departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' ORDER BY department";
-    $departments_result = mysqli_query($conn, $departments_query);
-
-    // Build WHERE conditions - REMOVE the ready_for_deployment filter
+    // Build WHERE conditions for summary cards (top statistics)
     $summary_where_conditions = array();
     
-   if (!empty($search)) {
-    $summary_where_conditions[] = "(first_name LIKE '%$search%' OR last_name LIKE '%$search%' OR email LIKE '%$search%' OR student_id LIKE '%$search%')";
-}
+    if (!empty($search)) {
+        $summary_where_conditions[] = "(first_name LIKE '%$search%' OR last_name LIKE '%$search%' OR email LIKE '%$search%' OR student_id LIKE '%$search%')";
+    }
 
-if (!empty($department_filter)) {
-    $summary_where_conditions[] = "department = '$department_filter'";
-}
+    if (!empty($department_filter)) {
+        $summary_where_conditions[] = "department = '$department_filter'";
+    }
 
+    if (!empty($section_filter)) {
+        $summary_where_conditions[] = "section = '$section_filter'";
+    }
 
-
-if (!empty($section_filter)) {
-    $summary_where_conditions[] = "section = '$section_filter'";
-}
-
-    // Build WHERE clause for summary cards
-    $summary_where_clause = count($summary_where_conditions) > 0 ? 'WHERE ' . implode(' AND ', $summary_where_conditions) : '';
-
-    // Get total filtered students count
-    $total_students_query = "SELECT COUNT(*) as total FROM students $summary_where_clause";
+    // Total OJT Students (filtered by adviser's assignments AND search filters)
+    $total_students_query = "SELECT COUNT(*) as total FROM students s WHERE $student_where_clause";
+    if (!empty($summary_where_conditions)) {
+        $total_students_query .= " AND " . implode(' AND ', array_map(function($cond) {
+            return str_replace(
+                array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
+                array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
+                $cond
+            );
+        }, $summary_where_conditions));
+    }
     $total_students_result = mysqli_query($conn, $total_students_query);
     $total_students = mysqli_fetch_assoc($total_students_result)['total'];
 
-    // Get blocked students count (with filters)
-    $blocked_where_conditions = $summary_where_conditions;
-    $blocked_where_conditions[] = "(status = 'Blocked' OR login_attempts >= 3)";
-    $blocked_where_clause = 'WHERE ' . implode(' AND ', $blocked_where_conditions);
-    
-    $blocked_students_query = "SELECT COUNT(*) as total FROM students $blocked_where_clause";
+    // Get blocked students count (with role filtering AND search filters)
+    $blocked_students_query = "SELECT COUNT(*) as total FROM students s WHERE $student_where_clause AND (s.status = 'Blocked' OR s.login_attempts >= 3)";
+    if (!empty($summary_where_conditions)) {
+        $blocked_students_query .= " AND " . implode(' AND ', array_map(function($cond) {
+            return str_replace(
+                array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
+                array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
+                $cond
+            );
+        }, $summary_where_conditions));
+    }
     $blocked_students_result = mysqli_query($conn, $blocked_students_query);
     $blocked_students = mysqli_fetch_assoc($blocked_students_result)['total'];
 
-    // Get unverified students count (with filters)
-    $unverified_where_conditions = $summary_where_conditions;
-    $unverified_where_conditions[] = "verified = 0";
-    $unverified_where_clause = 'WHERE ' . implode(' AND ', $unverified_where_conditions);
-    
-    $unverified_students_query = "SELECT COUNT(*) as total FROM students $unverified_where_clause";
+    // Get unverified students count (with role filtering AND search filters)
+    $unverified_students_query = "SELECT COUNT(*) as total FROM students s WHERE $student_where_clause AND s.verified = 0";
+    if (!empty($summary_where_conditions)) {
+        $unverified_students_query .= " AND " . implode(' AND ', array_map(function($cond) {
+            return str_replace(
+                array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
+                array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
+                $cond
+            );
+        }, $summary_where_conditions));
+    }
     $unverified_students_result = mysqli_query($conn, $unverified_students_query);
     $unverified_students = mysqli_fetch_assoc($unverified_students_result)['total'];
 
-    // Get deployed students count (with filters) - using JOIN instead of subquery for better filtering
-    if (count($summary_where_conditions) > 0) {
-    $summary_where_conditions_with_alias = array();
-    foreach ($summary_where_conditions as $condition) {
-        // Add 's.' prefix to the condition
-        $condition_with_alias = str_replace(
-            array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
-            array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
-            $condition
-        );
-        $summary_where_conditions_with_alias[] = $condition_with_alias;
+    // Get deployed students count (with role filtering AND search filters)
+    $deployed_students_query = "SELECT COUNT(DISTINCT s.id) as total FROM students s INNER JOIN student_deployments sd ON s.id = sd.student_id WHERE $student_where_clause";
+    if (!empty($summary_where_conditions)) {
+        $deployed_students_query .= " AND " . implode(' AND ', array_map(function($cond) {
+            return str_replace(
+                array('first_name', 'last_name', 'email', 'student_id', 'department', 'section'),
+                array('s.first_name', 's.last_name', 's.email', 's.student_id', 's.department', 's.section'),
+                $cond
+            );
+        }, $summary_where_conditions));
     }
-    $deployed_where_clause = 'WHERE ' . implode(' AND ', $summary_where_conditions_with_alias);
-} else {
-    $deployed_where_clause = '';
-}
-
-$deployed_students_query = "
-    SELECT COUNT(DISTINCT s.id) as total 
-    FROM students s 
-    INNER JOIN student_deployments sd ON s.id = sd.student_id 
-    $deployed_where_clause
-";
     $deployed_students_result = mysqli_query($conn, $deployed_students_query);
     $deployed_students = mysqli_fetch_assoc($deployed_students_result)['total'];
 
-    // Get unique departments for filter dropdown - INCLUDE ALL students
-    $departments_query = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department != '' ORDER BY department";
-    $departments_result = mysqli_query($conn, $departments_query);
-
-    // Build WHERE conditions - REMOVE the ready_for_deployment filter
+    // Build WHERE conditions for student list table
     $where_conditions = array();
     
-   if (!empty($search)) {
-    $where_conditions[] = "(s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%' OR s.email LIKE '%$search%' OR s.student_id LIKE '%$search%')";
-}
+    if (!empty($search)) {
+        $where_conditions[] = "(s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%' OR s.email LIKE '%$search%' OR s.student_id LIKE '%$search%')";
+    }
 
-if (!empty($department_filter)) {
-    $where_conditions[] = "s.department = '$department_filter'";
-}
+    if (!empty($department_filter)) {
+        $where_conditions[] = "s.department = '$department_filter'";
+    }
 
-if (!empty($section_filter)) {
-    $where_conditions[] = "s.section = '$section_filter'";
-}
+    if (!empty($section_filter)) {
+        $where_conditions[] = "s.section = '$section_filter'";
+    }
 
-if (!empty($status_filter)) {
+    if (!empty($status_filter)) {
     if ($status_filter === 'active') {
-        // Active: verified, not blocked, not ready for deployment, not deployed
         $where_conditions[] = "s.verified = 1 AND s.status = 'Active' AND (s.login_attempts < 3 OR s.login_attempts IS NULL) AND s.ready_for_deployment = 0 AND s.id NOT IN (SELECT student_id FROM student_deployments WHERE student_id IS NOT NULL)";
     } elseif ($status_filter === 'unverified') {
         $where_conditions[] = "s.verified = 0";
@@ -158,23 +225,26 @@ if (!empty($status_filter)) {
     }
 }
 
-// Get unique sections for filter dropdown
-$sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' ORDER BY section";
-$sections_result = mysqli_query($conn, $sections_query);
-    // Build WHERE clause
-$where_clause = count($where_conditions) > 0 ? implode(' AND ', $where_conditions) : "1=1";
+    // Build WHERE clause (combine role filtering with search filters)
+    $combined_where_conditions = [$student_where_clause];
+    if (!empty($where_conditions)) {
+        $combined_where_conditions = array_merge($combined_where_conditions, $where_conditions);
+    }
+    $where_clause = implode(' AND ', $combined_where_conditions);
 
-    // Count total records for pagination - INCLUDE ALL students
+    // Count total records for pagination
     $count_query = "SELECT COUNT(*) as total FROM students s WHERE $where_clause";
-$count_result = mysqli_query($conn, $count_query);
-$total_records = mysqli_fetch_assoc($count_result)['total'];
-$total_pages = ceil($total_records / $records_per_page);
+    $count_result = mysqli_query($conn, $count_query);
+    $total_records = mysqli_fetch_assoc($count_result)['total'];
+    $total_pages = ceil($total_records / $records_per_page);
 
- $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
+    // Get unread messages count
+    $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
     $unread_messages_result = mysqli_query($conn, $unread_messages_query);
     $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
-    // Get students with pagination - INCLUDE ALL students
-// NEW QUERY:
+
+    // Get students with pagination
+   // Get students with pagination
 $students_query = "
     SELECT 
         s.id,
@@ -202,13 +272,7 @@ $students_query = "
     FROM students s
     LEFT JOIN student_deployments sd ON s.id = sd.student_id
     WHERE $where_clause
-    ORDER BY 
-        CASE 
-            WHEN sd.student_id IS NOT NULL THEN 0 
-            WHEN s.ready_for_deployment = 1 THEN 1 
-            ELSE 2 
-        END, 
-        s.created_at DESC
+    ORDER BY s.created_at DESC
     LIMIT $records_per_page OFFSET $offset
 ";
     $students_result = mysqli_query($conn, $students_query);
@@ -262,80 +326,209 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 break;
 
             case 'ready_for_deployment':
-                $student_id = (int)$_POST['student_id'];
+    $student_id = (int)$_POST['student_id'];
+    
+    // First, verify that ALL required documents are submitted and approved
+    $validation_query = "
+        SELECT 
+            dr.id as req_id,
+            dr.name as req_name,
+            sd.status as doc_status
+        FROM document_requirements dr
+        LEFT JOIN student_documents sd ON dr.id = sd.document_id AND sd.student_id = ?
+        WHERE dr.is_required = 1
+    ";
+    
+    $stmt = mysqli_prepare($conn, $validation_query);
+    mysqli_stmt_bind_param($stmt, "i", $student_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $requirements = mysqli_fetch_all($result, MYSQLI_ASSOC);
+    
+    $missing_requirements = [];
+    $pending_requirements = [];
+    $rejected_requirements = [];
+    
+    foreach ($requirements as $req) {
+        if ($req['doc_status'] === null) {
+            $missing_requirements[] = $req['req_name'];
+        } elseif ($req['doc_status'] === 'pending') {
+            $pending_requirements[] = $req['req_name'];
+        } elseif ($req['doc_status'] === 'rejected') {
+            $rejected_requirements[] = $req['req_name'];
+        }
+    }
+    
+    // If there are any missing, pending, or rejected required documents, don't allow deployment
+    if (!empty($missing_requirements) || !empty($pending_requirements) || !empty($rejected_requirements)) {
+        $error_message = "Cannot mark student as ready for deployment. ";
+        
+        if (!empty($missing_requirements)) {
+            $error_message .= "Missing required documents: " . implode(', ', $missing_requirements) . ". ";
+        }
+        if (!empty($pending_requirements)) {
+            $error_message .= "Documents pending review: " . implode(', ', $pending_requirements) . ". ";
+        }
+        if (!empty($rejected_requirements)) {
+            $error_message .= "Rejected documents that need resubmission: " . implode(', ', $rejected_requirements) . ". ";
+        }
+        
+        echo json_encode([
+            'success' => false, 
+            'message' => $error_message
+        ]);
+        break;
+    }
+    
+    // Get student information including company details
+    $student_query = "SELECT first_name, last_name, student_id, email, company_name, company_email, department, program, section FROM students WHERE id = ?";
+    $student_stmt = mysqli_prepare($conn, $student_query);
+    mysqli_stmt_bind_param($student_stmt, "i", $student_id);
+    mysqli_stmt_execute($student_stmt);
+    $student_result = mysqli_stmt_get_result($student_stmt);
+    $student_data = mysqli_fetch_assoc($student_result);
+    mysqli_stmt_close($student_stmt);
+    
+    // All requirements are met, proceed with marking as ready for deployment
+    $update_query = "UPDATE students SET ready_for_deployment = 1 WHERE id = ?";
+    $stmt = mysqli_prepare($conn, $update_query);
+    mysqli_stmt_bind_param($stmt, "i", $student_id);
+    $success = mysqli_stmt_execute($stmt);
+    
+    if ($success) {
+        // Log this action for audit purposes
+        $log_query = "INSERT INTO deployment_log (student_id, action, performed_by, performed_at) VALUES (?, 'marked_ready', ?, NOW())";
+        $log_stmt = mysqli_prepare($conn, $log_query);
+        mysqli_stmt_bind_param($log_stmt, "ii", $student_id, $adviser_id);
+        mysqli_stmt_execute($log_stmt);
+        
+        // Send email notification to company supervisor if company_email exists
+        $email_sent = false;
+        $email_error = '';
+        
+        if (!empty($student_data['company_email']) && !empty($student_data['company_name'])) {
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host = 'smtp.gmail.com';
+                $mail->SMTPAuth = true;
+                $mail->Username = 'ojttracker2@gmail.com';
+                $mail->Password = 'rxtj qlze uomg xzqj';
+                $mail->SMTPSecure = 'ssl';
+                $mail->Port = 465;
                 
-                // First, verify that ALL required documents are submitted and approved
-                $validation_query = "
-                    SELECT 
-                        dr.id as req_id,
-                        dr.name as req_name,
-                        sd.status as doc_status
-                    FROM document_requirements dr
-                    LEFT JOIN student_documents sd ON dr.id = sd.document_id AND sd.student_id = ?
-                    WHERE dr.is_required = 1
-                ";
+                $mail->setFrom('ojttracker2@gmail.com', 'OnTheJob Tracker - BULSU');
+                $mail->addAddress($student_data['company_email']);
                 
-                $stmt = mysqli_prepare($conn, $validation_query);
-                mysqli_stmt_bind_param($stmt, "i", $student_id);
-                mysqli_stmt_execute($stmt);
-                $result = mysqli_stmt_get_result($stmt);
-                $requirements = mysqli_fetch_all($result, MYSQLI_ASSOC);
+                $mail->isHTML(true);
+                $mail->Subject = 'Student Ready for OJT Deployment - ' . $student_data['first_name'] . ' ' . $student_data['last_name'];
                 
-                $missing_requirements = [];
-                $pending_requirements = [];
-                $rejected_requirements = [];
+$mail->Body = '
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
+        <p style="color: #666; margin: 5px 0;">Bulacan State University - Student OJT Performance Monitoring System</p>
+    </div>
+    
+    <h2 style="color: #333;">Student Ready for OJT Deployment</h2>
+    <p style="color: #555; line-height: 1.6;">
+        Dear ' . htmlspecialchars($student_data['company_name']) . ' Team,
+    </p>
+    <p style="color: #555; line-height: 1.6;">
+        A BULSU student has completed all requirements and is ready for deployment to your company. 
+        We are pleased to inform you that all mandatory documents have been verified and approved.
+    </p>
+    
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #800000; margin: 0 0 15px 0;">Student Information</h3>
+        <ul style="color: #555; line-height: 1.8; list-style: none; padding: 0;">
+            <li style="margin-bottom: 8px;"><strong>Name:</strong> ' . htmlspecialchars($student_data['first_name'] . ' ' . $student_data['last_name']) . '</li>
+            <li style="margin-bottom: 8px;"><strong>Student ID:</strong> ' . htmlspecialchars($student_data['student_id']) . '</li>
+            <li style="margin-bottom: 8px;"><strong>Email:</strong> ' . htmlspecialchars($student_data['email']) . '</li>
+            <li style="margin-bottom: 8px;"><strong>Department:</strong> ' . htmlspecialchars($student_data['department']) . '</li>
+            <li style="margin-bottom: 8px;"><strong>Program:</strong> ' . htmlspecialchars($student_data['program']) . '</li>
+            <li style="margin-bottom: 8px;"><strong>Section:</strong> ' . htmlspecialchars($student_data['section']) . '</li>
+        </ul>
+    </div>
+    
+    <div style="background-color: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; margin: 20px 0;">
+        <p style="margin: 0; color: #155724;">
+            <strong>✓ All Required Documents Verified</strong><br>
+            All mandatory OJT documents have been submitted and approved by the academic adviser.
+        </p>
+    </div>
+    
+    <div style="background-color: #fef3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #DAA520; margin: 20px 0;">
+        <p style="margin: 0; color: #92400e;">
+            <strong>Action Required:</strong> The student is now awaiting your approval for OJT deployment. 
+            Please review and confirm the deployment schedule.
+        </p>
+    </div>
+    
+    <div style="text-align: center; margin: 30px 0;">
+        <a href="https://onthejobtracker.site/" 
+           style="display: inline-block; background-color: #800000; color: white; padding: 14px 35px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+            Access OnTheJob Tracker System
+        </a>
+        <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">
+            Click the button above to log in and review student details
+        </p>
+    </div>
+    
+    <div style="margin: 30px 0;">
+        <h4 style="color: #333;">Next Steps:</h4>
+        <ul style="color: #555; line-height: 1.8;">
+            <li>Log in to the OnTheJob Tracker system</li>
+            <li>Review the student\'s information and qualifications</li>
+            <li>Contact the student to arrange orientation and deployment schedule</li>
+            <li>Coordinate with BULSU OJT Coordinator if needed</li>
+            <li>Confirm deployment start date through the system</li>
+        </ul>
+    </div>
+    
+    <p style="color: #555; line-height: 1.6;">
+        If you need assistance or have questions, please contact the BULSU OJT Coordinator at 
+        <a href="mailto:ojttracker2@gmail.com" style="color: #800000;">ojttracker2@gmail.com</a>
+    </p>
+    
+    <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+        <p style="color: #666; margin: 0;">
+            <strong>OnTheJob Tracker Team</strong><br>
+            <small>Bulacan State University - AI-Powered OJT Performance Monitoring</small>
+        </p>
+    </div>
+</div>';
                 
-                foreach ($requirements as $req) {
-                    if ($req['doc_status'] === null) {
-                        $missing_requirements[] = $req['req_name'];
-                    } elseif ($req['doc_status'] === 'pending') {
-                        $pending_requirements[] = $req['req_name'];
-                    } elseif ($req['doc_status'] === 'rejected') {
-                        $rejected_requirements[] = $req['req_name'];
-                    }
-                }
-                
-                // If there are any missing, pending, or rejected required documents, don't allow deployment
-                if (!empty($missing_requirements) || !empty($pending_requirements) || !empty($rejected_requirements)) {
-                    $error_message = "Cannot mark student as ready for deployment. ";
-                    
-                    if (!empty($missing_requirements)) {
-                        $error_message .= "Missing required documents: " . implode(', ', $missing_requirements) . ". ";
-                    }
-                    if (!empty($pending_requirements)) {
-                        $error_message .= "Documents pending review: " . implode(', ', $pending_requirements) . ". ";
-                    }
-                    if (!empty($rejected_requirements)) {
-                        $error_message .= "Rejected documents that need resubmission: " . implode(', ', $rejected_requirements) . ". ";
-                    }
-                    
-                    echo json_encode([
-                        'success' => false, 
-                        'message' => $error_message
-                    ]);
-                    break;
-                }
-                
-                // All requirements are met, proceed with marking as ready for deployment
-                $update_query = "UPDATE students SET ready_for_deployment = 1 WHERE id = ?";
-                $stmt = mysqli_prepare($conn, $update_query);
-                mysqli_stmt_bind_param($stmt, "i", $student_id);
-                $success = mysqli_stmt_execute($stmt);
-                
-                if ($success) {
-                    // Log this action for audit purposes
-                    $log_query = "INSERT INTO deployment_log (student_id, action, performed_by, performed_at) VALUES (?, 'marked_ready', ?, NOW())";
-                    $log_stmt = mysqli_prepare($conn, $log_query);
-                    mysqli_stmt_bind_param($log_stmt, "ii", $student_id, $adviser_id);
-                    mysqli_stmt_execute($log_stmt);
-                }
-                
-                echo json_encode([
-                    'success' => $success, 
-                    'message' => $success ? 'Student marked as ready for deployment! Student status has been updated.' : 'Failed to update deployment status',
-                    'reload' => $success
-                ]);
-                break;
+                $mail->send();
+                $email_sent = true;
+            } catch (Exception $e) {
+                $email_error = $e->getMessage();
+                error_log("Failed to send deployment notification email: " . $email_error);
+            }
+        }
+        
+        $response_message = 'Student marked as ready for deployment! Student status has been updated.';
+        if ($email_sent) {
+            $response_message .= ' Email notification sent to company supervisor at ' . $student_data['company_email'];
+        } elseif (!empty($student_data['company_email'])) {
+            $response_message .= ' Note: Failed to send email notification to company supervisor.';
+        } else {
+            $response_message .= ' Note: No company email on record. Please ensure company information is updated.';
+        }
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => $response_message,
+            'email_sent' => $email_sent,
+            'reload' => true
+        ]);
+    } else {
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Failed to update deployment status'
+        ]);
+    }
+    break;
 
             case 'unmark_deployment':
                 $student_id = (int)$_POST['student_id'];
@@ -887,6 +1080,13 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <!-- NEW: Academic Accounts - Only visible to coordinators -->
+<?php if ($adviser_role === 'coordinator'): ?>
+<a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+    <i class="fas fa-user-tie mr-3"></i>
+    Academic Accounts
+</a>
+<?php endif; ?>
         </nav>
     </div>
     
@@ -900,9 +1100,9 @@ tailwind.config = {
         <?php echo $adviser_initials; ?>
     <?php endif; ?>
 </div>
-            <div class="flex-1 min-w-0">
+             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold">Academic Adviser</p>
+                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
             </div>
         </div>
     </div>

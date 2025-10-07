@@ -790,30 +790,126 @@ tailwind.config = {
 
         // Mark all notifications as read
         function markAllAsRead() {
-            if (!confirm('Mark all notifications as read?')) {
-                return;
-            }
+    // Show confirmation modal
+    showMarkAllModal();
+}
+
+// Show mark all confirmation modal
+function showMarkAllModal() {
+    const modal = document.getElementById('notificationModal');
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    
+    // Update modal header
+    const modalHeader = modal.querySelector('.bg-white.px-4.pb-4.pt-5');
+    modalHeader.querySelector('h3').textContent = 'Mark All as Read';
+    modalHeader.querySelector('.bg-blue-100').innerHTML = '<i class="fas fa-check-double text-blue-600"></i>';
+    
+    // Set modal content
+    document.getElementById('notificationModalContent').innerHTML = `
+        <div class="mt-3 text-center sm:mt-0 sm:text-left">
+            <p class="text-sm text-gray-600 leading-relaxed">
+                Are you sure you want to mark all notifications as read? This action cannot be undone.
+            </p>
+        </div>
+    `;
+    
+    // Set modal actions
+    document.getElementById('notificationModalActions').innerHTML = `
+        <button onclick="confirmMarkAllAsRead()" type="button" class="inline-flex w-full justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:w-auto">
+            <i class="fas fa-check mr-2"></i>
+            Confirm
+        </button>
+    `;
+}
+
+// Confirm mark all as read
+function confirmMarkAllAsRead() {
+    // Show loading state
+    document.getElementById('notificationModalContent').innerHTML = `
+        <div class="flex items-center justify-center py-8">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span class="ml-3 text-gray-600">Marking all as read...</span>
+        </div>
+    `;
+    
+    document.getElementById('notificationModalActions').innerHTML = '';
+    
+    const formData = new FormData();
+    formData.append('action', 'mark_all_as_read');
+    
+    fetch('notifications.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message
+            document.getElementById('notificationModalContent').innerHTML = `
+                <div class="text-center py-8">
+                    <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                        <i class="fas fa-check h-6 w-6 text-green-600"></i>
+                    </div>
+                    <div class="mt-3 text-center sm:mt-5">
+                        <h3 class="text-lg font-medium text-gray-900">Success!</h3>
+                        <div class="mt-2">
+                            <p class="text-sm text-gray-500">All notifications have been marked as read.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
             
-            const formData = new FormData();
-            formData.append('action', 'mark_all_as_read');
+            // Reload after 1 second
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            // Show error message
+            document.getElementById('notificationModalContent').innerHTML = `
+                <div class="text-center py-8">
+                    <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                        <i class="fas fa-exclamation-triangle h-6 w-6 text-red-600"></i>
+                    </div>
+                    <div class="mt-3 text-center sm:mt-5">
+                        <h3 class="text-lg font-medium text-gray-900">Error</h3>
+                        <div class="mt-2">
+                            <p class="text-sm text-gray-500">Failed to mark all notifications as read. Please try again.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
             
-            fetch('notifications.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload(); // Refresh page to show updated state
-                } else {
-                    alert('Failed to mark all notifications as read. Please try again.');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred. Please try again.');
-            });
+            document.getElementById('notificationModalActions').innerHTML = `
+                <button onclick="closeNotificationModal()" type="button" class="inline-flex w-full justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 sm:w-auto">
+                    Close
+                </button>
+            `;
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('notificationModalContent').innerHTML = `
+            <div class="text-center py-8">
+                <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                    <i class="fas fa-exclamation-triangle h-6 w-6 text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-5">
+                    <h3 class="text-lg font-medium text-gray-900">Network Error</h3>
+                    <div class="mt-2">
+                        <p class="text-sm text-gray-500">An error occurred. Please check your connection and try again.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('notificationModalActions').innerHTML = `
+            <button onclick="closeNotificationModal()" type="button" class="inline-flex w-full justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 sm:w-auto">
+                Close
+            </button>
+        `;
+    });
+}
 
         // View notification details
         function viewNotificationDetails(notificationId) {

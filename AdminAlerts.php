@@ -2,6 +2,13 @@
 include('connect.php');
 session_start();
 
+require './PHPMailer/PHPMailer/src/Exception.php';
+require './PHPMailer/PHPMailer/src/PHPMailer.php';
+require './PHPMailer/PHPMailer/src/SMTP.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
 // Prevent caching
 header("Cache-Control: no-cache, no-store, must-revalidate");
 header("Pragma: no-cache");
@@ -13,11 +20,119 @@ if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     exit;
 }
 
+// Get adviser role and assignment details from database
+
+
 // Get adviser information
 $adviser_id = $_SESSION['adviser_id'];
 $adviser_name = $_SESSION['name'];
 $adviser_email = $_SESSION['email'];
 
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+$adviser_data = mysqli_fetch_assoc($adviser_result);
+$adviser_role = $adviser_data['role'] ?? 'adviser';
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
+mysqli_stmt_close($adviser_stmt);
+
+$student_where_clause = "s.status != 'Blocked'";
+
+// Get adviser role and assignment details from database
+$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+$adviser_stmt = mysqli_prepare($conn, $adviser_query);
+mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+mysqli_stmt_execute($adviser_stmt);
+$adviser_result = mysqli_stmt_get_result($adviser_stmt);
+
+// Check if adviser data exists
+if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
+    $adviser_data = mysqli_fetch_assoc($adviser_result);
+    $adviser_role = $adviser_data['role'] ?? 'adviser';
+    $adviser_department = $adviser_data['department'] ?? '';
+    $adviser_year_level = $adviser_data['year_level'] ?? '';
+    $adviser_section = $adviser_data['section'] ?? '';
+    $adviser_assigned_groups = $adviser_data['assigned_groups'] ?? '';
+} else {
+    // Default values if no record found
+    $adviser_role = 'adviser';
+    $adviser_department = '';
+    $adviser_year_level = '';
+    $adviser_section = '';
+    $adviser_assigned_groups = '';
+}
+mysqli_stmt_close($adviser_stmt);
+
+$student_where_clause = "s.status != 'Blocked'";
+
+// Apply filters based on role and assignments
+if ($adviser_role === 'coordinator') {
+    // Coordinators can see all OR filter by their assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        // Coordinator has assigned groups - filter by them
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        }
+    }
+    // If coordinator has no assigned groups, they see ALL students (no additional filter)
+    
+} elseif ($adviser_role === 'adviser') {
+    // Regular advisers MUST have assigned groups
+    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        $group_conditions = [];
+        
+        foreach ($groups as $group) {
+            if (!empty($group)) {
+                $group_escaped = mysqli_real_escape_string($conn, $group);
+                
+                // Try both formats (space and hyphen)
+                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                $group_with_space = str_replace('-G', ' G', $group_escaped);
+                
+                $group_conditions[] = "(
+                    TRIM(s.section) = TRIM('$group_escaped')
+                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                    OR TRIM(s.section) = TRIM('$group_with_space')
+                )";
+            }
+        }
+        
+        if (!empty($group_conditions)) {
+            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+        } else {
+            // Adviser with no groups sees NO students
+            $student_where_clause .= " AND 1=0";
+        }
+    } else {
+        // Adviser with no assigned groups sees NO students
+        $student_where_clause .= " AND 1=0";
+    }
+}
 $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
 $unread_messages_result = mysqli_query($conn, $unread_messages_query);
 $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
@@ -36,8 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $task_id = isset($_POST['task_id']) ? (int)$_POST['task_id'] : null;
                 $document_id = isset($_POST['document_id']) ? (int)$_POST['document_id'] : null;
                 
-                // Verify the student exists
-                $check_student = "SELECT first_name, last_name, student_id FROM students WHERE id = ?";
+                // Verify the student exists and get email
+                $check_student = "SELECT first_name, last_name, student_id, email FROM students WHERE id = ?";
                 $check_stmt = $conn->prepare($check_student);
                 $check_stmt->bind_param("i", $student_id);
                 $check_stmt->execute();
@@ -55,12 +170,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt = $conn->prepare($insert_query);
                 $stmt->bind_param("isssii", $student_id, $title, $message, $type, $task_id, $document_id);
                 
+                $notification_sent = false;
+                $email_sent = false;
+                
                 if ($stmt->execute()) {
-                    echo json_encode(['success' => true, 'message' => 'Notification sent successfully to ' . $student_info['first_name'] . ' ' . $student_info['last_name']]);
-                } else {
-                    echo json_encode(['success' => false, 'message' => 'Failed to send notification: ' . $stmt->error]);
-                }
-                exit();
+    $notification_sent = true;
+    
+    // Send email notification using PHPMailer
+    try {
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'ojttracker2@gmail.com';
+        $mail->Password = 'rxtj qlze uomg xzqj';
+        $mail->SMTPSecure = 'ssl';
+        $mail->Port = 465;
+        
+        $mail->setFrom('ojttracker2@gmail.com', 'OnTheJob Tracker');
+        $mail->addAddress($student_info['email']);
+        
+        $mail->isHTML(true);
+        $mail->Subject = $title;
+        
+        // Format message for email (preserve line breaks)
+        $formatted_message = nl2br(htmlspecialchars($message));
+        
+        $mail->Body = '
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+            <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
+                <p style="color: #666; margin: 5px 0;">Student OJT Performance Monitoring System</p>
+            </div>
+            
+            <h2 style="color: #333;">' . htmlspecialchars($title) . '</h2>
+            <p style="color: #555; line-height: 1.6;">
+                ' . $formatted_message . '
+            </p>
+            
+            <div style="background-color: #fef3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #DAA520; margin: 20px 0;">
+                <p style="margin: 0; color: #92400e;">
+                    <strong>Important:</strong> Please log in to your OnTheJob Tracker account to view full details and take necessary actions.
+                </p>
+            </div>
+            
+            <div style="margin: 30px 0;">
+                <h4 style="color: #333;">Student Information:</h4>
+                <ul style="color: #555; line-height: 1.8;">
+                    <li><strong>Name:</strong> ' . htmlspecialchars($student_info['first_name'] . ' ' . $student_info['last_name']) . '</li>
+                    <li><strong>Student ID:</strong> ' . htmlspecialchars($student_info['student_id']) . '</li>
+                    <li><strong>Date:</strong> ' . date('F j, Y') . '</li>
+                </ul>
+            </div>
+            
+            <p style="color: #555; line-height: 1.6;">
+                If you have any questions or concerns, please contact our support team immediately.
+            </p>
+            
+            <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                <p style="color: #666; margin: 0;">
+                    <strong>OnTheJob Tracker Team</strong><br>
+                    <small>AI-Powered OJT Performance Monitoring</small>
+                </p>
+            </div>
+        </div>';
+        
+        $mail->send();
+        $email_sent = true;
+        
+    } catch (Exception $e) {
+        error_log("Email notification failed: " . $e->getMessage());
+    }
+    
+    $response_message = 'Notification sent successfully to ' . $student_info['first_name'] . ' ' . $student_info['last_name'];
+    if ($email_sent) {
+        $response_message .= ' (Email notification sent)';
+    } else {
+        $response_message .= ' (System notification only - email failed)';
+    }
+    
+    echo json_encode(['success' => true, 'message' => $response_message]);
+} else {
+    echo json_encode(['success' => false, 'message' => 'Failed to send notification: ' . $stmt->error]);
+}
+exit();
             }
             break;
             
@@ -136,11 +329,12 @@ try {
         JOIN student_deployments sd ON s.id = sd.student_id
         JOIN tasks t ON sd.deployment_id = t.deployment_id AND s.id = t.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'Overdue Tasks'
-        WHERE sd.ojt_status = 'Active' 
-        AND t.status IN ('Pending', 'In Progress')
-        AND t.due_date < CURDATE()
-        AND ra.id IS NULL
-        GROUP BY s.id
+       WHERE sd.ojt_status = 'Active' 
+AND t.status IN ('Pending', 'In Progress')
+AND t.due_date < CURDATE()
+AND ra.id IS NULL
+AND $student_where_clause
+GROUP BY s.id
         ORDER BY max_days_overdue DESC, overdue_count DESC
     ";
     $overdue_result = mysqli_query($conn, $overdue_tasks_query);
@@ -183,10 +377,11 @@ try {
         LEFT JOIN task_submissions ts ON t.task_id = ts.task_id AND s.id = ts.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'No Task Submissions'
         WHERE sd.ojt_status = 'Active' 
-        AND t.status IN ('Pending', 'In Progress')
-        AND t.created_at <= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        AND ra.id IS NULL
-        GROUP BY s.id
+AND t.status IN ('Pending', 'In Progress')
+AND t.created_at <= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+AND ra.id IS NULL
+AND $student_where_clause
+GROUP BY s.id
         HAVING days_no_submission >= 7 AND assigned_tasks > 0
         ORDER BY days_no_submission DESC
     ";
@@ -265,10 +460,11 @@ try {
                             'No Recent Attendance', 'Missing Recent Attendance', 'No Attendance Records')
         )
         WHERE sd.ojt_status = 'Active'
-        AND work_days_calendar.work_date >= sd.start_date 
-        AND work_days_calendar.work_date <= CURDATE()
-        AND ra.id IS NULL
-        GROUP BY s.id
+AND work_days_calendar.work_date >= sd.start_date 
+AND work_days_calendar.work_date <= CURDATE()
+AND ra.id IS NULL
+AND $student_where_clause
+GROUP BY s.id
         HAVING 
             (absent_days >= 3 AND total_expected_days > 0) OR 
             (days_since_last_attendance >= 3 AND last_attendance_date IS NOT NULL) OR
@@ -369,9 +565,10 @@ try {
             HAVING consecutive_count >= 3
         ) consecutive_absences ON s.id = consecutive_absences.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'Consecutive Absences'
-        WHERE sd.ojt_status = 'Active'
-        AND ra.id IS NULL
-        ORDER BY consecutive_absences.consecutive_count DESC
+       WHERE sd.ojt_status = 'Active'
+AND ra.id IS NULL
+AND $student_where_clause
+ORDER BY consecutive_absences.consecutive_count DESC
     ";
     
     $consecutive_result = mysqli_query($conn, $consecutive_absence_query);
@@ -417,14 +614,15 @@ try {
         JOIN student_attendance sa ON s.id = sa.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'Frequent Tardiness'
         WHERE sd.ojt_status = 'Active'
-        AND sa.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-        AND sa.time_in IS NOT NULL
-        AND TIMESTAMPDIFF(MINUTE, 
-            ADDTIME(sa.date, cs.work_schedule_start), 
-            ADDTIME(sa.date, sa.time_in)
-        ) > 15
-        AND ra.id IS NULL
-        GROUP BY s.id
+AND sa.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+AND sa.time_in IS NOT NULL
+AND TIMESTAMPDIFF(MINUTE, 
+    ADDTIME(sa.date, cs.work_schedule_start), 
+    ADDTIME(sa.date, sa.time_in)
+) > 15
+AND ra.id IS NULL
+AND $student_where_clause
+GROUP BY s.id
         HAVING late_days >= 5
         ORDER BY late_days DESC, avg_late_minutes DESC
     ";
@@ -463,13 +661,14 @@ try {
         JOIN student_evaluations se ON s.id = se.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type IN ('Low Performance Score', 'Critical Performance Issue')
         WHERE sd.ojt_status = 'Active'
-        AND (
-            se.equivalent_rating < 80 OR 
-            se.total_score < 120 OR 
-            se.verbal_interpretation IN ('Fair', 'Passed', 'Conditional Passed')
-        )
-        AND ra.id IS NULL
-        ORDER BY se.equivalent_rating ASC, se.total_score ASC
+AND (
+    se.equivalent_rating < 80 OR 
+    se.total_score < 120 OR 
+    se.verbal_interpretation IN ('Fair', 'Passed', 'Conditional Passed')
+)
+AND ra.id IS NULL
+AND $student_where_clause
+ORDER BY se.equivalent_rating ASC, se.total_score ASC
     ";
     $performance_result = mysqli_query($conn, $declining_performance_query);
 
@@ -552,11 +751,12 @@ $assessment_alerts_query = "
                 ELSE 'concern'
             END, '%')
         AND ra.resolved_at > ssa.created_at
-    WHERE sd.ojt_status = 'Active'
-    AND ra.id IS NULL
-    AND ssa.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-    HAVING (
-        stress_level >= 3 
+   WHERE sd.ojt_status = 'Active'
+AND ra.id IS NULL
+AND ssa.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+AND $student_where_clause
+HAVING (
+    stress_level >= 3
         OR workplace_satisfaction <= 2 
         OR confidence_level <= 2
         OR work_life_balance <= 2
@@ -696,11 +896,12 @@ $document_deadline_query = "
         AND ra.alert_type LIKE CONCAT('%', dr.name, '%')
         AND ra.alert_type LIKE '%Document%'
     WHERE s.verified = 1
-    AND s.status = 'Active'
-    AND dr.submission_deadline IS NOT NULL
-    AND (
-        -- Show if never resolved OR resolved more than 7 days ago
-        ra.id IS NULL 
+AND s.status = 'Active'
+AND dr.submission_deadline IS NOT NULL
+AND $student_where_clause
+AND (
+    -- Show if never resolved OR resolved more than 7 days ago
+    ra.id IS NULL
         OR TIMESTAMPDIFF(HOUR, ra.resolved_at, NOW()) >= 168
     )
     AND (
@@ -831,10 +1032,11 @@ if (!$document_result) {
         JOIN student_deployments sd ON s.id = sd.student_id
         LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'System Inactivity'
         WHERE sd.ojt_status = 'Active'
-        AND s.status = 'Active'
-        AND DATEDIFF(CURDATE(), COALESCE(s.last_login, s.created_at)) >= 7
-        AND ra.id IS NULL
-        ORDER BY days_inactive DESC
+AND s.status = 'Active'
+AND DATEDIFF(CURDATE(), COALESCE(s.last_login, s.created_at)) >= 7
+AND ra.id IS NULL
+AND $student_where_clause
+ORDER BY days_inactive DESC
     ";
     $inactive_result = mysqli_query($conn, $inactive_students_query);
     
@@ -1136,6 +1338,12 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <?php if ($adviser_role === 'coordinator'): ?>
+<a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+    <i class="fas fa-user-tie mr-3"></i>
+    Academic Accounts
+</a>
+<?php endif; ?>
         </nav>
     </div>
     

@@ -844,25 +844,27 @@ tailwind.config = {
                         
                         <!-- File Upload -->
                         <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Attach File (Optional)
-                            </label>
-                            <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                                <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png">
-                                <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
-                                    <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
-                                    <p class="text-gray-600">Click to upload or drag and drop</p>
-                                    <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
-                                </div>
-                                <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
-                                    <i class="fas fa-file text-blue-600 mr-2"></i>
-                                    <span class="text-blue-800" id="fileNameText"></span>
-                                    <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                           <!-- File Upload -->
+<div class="mb-6">
+    <label class="block text-sm font-medium text-gray-700 mb-2">
+        Attach File <span class="text-red-500">*</span>
+    </label>
+    <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+        <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" required>
+        <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
+            <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
+            <p class="text-gray-600">Click to upload or drag and drop</p>
+            <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
+        </div>
+        <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
+            <i class="fas fa-file text-blue-600 mr-2"></i>
+            <span class="text-blue-800" id="fileNameText"></span>
+            <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+</div>
                     </div>
                     
                     <!-- Modal Footer -->
@@ -881,6 +883,33 @@ tailwind.config = {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Task Confirmation Modal -->
+    <div id="startTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen px-4">
+            <div class="bg-white rounded-lg max-w-md w-full">
+                <div class="p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                            <i class="fas fa-play text-green-600 text-xl"></i>
+                        </div>
+                        <h3 class="ml-4 text-lg font-medium text-gray-900">Start Task?</h3>
+                    </div>
+                    <p class="text-gray-600 mb-6">Are you sure you want to start this task? This will change the status to "In Progress" and notify your supervisor.</p>
+                    <div class="flex gap-3 justify-end">
+                        <button type="button" onclick="closeStartTaskModal()" 
+                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300">
+                            Cancel
+                        </button>
+                        <button type="button" onclick="confirmStartTask()" 
+                                class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">
+                            Yes, Start Task
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -923,11 +952,25 @@ tailwind.config = {
             profileDropdown.classList.add('hidden');
         });
 
-        // Start Task functionality
+        // Start Task Modal functionality
+        let currentTaskIdToStart = null;
+
         function startTask(taskId) {
-            if (confirm('Are you sure you want to start this task? This will change the status to "In Progress" and notify your supervisor.')) {
+            currentTaskIdToStart = taskId;
+            document.getElementById('startTaskModal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeStartTaskModal() {
+            document.getElementById('startTaskModal').classList.add('hidden');
+            document.body.style.overflow = 'auto';
+            currentTaskIdToStart = null;
+        }
+
+        function confirmStartTask() {
+            if (currentTaskIdToStart) {
                 // Show loading state
-                const startBtn = document.querySelector(`button[onclick="startTask(${taskId})"]`);
+                const startBtn = document.querySelector(`button[onclick="startTask(${currentTaskIdToStart})"]`);
                 const originalContent = startBtn.innerHTML;
                 startBtn.innerHTML = '<i class="fas fa-spinner mr-2 animate-spin"></i>Starting...';
                 startBtn.disabled = true;
@@ -940,7 +983,7 @@ tailwind.config = {
                 const taskIdInput = document.createElement('input');
                 taskIdInput.type = 'hidden';
                 taskIdInput.name = 'task_id';
-                taskIdInput.value = taskId;
+                taskIdInput.value = currentTaskIdToStart;
                 
                 form.appendChild(taskIdInput);
                 document.body.appendChild(form);
@@ -1120,7 +1163,7 @@ tailwind.config = {
                     <!-- Task Remarks -->
                     ${task.remarks ? `
                         <div>
-                            <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
+                            <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
                             <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                                 <p class="text-yellow-800 whitespace-pre-wrap">${task.remarks}</p>
                             </div>
@@ -1316,6 +1359,12 @@ tailwind.config = {
         document.getElementById('submissionModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeSubmissionModal();
+            }
+        });
+
+        document.getElementById('startTaskModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeStartTaskModal();
             }
         });
 

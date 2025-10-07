@@ -13,12 +13,9 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-
-
 $user_id = $_SESSION['user_id'];
 include_once('notification_functions.php');
 $unread_count = getUnreadNotificationCount($conn, $user_id);
-
 
 $verification_success_message = isset($_SESSION['verification_success_message']) ? $_SESSION['verification_success_message'] : null;
 unset($_SESSION['verification_success_message']);
@@ -72,9 +69,35 @@ try {
 $document_requirements = [];
 $submitted_documents = [];
 
+// First, get the student's academic adviser ID
+$adviser_id = null;
 try {
-    // Get all document requirements
-$doc_stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at FROM document_requirements ORDER BY is_required DESC, name ASC");
+    // FIXED: Changed adviser_id to academic_adviser_id
+    $adviser_stmt = $conn->prepare("SELECT academic_adviser_id FROM students WHERE id = ?");
+    $adviser_stmt->bind_param("i", $user_id);
+    $adviser_stmt->execute();
+    $adviser_result = $adviser_stmt->get_result();
+    
+    if ($adviser_result->num_rows > 0) {
+        $adviser_row = $adviser_result->fetch_assoc();
+        // FIXED: Changed adviser_id to academic_adviser_id
+        $adviser_id = $adviser_row['academic_adviser_id'];
+    }
+    $adviser_stmt->close();
+} catch (Exception $e) {
+    echo "Error fetching adviser: " . $e->getMessage();
+}
+
+try {
+    // Get document requirements ONLY from the student's assigned adviser
+    // FIXED: Changed adviser_id to academic_adviser_id in WHERE clause
+    if ($adviser_id) {
+        $doc_stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at FROM document_requirements WHERE academic_adviser_id = ? ORDER BY is_required DESC, name ASC");
+        $doc_stmt->bind_param("i", $adviser_id);
+    } else {
+        // If no adviser assigned, show empty (no requirements)
+        $doc_stmt = $conn->prepare("SELECT id, name, description, is_required, submission_deadline, created_at FROM document_requirements WHERE id = -1");
+    }
     $doc_stmt->execute();
     $doc_result = $doc_stmt->get_result();
     
@@ -83,31 +106,39 @@ $doc_stmt = $conn->prepare("SELECT id, name, description, is_required, submissio
     }
     $doc_stmt->close();
     
-    // Get submitted documents for this student
-    $sub_stmt = $conn->prepare("
-        SELECT dr.id as doc_id, sd.id as submission_id, sd.file_path, sd.submitted_at, sd.status, sd.feedback, sd.original_filename, sd.file_type
-        FROM document_requirements dr 
-        LEFT JOIN student_documents sd ON dr.id = sd.document_id AND sd.student_id = ?
-    ");
-    $sub_stmt->bind_param("i", $user_id);
-    $sub_stmt->execute();
-    $sub_result = $sub_stmt->get_result();
-    
-    while ($row = $sub_result->fetch_assoc()) {
-        $submitted_documents[$row['doc_id']] = [
-            'submission_id' => $row['submission_id'],
-            'file_path' => $row['file_path'],
-            'submitted_at' => $row['submitted_at'],
-            'status' => $row['status'],
-            'feedback' => $row['feedback'],
-            'original_filename' => $row['original_filename'],
-            'file_type' => $row['file_type']
-        ];
-    }
-    $sub_stmt->close();
-    
 } catch (Exception $e) {
     echo "Error fetching documents: " . $e->getMessage();
+}
+
+// FIXED: Fetch submitted documents for this student
+try {
+    $submit_stmt = $conn->prepare("
+        SELECT 
+            sd.id as submission_id,
+            sd.student_id,
+            sd.document_id,
+            sd.file_path,
+            sd.original_filename,
+            sd.file_size,
+            sd.file_type,
+            sd.status,
+            sd.feedback,
+            sd.submitted_at,
+            sd.reviewed_at
+        FROM student_documents sd
+        WHERE sd.student_id = ?
+    ");
+    $submit_stmt->bind_param("i", $user_id);
+    $submit_stmt->execute();
+    $submit_result = $submit_stmt->get_result();
+    
+    while ($row = $submit_result->fetch_assoc()) {
+        $submitted_documents[$row['document_id']] = $row;
+    }
+    $submit_stmt->close();
+    
+} catch (Exception $e) {
+    echo "Error fetching submissions: " . $e->getMessage();
 }
 
 // Calculate statistics
@@ -121,6 +152,7 @@ $rejected_count = count(array_filter($submitted_documents, function($sub) { retu
 
 $completion_percentage = $total_required > 0 ? round(($approved_count / $total_required) * 100, 1) : 0;
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -665,11 +697,11 @@ tailwind.config = {
 
             <div class="flex flex-col sm:flex-row gap-2">
                 <?php if ($is_submitted): ?>
-                    <button onclick="viewDocument('<?php echo htmlspecialchars($submission['file_path']); ?>', '<?php echo htmlspecialchars($submission['original_filename']); ?>', '<?php echo htmlspecialchars($submission['file_type']); ?>')"
-                       class="inline-flex items-center justify-center px-3 py-2 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
-                        <i class="fas fa-eye mr-1"></i>
-                        View
-                    </button>
+                <button onclick="viewDocument(<?php echo $submission['submission_id']; ?>, '<?php echo htmlspecialchars($submission['original_filename']); ?>', '<?php echo htmlspecialchars($submission['file_path']); ?>')"
+   class="inline-flex items-center justify-center px-3 py-2 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
+    <i class="fas fa-eye mr-1"></i>
+    View
+</button>
                     <?php if ($is_verified && ($status === 'rejected' || $status === 'pending')): ?>
                         <button onclick="openUploadModal(<?php echo $doc['id']; ?>, '<?php echo htmlspecialchars($doc['name'], ENT_QUOTES); ?>')"
                                 class="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-bulsu-maroon hover:bg-bulsu-dark-maroon transition-colors">
@@ -782,7 +814,7 @@ tailwind.config = {
     <!-- Document Viewer Modal -->
     <div id="documentViewerModal" class="fixed inset-0 document-modal z-50 hidden">
         <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg shadow-2xl document-viewer w-full h-full max-w-4xl max-h-screen flex flex-col">
+<div class="bg-white rounded-lg shadow-2xl document-viewer w-full h-full max-w-6xl flex flex-col" style="height: 90vh;">
                 <!-- Modal Header -->
                 <div class="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white rounded-t-lg">
                     <div class="flex items-center">
@@ -790,14 +822,10 @@ tailwind.config = {
                         <h3 id="documentTitle" class="text-lg font-medium">Document Viewer</h3>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <button id="downloadBtn" class="flex items-center px-3 py-1 bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 text-bulsu-light-gold hover:bg-opacity-30 rounded text-sm transition-colors">
-                            <i class="fas fa-download mr-1"></i>
-                            Download
-                        </button>
-                        <button onclick="closeDocumentViewer()" class="text-bulsu-light-gold hover:text-white p-1">
-                            <i class="fas fa-times text-xl"></i>
-                        </button>
-                    </div>
+    <button onclick="closeDocumentViewer()" class="text-bulsu-light-gold hover:text-white p-1">
+        <i class="fas fa-times text-xl"></i>
+    </button>
+</div>
                 </div>
                 
                 <!-- Modal Body -->
@@ -850,89 +878,66 @@ tailwind.config = {
             }
         });
 
-        // Document viewer functions
-        function viewDocument(filePath, fileName, fileType) {
-            const modal = document.getElementById('documentViewerModal');
-            const content = document.getElementById('documentContent');
-            const title = document.getElementById('documentTitle');
-            const downloadBtn = document.getElementById('downloadBtn');
-            
-            title.textContent = fileName;
-            
-            // Set up download functionality
-            downloadBtn.onclick = function() {
-                const link = document.createElement('a');
-                link.href = filePath;
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            };
-            
-            // Clear previous content
-            content.innerHTML = '<div class="flex items-center justify-center h-full"><i class="fas fa-spinner fa-spin text-bulsu-gold text-3xl"></i></div>';
-            
-            // Show modal
-            modal.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-            
-            // Load content based on file type
-            if (fileType && (fileType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf'))) {
-                // PDF viewer
-                content.innerHTML = `
-                    <iframe src="${filePath}" 
-                            class="document-iframe w-full h-full" 
-                            onload="this.style.display='block'" 
-                            style="display:none;">
-                        <div class="text-center p-8">
-                            <i class="fas fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                            <p class="text-gray-600 mb-4">Cannot display PDF in browser</p>
-                            <button onclick="window.open('${filePath}', '_blank')" class="bg-bulsu-maroon text-white px-4 py-2 rounded hover:bg-bulsu-dark-maroon">
-                                Open in new tab
-                            </button>
-                        </div>
-                    </iframe>
-                `;
-            } else if (fileType && fileType.includes('image') || /\.(jpg|jpeg|png|gif)$/i.test(fileName)) {
-                // Image viewer
-                content.innerHTML = `
-                    <div class="w-full h-full flex items-center justify-center p-4">
-                        <img src="${filePath}" 
-                             alt="${fileName}"
-                             class="max-w-full max-h-full object-contain rounded shadow-lg"
-                             onload="this.style.opacity='1'"
-                             style="opacity: 0; transition: opacity 0.3s;"
-                             onerror="this.parentElement.innerHTML='<div class=\\"text-center\\"><i class=\\"fas fa-exclamation-triangle text-red-500 text-4xl mb-4\\"></i><p class=\\"text-gray-600\\">Error loading image</p></div>'">
-                    </div>
-                `;
-            } else if (fileType && (fileType.includes('word') || /\.(doc|docx)$/i.test(fileName))) {
-                // Word document - show download option
-                content.innerHTML = `
-                    <div class="text-center p-8">
-                        <i class="fas fa-file-word text-blue-500 text-6xl mb-4"></i>
-                        <h3 class="text-lg font-medium text-bulsu-maroon mb-2">${fileName}</h3>
-                        <p class="text-gray-600 mb-6">Word documents cannot be previewed in the browser</p>
-                        <button onclick="downloadBtn.click()" class="bg-bulsu-maroon text-white px-6 py-2 rounded hover:bg-bulsu-dark-maroon transition-colors">
-                            <i class="fas fa-download mr-2"></i>
-                            Download Document
-                        </button>
-                    </div>
-                `;
-            } else {
-                // Generic file viewer
-                content.innerHTML = `
-                    <div class="text-center p-8">
-                        <i class="fas fa-file text-gray-500 text-6xl mb-4"></i>
-                        <h3 class="text-lg font-medium text-bulsu-maroon mb-2">${fileName}</h3>
-                        <p class="text-gray-600 mb-6">This file type cannot be previewed</p>
-                        <button onclick="downloadBtn.click()" class="bg-bulsu-maroon text-white px-6 py-2 rounded hover:bg-bulsu-dark-maroon transition-colors">
-                            <i class="fas fa-download mr-2"></i>
-                            Download File
-                        </button>
-                    </div>
-                `;
-            }
-        }
+       function viewDocument(submissionId, fileName, filePath) {
+    const modal = document.getElementById('documentViewerModal');
+    const content = document.getElementById('documentContent');
+    const title = document.getElementById('documentTitle');
+    
+    title.textContent = fileName;
+    content.innerHTML = '<div class="flex items-center justify-center h-full"><i class="fas fa-spinner fa-spin text-bulsu-gold text-3xl"></i><p class="mt-4 text-gray-600">Loading document...</p></div>';
+    
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    
+    const ext = fileName.toLowerCase().split('.').pop();
+    
+    if (ext === 'pdf') {
+        content.innerHTML = `
+            <embed src="${filePath}" 
+                   type="application/pdf" 
+                   class="w-full h-full rounded-lg">
+        `;
+    } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        content.innerHTML = `
+            <div class="w-full h-full flex items-center justify-center p-4">
+                <img src="${filePath}" 
+                     alt="${fileName}"
+                     class="max-w-full max-h-full object-contain rounded shadow-lg">
+            </div>
+        `;
+    } else if (['doc', 'docx'].includes(ext)) {
+        const fullUrl = window.location.origin + '/' + filePath;
+        content.innerHTML = `
+            <iframe src="https://docs.google.com/gview?url=${encodeURIComponent(fullUrl)}&embedded=true" 
+                    class="w-full h-full rounded-lg"
+                    frameborder="0"
+                    style="background: white;">
+            </iframe>
+            <div class="absolute bottom-4 left-0 right-0 text-center">
+                <div class="inline-block bg-white px-4 py-2 rounded-lg shadow-lg">
+                    <p class="text-sm text-gray-600 mb-2">Preview not loading?</p>
+                    <a href="${filePath}" download="${fileName}" 
+                       class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon text-sm">
+                        <i class="fas fa-download mr-2"></i>
+                        Download Document
+                    </a>
+                </div>
+            </div>
+        `;
+    } else {
+        content.innerHTML = `
+            <div class="text-center p-8">
+                <i class="fas fa-file text-gray-400 text-6xl mb-4"></i>
+                <p class="text-gray-600 mb-4">Cannot preview this file type.</p>
+                <a href="${filePath}" download="${fileName}" 
+                   class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon">
+                    <i class="fas fa-download mr-2"></i>
+                    Download File
+                </a>
+            </div>
+        `;
+    }
+}
 
         function closeDocumentViewer() {
             const modal = document.getElementById('documentViewerModal');

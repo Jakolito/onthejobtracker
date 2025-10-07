@@ -30,7 +30,6 @@ $errors = [];
 $registration_success = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Debug: Check if form is being submitted
     error_log("Supervisor form submitted with POST method");
     
     // Get form data and store in array for retention
@@ -55,7 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form_data['password'] = $_POST['password'] ?? '';
     $form_data['confirm_password'] = $_POST['confirm_password'] ?? '';
     
-    // Debug: Log received data
     error_log("Received supervisor data: " . json_encode($form_data));
     
     // Check required fields
@@ -77,8 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Please select at least one work day.";
     }
     
-    // Server-side validation
-    
     // Check if passwords match
     if ($form_data['password'] !== $form_data['confirm_password']) {
         $errors[] = "Passwords do not match.";
@@ -87,6 +83,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Check password strength
     if (strlen($form_data['password']) < 8) {
         $errors[] = "Password must be at least 8 characters long.";
+    }
+    
+    if (!preg_match('/[a-zA-Z]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one letter.";
+    }
+    
+    if (!preg_match('/[0-9]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one number.";
+    }
+    
+    if (!preg_match('/[!@#$%^&*(),.?":{}|<>]/', $form_data['password'])) {
+        $errors[] = "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>).";
     }
     
     // Validate email format
@@ -103,7 +111,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contact_fields = ['contact_number', 'company_contact'];
     foreach ($contact_fields as $field) {
         if (!empty($form_data[$field])) {
-            // Remove any non-numeric characters
             $clean_number = preg_replace('/[^0-9]/', '', $form_data[$field]);
             
             if (strlen($clean_number) !== 11) {
@@ -113,7 +120,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $field_name = ($field === 'contact_number') ? 'Personal contact number' : 'Company contact number';
                 $errors[] = $field_name . " must start with 09 and be exactly 11 digits.";
             } else {
-                // Store the cleaned number
                 $form_data[$field] = $clean_number;
             }
         }
@@ -196,13 +202,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Hash password
         $hashed_password = password_hash($form_data['password'], PASSWORD_BCRYPT);
         
-        // Use email as username since username field is removed
+        // Use email as username
         $username = $form_data['email'];
         
         // Convert work days array to comma-separated string
         $work_days_string = implode(',', $form_data['work_days']);
         
-        // Insert supervisor data into database with schedule fields
+        // Insert supervisor data into database
         $insert_query = "INSERT INTO company_supervisors (
             company_name, company_address, industry_field, company_contact_number, 
             full_name, position, email, phone_number, students_needed, role_position, 
@@ -217,7 +223,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Database preparation failed: ' . mysqli_error($conn);
             error_log('Statement preparation failed: ' . mysqli_error($conn));
         } else {
-            // Bind parameters - 19 parameters total
             mysqli_stmt_bind_param(
                 $stmt,
                 "ssssssssissssssssss", 
@@ -259,7 +264,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // Debug: Log any errors
     if (!empty($errors)) {
         error_log("Supervisor registration errors: " . json_encode($errors));
     }
@@ -274,18 +278,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>Company Supervisor Registration - BULSU OnTheJob Tracker</title>
     <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
     <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
         theme: {
             extend: {
                 colors: {
-                    'bulsu-maroon': '#800000',     // Primary Maroon
-                    'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                    'bulsu-gold': '#DAA520',       // Official Gold
-                    'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                    'bulsu-white': '#FFFFFF'       // Supporting White
+                    'bulsu-maroon': '#800000',
+                    'bulsu-dark-maroon': '#6B1028',
+                    'bulsu-gold': '#DAA520',
+                    'bulsu-light-gold': '#F4E4BC',
+                    'bulsu-white': '#FFFFFF'
                 }
             }
         }
@@ -296,25 +299,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <header class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white shadow-lg">
         <nav class="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 relative">
             <div class="flex items-center">
-                <!-- BULSU Logos -->
-                            <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
-    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
-</a>
-
-                <!-- Brand Name -->
+                <a href="index.php" class="cursor-pointer hover:opacity-80 transition-opacity">
+                    <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-20 h-20">
+                </a>
                 <div class="flex items-center font-bold text-xl">
                     <span>OnTheJob</span>
                     <span class="ml-2">Tracker</span>
-                    <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                 </div>
             </div>
-            <!-- Hamburger Button (Mobile) -->
             <button id="menu-btn" class="md:hidden block focus:outline-none z-50">
                 <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
             </button>
-            <!-- Navigation Links (Desktop only) -->
             <ul id="nav-links" class="hidden md:flex space-x-8 font-medium">
                 <li><a href="index.php#features" class="hover:text-bulsu-gold transition">Features</a></li>  
                 <li><a href="index.php#stakeholders" class="hover:text-bulsu-gold transition">Stakeholders</a></li>
@@ -324,7 +321,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <a href="login.php" class="bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-50 rounded px-4 py-2 font-medium hover:bg-opacity-30 transition text-bulsu-gold">Login</a>
                 <a href="signuplanding.php" class="bg-bulsu-gold text-bulsu-maroon rounded px-4 py-2 font-medium hover:bg-yellow-400 transition">Sign Up</a>
             </div>
-            <!-- Mobile Menu -->
             <div id="mobile-menu" class="md:hidden hidden absolute top-full left-0 w-full bg-bulsu-maroon z-50 px-4 pb-4 shadow-lg">
                 <ul class="flex flex-col space-y-2 font-medium pt-4">
                     <li><a href="index.php#features" class="hover:text-bulsu-gold block py-2 text-white transition">Features</a></li>
@@ -338,6 +334,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </nav>
     </header>
+
+    <!-- Terms and Conditions Modal -->
+    <div id="termsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-bulsu-maroon text-white px-6 py-4 flex justify-between items-center">
+                <h2 class="text-2xl font-bold">Terms and Conditions</h2>
+                <button onclick="closeModal('termsModal')" class="text-white hover:text-bulsu-gold text-3xl">&times;</button>
+            </div>
+            <div class="p-6 text-gray-700 space-y-4">
+                <p class="text-sm text-gray-500">Last Updated: January 2025</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">1. Acceptance of Terms</h3>
+                <p>By registering as a Company Supervisor on the OnTheJob Tracker system, you agree to comply with these Terms and Conditions. If you do not agree, please discontinue use of the platform immediately.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">2. Company Registration</h3>
+                <p>You must provide accurate, complete, and current information about your company and supervisor role during registration. You are responsible for maintaining the confidentiality of your account credentials.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">3. Use of Platform</h3>
+                <p>The OnTheJob Tracker is designed for supervising and monitoring On-the-Job Training (OJT) students from Bulacan State University. Company supervisors agree to:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li>Provide accurate internship opportunities and requirements</li>
+                    <li>Monitor and evaluate assigned OJT students fairly</li>
+                    <li>Submit timely feedback and performance evaluations</li>
+                    <li>Maintain professional conduct with students and university staff</li>
+                    <li>Comply with labor laws and university OJT policies</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">4. Account Approval</h3>
+                <p>All company supervisor accounts require approval from BULSU academic advisers before activation. BULSU reserves the right to reject or suspend accounts that do not meet requirements.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">5. Supervisor Responsibilities</h3>
+                <p>Company supervisors must:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li>Provide adequate training and supervision to OJT students</li>
+                    <li>Ensure a safe and professional work environment</li>
+                    <li>Submit regular progress reports and evaluations</li>
+                    <li>Respond to university inquiries and concerns promptly</li>
+                    <li>Report any issues or incidents immediately</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">6. Data Privacy</h3>
+                <p>Company information and supervisor details will be shared with BULSU academic staff for verification and monitoring purposes. Student performance data will be accessible to authorized university personnel.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">7. Intellectual Property</h3>
+                <p>All content, features, and functionality of OnTheJob Tracker are owned by Bulacan State University and protected by intellectual property laws.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">8. Limitation of Liability</h3>
+                <p>BULSU is not liable for any direct, indirect, incidental, or consequential damages arising from use of the platform, including system downtime or data loss.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">9. Modifications</h3>
+                <p>BULSU reserves the right to modify these Terms and Conditions at any time. Users will be notified of significant changes.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">10. Contact Information</h3>
+                <p>For questions regarding these terms, contact the OJT Coordinator at Bulacan State University or email ojttracker2@gmail.com.</p>
+            </div>
+            <div class="sticky bottom-0 bg-gray-100 px-6 py-4 flex justify-end">
+                <button onclick="closeModal('termsModal')" class="bg-bulsu-maroon hover:bg-bulsu-dark-maroon text-white px-6 py-2 rounded-lg font-semibold transition">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Privacy Policy Modal -->
+    <div id="privacyModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-bulsu-maroon text-white px-6 py-4 flex justify-between items-center">
+                <h2 class="text-2xl font-bold">Privacy Policy</h2>
+                <button onclick="closeModal('privacyModal')" class="text-white hover:text-bulsu-gold text-3xl">&times;</button>
+            </div>
+            <div class="p-6 text-gray-700 space-y-4">
+                <p class="text-sm text-gray-500">Last Updated: January 2025</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">1. Introduction</h3>
+                <p>Bulacan State University ("BULSU," "we," "us," or "our") respects your privacy and is committed to protecting your company and personal data. This Privacy Policy explains how we collect, use, disclose, and safeguard information collected through the OnTheJob Tracker platform.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">2. Information We Collect</h3>
+                <p>We collect the following types of information from company supervisors:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li><strong>Company Information:</strong> Company name, address, industry field, contact details</li>
+                    <li><strong>Personal Information:</strong> Full name, position, email address, contact number</li>
+                    <li><strong>Internship Details:</strong> Job requirements, student capacity, work schedule, duration</li>
+                    <li><strong>Performance Data:</strong> Student evaluations, progress reports, feedback</li>
+                    <li><strong>Technical Data:</strong> IP address, browser type, device information, login timestamps</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">3. How We Use Your Information</h3>
+                <p>Your information is used to:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li>Verify and approve company supervisor accounts</li>
+                    <li>Match students with appropriate internship opportunities</li>
+                    <li>Facilitate communication between supervisors, students, and academic advisers</li>
+                    <li>Monitor OJT performance and compliance</li>
+                    <li>Generate reports and analytics for university purposes</li>
+                    <li>Improve platform functionality and user experience</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">4. Information Sharing</h3>
+                <p>We may share your information with:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li>BULSU academic advisers and OJT coordinators</li>
+                    <li>Assigned OJT students (limited company information)</li>
+                    <li>University administrators for monitoring purposes</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">5. Data Security</h3>
+                <p>We implement appropriate security measures to protect your information, including encrypted passwords, secure servers, and access controls. However, no system is completely secure.</p>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">6. Your Rights</h3>
+                <p>You have the right to:</p>
+                <ul class="list-disc ml-6 space-y-1">
+                    <li>Access your personal and company data</li>
+                    <li>Request corrections to inaccurate information</li>
+                    <li>Request account deletion (subject to university requirements)</li>
+                    <li>Withdraw consent for non-essential data processing</li>
+                </ul>
+                
+                <h3 class="text-lg font-bold text-bulsu-maroon">7. Contact Us</h3>
+                <p>For privacy concerns or data protection inquiries, contact:</p>
+                <ul class="list-none ml-6 space-y-1">
+                    <li><strong>Email:</strong> ojttracker2@gmail.com</li>
+                    <li><strong>Office:</strong> OJT Coordinator, Bulacan State University</li>
+                </ul>
+            </div>
+            <div class="sticky bottom-0 bg-gray-100 px-6 py-4 flex justify-end">
+                <button onclick="closeModal('privacyModal')" class="bg-bulsu-maroon hover:bg-bulsu-dark-maroon text-white px-6 py-2 rounded-lg font-semibold transition">Close</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Success Modal -->
     <?php if ($registration_success): ?>
@@ -373,7 +496,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="w-24 h-1 bg-bulsu-gold mx-auto rounded"></div>
                     </div>
                     <div class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white px-4 py-2 rounded-full inline-block font-medium text-sm mb-4">
-                        👔 Company Supervisor Registration
+                        Company Supervisor Registration
                     </div>
                     <h1 class="text-bulsu-maroon text-2xl md:text-3xl font-bold mb-2">Register Your Company</h1>
                     <p class="text-gray-600">Partner with us to provide OJT opportunities for BULSU students</p>
@@ -484,17 +607,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                        value="<?php echo htmlspecialchars($form_data['students_needed']); ?>" required
                                        class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
                             </div>
-                           <div>
-    <label for="internship_duration" class="block text-gray-700 font-medium mb-1">Internship Duration <span class="text-red-500">*</span></label>
-    <select id="internship_duration" name="internship_duration" required
-            class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
-        <option value="">Select duration</option>
-        <option value="3 months" <?php echo ($form_data['internship_duration'] === '3 months') ? 'selected' : ''; ?>>3 months</option>
-        <option value="4 months" <?php echo ($form_data['internship_duration'] === '4 months') ? 'selected' : ''; ?>>4 months</option>
-        <option value="5 months" <?php echo ($form_data['internship_duration'] === '5 months') ? 'selected' : ''; ?>>5 months</option>
-        <option value="6 months" <?php echo ($form_data['internship_duration'] === '6 months') ? 'selected' : ''; ?>>6 months</option>
-    </select>
-</div>
+                            <div>
+                                <label for="internship_duration" class="block text-gray-700 font-medium mb-1">Internship Duration <span class="text-red-500">*</span></label>
+                                <select id="internship_duration" name="internship_duration" required
+                                        class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                    <option value="">Select duration</option>
+                                    <option value="3 months" <?php echo ($form_data['internship_duration'] === '3 months') ? 'selected' : ''; ?>>3 months</option>
+                                    <option value="4 months" <?php echo ($form_data['internship_duration'] === '4 months') ? 'selected' : ''; ?>>4 months</option>
+                                    <option value="5 months" <?php echo ($form_data['internship_duration'] === '5 months') ? 'selected' : ''; ?>>5 months</option>
+                                    <option value="6 months" <?php echo ($form_data['internship_duration'] === '6 months') ? 'selected' : ''; ?>>6 months</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="mb-4">
                             <label for="role_position" class="block text-gray-700 font-medium mb-1">Role/Position for Interns <span class="text-red-500">*</span></label>
@@ -569,16 +692,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label for="password" class="block text-gray-700 font-medium mb-1">Password <span class="text-red-500">*</span></label>
-                                <input type="password" id="password" name="password" placeholder="Create a strong password" required
-                                       minlength="8" 
-                                       class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
-                                <small class="text-gray-400 text-xs">Must be at least 8 characters long</small>
+                                <div class="relative">
+                                    <input type="password" id="password" name="password" placeholder="Enter your password"
+                                        minlength="8" required
+                                        class="w-full px-4 py-2 pr-10 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                    <button type="button" onclick="togglePassword('password', 'eyeIcon1')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none">
+                                        <svg id="eyeIcon1" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div id="password-requirements" class="mt-2 text-xs space-y-1">
+                                    <div id="req-length" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>At least 8 characters</span>
+                                    </div>
+                                    <div id="req-letter" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a letter</span>
+                                    </div>
+                                    <div id="req-number" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a number</span>
+                                    </div>
+                                    <div id="req-special" class="flex items-center text-gray-400">
+                                        <span class="mr-2">✗</span>
+                                        <span>Contains a special character (!@#$%^&*)</span>
+                                    </div>
+                                </div>
                             </div>
                             <div>
                                 <label for="confirm_password" class="block text-gray-700 font-medium mb-1">Confirm Password <span class="text-red-500">*</span></label>
-                                <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password" required
-                                       minlength="8" 
-                                       class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                <div class="relative">
+                                    <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password"
+                                        minlength="8" required
+                                        class="w-full px-4 py-2 pr-10 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
+                                    <button type="button" onclick="togglePassword('confirm_password', 'eyeIcon2')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none">
+                                        <svg id="eyeIcon2" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div id="password-match" class="mt-2 text-xs hidden">
+                                    <div class="flex items-center">
+                                        <span id="match-icon" class="mr-2">✗</span>
+                                        <span id="match-text">Passwords match</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -587,7 +749,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="flex items-center mb-6">
                         <input type="checkbox" id="agree_terms" name="agree_terms" required 
                                class="mr-2 rounded border-gray-300 text-bulsu-maroon focus:ring-bulsu-gold focus:ring-2">
-                        <label for="agree_terms" class="text-gray-700">I agree to the <a href="#" class="text-bulsu-gold hover:underline">Terms and Conditions</a> and <a href="#" class="text-bulsu-gold hover:underline">Privacy Policy</a> <span class="text-red-500">*</span></label>
+                        <label for="agree_terms" class="text-gray-700">I agree to the 
+                            <a href="#" onclick="openModal('termsModal'); return false;" class="text-bulsu-gold hover:underline">Terms and Conditions</a> 
+                            and 
+                            <a href="#" onclick="openModal('privacyModal'); return false;" class="text-bulsu-gold hover:underline">Privacy Policy</a> 
+                            <span class="text-red-500">*</span>
+                        </label>
                     </div>
 
                     <button type="submit"
@@ -604,7 +771,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </section>
     </main>
 
-    <!-- Footer (simplified version) -->
     <footer class="bg-gradient-to-r from-bulsu-dark-maroon to-black text-white py-8 px-4 mt-auto">
         <div class="max-w-6xl mx-auto text-center">
             <div class="flex flex-col md:flex-row items-center justify-center space-y-2 md:space-y-0 md:space-x-4 text-gray-300 text-sm">
@@ -633,6 +799,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 
     <script>
+        // Modal functions
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        }
+
+        // Toggle password visibility
+        function togglePassword(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />`;
+            } else {
+                input.type = 'password';
+                icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />`;
+            }
+        }
+
         // Mobile menu toggle
         const menuBtn = document.getElementById('menu-btn');
         const mobileMenu = document.getElementById('mobile-menu');
@@ -646,6 +837,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 mobileMenu.classList.add('hidden');
             }
         });
+
+        // Real-time password validation
+        document.getElementById('password').addEventListener('input', function() {
+            const password = this.value;
+            
+            const reqLength = document.getElementById('req-length');
+            if (password.length >= 8) {
+                reqLength.classList.remove('text-gray-400', 'text-red-500');
+                reqLength.classList.add('text-green-500');
+                reqLength.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqLength.classList.remove('text-gray-400', 'text-green-500');
+                reqLength.classList.add('text-red-500');
+                reqLength.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            const reqLetter = document.getElementById('req-letter');
+            if (/[a-zA-Z]/.test(password)) {
+                reqLetter.classList.remove('text-gray-400', 'text-red-500');
+                reqLetter.classList.add('text-green-500');
+                reqLetter.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqLetter.classList.remove('text-gray-400', 'text-green-500');
+                reqLetter.classList.add('text-red-500');
+                reqLetter.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            const reqNumber = document.getElementById('req-number');
+            if (/[0-9]/.test(password)) {
+                reqNumber.classList.remove('text-gray-400', 'text-red-500');
+                reqNumber.classList.add('text-green-500');
+                reqNumber.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqNumber.classList.remove('text-gray-400', 'text-green-500');
+                reqNumber.classList.add('text-red-500');
+                reqNumber.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            const reqSpecial = document.getElementById('req-special');
+            if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+                reqSpecial.classList.remove('text-gray-400', 'text-red-500');
+                reqSpecial.classList.add('text-green-500');
+                reqSpecial.querySelector('span:first-child').textContent = '✓';
+            } else {
+                reqSpecial.classList.remove('text-gray-400', 'text-green-500');
+                reqSpecial.classList.add('text-red-500');
+                reqSpecial.querySelector('span:first-child').textContent = '✗';
+            }
+            
+            checkPasswordMatch();
+        });
+
+        document.getElementById('confirm_password').addEventListener('input', checkPasswordMatch);
+
+        function checkPasswordMatch() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const matchIndicator = document.getElementById('password-match');
+            const matchIcon = document.getElementById('match-icon');
+            
+            if (confirmPassword.length > 0) {
+                matchIndicator.classList.remove('hidden');
+                
+                if (password === confirmPassword) {
+                    matchIndicator.classList.remove('text-red-500');
+                    matchIndicator.classList.add('text-green-500');
+                    matchIcon.textContent = '✓';
+                } else {
+                    matchIndicator.classList.remove('text-green-500');
+                    matchIndicator.classList.add('text-red-500');
+                    matchIcon.textContent = '✗';
+                }
+            } else {
+                matchIndicator.classList.add('hidden');
+            }
+        }
 
         // Phone number validation
         function validatePhoneNumber(input) {
@@ -690,34 +957,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 if (this.value.length >= 11) e.preventDefault();
             });
-        });
-
-        // Password confirmation validation
-        document.getElementById('confirm_password').addEventListener('input', function() {
-            const password = document.getElementById('password').value;
-            const confirmPassword = this.value;
-            
-            if (confirmPassword && password !== confirmPassword) {
-                this.setCustomValidity('Passwords do not match');
-                this.classList.remove('border-bulsu-gold');
-                this.classList.add('border-red-300');
-            } else {
-                this.setCustomValidity('');
-                this.classList.remove('border-red-300');
-                if (confirmPassword) {
-                    this.classList.add('border-bulsu-gold');
-                } else {
-                    this.classList.remove('border-bulsu-gold');
-                    this.classList.add('border-gray-200');
-                }
-            }
-        });
-
-        document.getElementById('password').addEventListener('input', function() {
-            const confirmPassword = document.getElementById('confirm_password');
-            if (confirmPassword.value) {
-                confirmPassword.dispatchEvent(new Event('input'));
-            }
         });
 
         // Date validation
@@ -783,6 +1022,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (password.length < 8) {
                 e.preventDefault();
                 alert('Password must be at least 8 characters long');
+                return false;
+            }
+
+            // Validate password requirements
+            if (!/[a-zA-Z]/.test(password) || 
+                !/[0-9]/.test(password) || 
+                !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+                e.preventDefault();
+                alert('Password must contain at least one letter, one number, and one special character');
                 return false;
             }
 

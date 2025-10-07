@@ -451,7 +451,6 @@ if ($step === 'reset' && !isset($_SESSION['code_verified'])) {
                     <a href="index.php">
                         <span>OnTheJob</span>
                         <span class="ml-2">Tracker</span>
-                        <span class="mx-4 font-bold text-bulsu-gold">|||</span>
                     </a>
                 </div>
             </div>

@@ -1,15 +1,6 @@
 <?php
-// Enable error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 include('connect.php');
 session_start();
-
-// Check connection
-if (!$conn) {
-    die("Connection failed: " . mysqli_connect_error());
-}
 
 require './PHPMailer/PHPMailer/src/Exception.php';
 require './PHPMailer/PHPMailer/src/PHPMailer.php';
@@ -17,44 +8,31 @@ require './PHPMailer/PHPMailer/src/SMTP.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
-
 // Check if user is logged in and is an adviser
 if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
     header("Location: login.php");
     exit;
 }
+include_once('notification_functions.php'); // Include the notification functions
 
-include_once('notification_functions.php');
+// Get adviser information
+// Get adviser information INCLUDING ROLE
+$adviser_id = $_SESSION['adviser_id'];
+$adviser_name = $_SESSION['name'];
+$adviser_email = $_SESSION['email'];
 
-// Initialize ALL variables with defaults
-$adviser_id = $_SESSION['adviser_id'] ?? 0;
-$adviser_name = $_SESSION['name'] ?? '';
-$adviser_email = $_SESSION['email'] ?? '';
-$search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
-$department_filter = isset($_GET['department']) ? mysqli_real_escape_string($conn, $_GET['department']) : '';
-$section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : '';
-$status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
-
-// Get adviser role and assignment details
+// Get adviser role and assignment details from database
 $adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
 $adviser_stmt = mysqli_prepare($conn, $adviser_query);
-
-if (!$adviser_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
-
 mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
 mysqli_stmt_execute($adviser_stmt);
 $adviser_result = mysqli_stmt_get_result($adviser_stmt);
 $adviser_data = mysqli_fetch_assoc($adviser_result);
-
-// Set default values if query fails
 $adviser_role = $adviser_data['role'] ?? 'adviser';
-$adviser_department = $adviser_data['department'] ?? '';
-$adviser_year_level = $adviser_data['year_level'] ?? '';
-$adviser_section = $adviser_data['section'] ?? '';
-$adviser_assigned_groups = $adviser_data['assigned_groups'] ?? '';
-
+$adviser_department = $adviser_data['department'];
+$adviser_year_level = $adviser_data['year_level'];
+$adviser_section = $adviser_data['section'];
+$adviser_assigned_groups = $adviser_data['assigned_groups'];
 mysqli_stmt_close($adviser_stmt);
 
 // Get filter parameters
@@ -891,7 +869,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // Fetch adviser profile picture
 try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
+    $adviser_query = "SELECT profile_picture FROM academic_adviser WHERE id = ?";
     $adviser_stmt = mysqli_prepare($conn, $adviser_query);
     mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
     mysqli_stmt_execute($adviser_stmt);

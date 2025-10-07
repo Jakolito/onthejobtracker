@@ -121,7 +121,7 @@ $pending_tasks = count(array_filter($tasks, function($task) {
     return $task['status'] === 'Pending'; 
 }));
 $rejected_tasks = count(array_filter($tasks, function($task) { 
-    return $task['submission_status'] === 'Rejected'; 
+    return isset($task['submission_status']) && $task['submission_status'] === 'Rejected'; 
 }));
 $overdue_tasks = count(array_filter($tasks, function($task) { 
     return $task['status'] !== 'Completed' && strtotime($task['due_date']) < time(); 
@@ -136,8 +136,6 @@ $completion_percentage = $total_tasks > 0 ? round(($completed_tasks / $total_tas
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OnTheJob Tracker - Tasks</title>
-    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
-    <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -324,7 +322,8 @@ tailwind.config = {
     <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
         <div class="flex items-center">
             <!-- BULSU Logos -->
-            <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
+            <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-8 h-8 mr-2">
+            <img src="reqsample/bulsu1.png" alt="BULSU Logo 1" class="w-8 h-8 mr-2">
             <!-- Brand Name -->
             <div class="flex items-center font-bold text-lg text-white">
                 <span>OnTheJob</span>
@@ -598,14 +597,17 @@ tailwind.config = {
                         }
                         
                         // Status classes
-                        $status_classes = [
-                            'Pending' => 'bg-gray-100 text-gray-800',
-                            'In Progress' => 'bg-yellow-100 text-yellow-800',
-                            'Completed' => 'bg-green-100 text-green-800',
-                            'Rejected' => 'bg-red-100 text-red-800',
-                            'Overdue' => 'bg-red-100 text-red-800'
-                        ];
-                        
+                        // Status classes
+$status_classes = [
+    'Pending' => 'bg-gray-100 text-gray-800',
+    'In Progress' => 'bg-yellow-100 text-yellow-800',
+    'Completed' => 'bg-green-100 text-green-800',
+    'Rejected' => 'bg-red-100 text-red-800',
+    'Overdue' => 'bg-red-100 text-red-800',
+    'Submitted' => 'bg-blue-100 text-blue-800',
+    'Reviewed' => 'bg-purple-100 text-purple-800',
+    'Approved' => 'bg-green-100 text-green-800'
+];
                         // Priority classes
                         $priority_classes = [
                             'Low' => 'bg-blue-100 text-blue-800',
@@ -716,21 +718,21 @@ tailwind.config = {
                                         </button>
                                     </div>
                                     
-                                   <div class="submission-content space-y-3">
-    <div class="flex items-center justify-between">
-        <div>
-            <span class="text-sm font-medium text-gray-600">Status:</span>
-            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo isset($task['submission_status']) && isset($status_classes[$task['submission_status']]) ? $status_classes[$task['submission_status']] : 'bg-gray-100 text-gray-800'; ?>">
-                <?php echo isset($task['submission_status']) ? $task['submission_status'] : 'Pending'; ?>
-            </span>
-        </div>
-        <div>
-            <span class="text-sm font-medium text-gray-600">Submitted:</span>
-            <span class="text-sm text-gray-900 ml-2">
-                <?php echo isset($task['submitted_at']) ? date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])) : 'Not yet submitted'; ?>
-            </span>
-        </div>
+                                    <div class="submission-content space-y-3">
+                                        <div class="flex items-center justify-between">
+    <div>
+        <span class="text-sm font-medium text-gray-600">Status:</span>
+        <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo isset($status_classes[$task['submission_status']]) ? $status_classes[$task['submission_status']] : 'bg-gray-100 text-gray-800'; ?>">
+            <?php echo htmlspecialchars($task['submission_status']); ?>
+        </span>
     </div>
+                                            <div>
+                                                <span class="text-sm font-medium text-gray-600">Submitted:</span>
+                                                <span class="text-sm text-gray-900 ml-2">
+                                                    <?php echo date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])); ?>
+                                                </span>
+                                            </div>
+                                        </div>
 
                                         <?php if (!empty($task['submission_description'])): ?>
                                             <div>
@@ -844,27 +846,25 @@ tailwind.config = {
                         
                         <!-- File Upload -->
                         <div class="mb-6">
-                           <!-- File Upload -->
-<div class="mb-6">
-    <label class="block text-sm font-medium text-gray-700 mb-2">
-        Attach File <span class="text-red-500">*</span>
-    </label>
-    <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-        <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" required>
-        <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
-            <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
-            <p class="text-gray-600">Click to upload or drag and drop</p>
-            <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
-        </div>
-        <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
-            <i class="fas fa-file text-blue-600 mr-2"></i>
-            <span class="text-blue-800" id="fileNameText"></span>
-            <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-    </div>
-</div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Attach File (Required)
+                            </label>
+                            <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                                <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png">
+                                <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
+                                    <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
+                                    <p class="text-gray-600">Click to upload or drag and drop</p>
+                                    <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
+                                </div>
+                                <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
+                                    <i class="fas fa-file text-blue-600 mr-2"></i>
+                                    <span class="text-blue-800" id="fileNameText"></span>
+                                    <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Modal Footer -->
@@ -883,33 +883,6 @@ tailwind.config = {
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Start Task Confirmation Modal -->
-    <div id="startTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
-        <div class="flex items-center justify-center min-h-screen px-4">
-            <div class="bg-white rounded-lg max-w-md w-full">
-                <div class="p-6">
-                    <div class="flex items-center mb-4">
-                        <div class="flex-shrink-0 w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                            <i class="fas fa-play text-green-600 text-xl"></i>
-                        </div>
-                        <h3 class="ml-4 text-lg font-medium text-gray-900">Start Task?</h3>
-                    </div>
-                    <p class="text-gray-600 mb-6">Are you sure you want to start this task? This will change the status to "In Progress" and notify your supervisor.</p>
-                    <div class="flex gap-3 justify-end">
-                        <button type="button" onclick="closeStartTaskModal()" 
-                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300">
-                            Cancel
-                        </button>
-                        <button type="button" onclick="confirmStartTask()" 
-                                class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">
-                            Yes, Start Task
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -952,25 +925,11 @@ tailwind.config = {
             profileDropdown.classList.add('hidden');
         });
 
-        // Start Task Modal functionality
-        let currentTaskIdToStart = null;
-
+        // Start Task functionality
         function startTask(taskId) {
-            currentTaskIdToStart = taskId;
-            document.getElementById('startTaskModal').classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeStartTaskModal() {
-            document.getElementById('startTaskModal').classList.add('hidden');
-            document.body.style.overflow = 'auto';
-            currentTaskIdToStart = null;
-        }
-
-        function confirmStartTask() {
-            if (currentTaskIdToStart) {
+            if (confirm('Are you sure you want to start this task? This will change the status to "In Progress" and notify your supervisor.')) {
                 // Show loading state
-                const startBtn = document.querySelector(`button[onclick="startTask(${currentTaskIdToStart})"]`);
+                const startBtn = document.querySelector(`button[onclick="startTask(${taskId})"]`);
                 const originalContent = startBtn.innerHTML;
                 startBtn.innerHTML = '<i class="fas fa-spinner mr-2 animate-spin"></i>Starting...';
                 startBtn.disabled = true;
@@ -983,7 +942,7 @@ tailwind.config = {
                 const taskIdInput = document.createElement('input');
                 taskIdInput.type = 'hidden';
                 taskIdInput.name = 'task_id';
-                taskIdInput.value = currentTaskIdToStart;
+                taskIdInput.value = taskId;
                 
                 form.appendChild(taskIdInput);
                 document.body.appendChild(form);
@@ -1163,7 +1122,7 @@ tailwind.config = {
                     <!-- Task Remarks -->
                     ${task.remarks ? `
                         <div>
-                            <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
+                            <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
                             <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                                 <p class="text-yellow-800 whitespace-pre-wrap">${task.remarks}</p>
                             </div>
@@ -1359,12 +1318,6 @@ tailwind.config = {
         document.getElementById('submissionModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeSubmissionModal();
-            }
-        });
-
-        document.getElementById('startTaskModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeStartTaskModal();
             }
         });
 

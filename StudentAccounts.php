@@ -328,7 +328,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             case 'ready_for_deployment':
     $student_id = (int)$_POST['student_id'];
     
-    // First, verify that ALL required documents are submitted and approved
+    // Get student's assigned adviser based on section
+    $student_section_query = "SELECT section FROM students WHERE id = ?";
+    $student_section_stmt = mysqli_prepare($conn, $student_section_query);
+    mysqli_stmt_bind_param($student_section_stmt, "i", $student_id);
+    mysqli_stmt_execute($student_section_stmt);
+    $student_section_result = mysqli_stmt_get_result($student_section_stmt);
+    $student_info = mysqli_fetch_assoc($student_section_result);
+    $student_section = $student_info['section'];
+    mysqli_stmt_close($student_section_stmt);
+    
+    // Find responsible adviser(s) for this student
+    $responsible_adviser_query = "
+        SELECT id, role 
+        FROM academic_adviser 
+        WHERE (
+            role = 'coordinator' 
+            OR (
+                role = 'adviser' 
+                AND (
+                    FIND_IN_SET(?, REPLACE(assigned_groups, ', ', ',')) > 0
+                    OR FIND_IN_SET(?, REPLACE(REPLACE(assigned_groups, ' G', '-G'), ', ', ',')) > 0
+                    OR FIND_IN_SET(?, REPLACE(REPLACE(assigned_groups, '-G', ' G'), ', ', ',')) > 0
+                )
+            )
+        )
+        AND status = 'active'
+    ";
+    $responsible_adviser_stmt = mysqli_prepare($conn, $responsible_adviser_query);
+    mysqli_stmt_bind_param($responsible_adviser_stmt, "sss", $student_section, $student_section, $student_section);
+    mysqli_stmt_execute($responsible_adviser_stmt);
+    $responsible_adviser_result = mysqli_stmt_get_result($responsible_adviser_stmt);
+    $responsible_advisers = mysqli_fetch_all($responsible_adviser_result, MYSQLI_ASSOC);
+    mysqli_stmt_close($responsible_adviser_stmt);
+    
+    $adviser_ids = array_column($responsible_advisers, 'id');
+    
+    // Validate requirements created by responsible advisers only
     $validation_query = "
         SELECT 
             dr.id as req_id,
@@ -336,8 +372,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             sd.status as doc_status
         FROM document_requirements dr
         LEFT JOIN student_documents sd ON dr.id = sd.document_id AND sd.student_id = ?
-        WHERE dr.is_required = 1
-    ";
+        WHERE dr.is_required = 1";
+    
+    if (!empty($adviser_ids)) {
+        $adviser_ids_str = implode(',', array_map('intval', $adviser_ids));
+        $validation_query .= " AND (dr.academic_adviser_id IN ($adviser_ids_str) OR dr.academic_adviser_id IS NULL)";
+    } else {
+        $validation_query .= " AND dr.academic_adviser_id IS NULL";
+    }
     
     $stmt = mysqli_prepare($conn, $validation_query);
     mysqli_stmt_bind_param($stmt, "i", $student_id);
@@ -423,7 +465,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $mail->isHTML(true);
                 $mail->Subject = 'Student Ready for OJT Deployment - ' . $student_data['first_name'] . ' ' . $student_data['last_name'];
                 
-                $mail->Body = $mail->Body = '
+                $mail->Body = '
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
     <div style="text-align: center; margin-bottom: 30px;">
         <h1 style="color: #800000; margin: 0;">OnTheJob Tracker</h1>
@@ -483,7 +525,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </p>
     </div>
     
-    <!-- ADD THIS SECTION: Clickable Button to Access System -->
     <div style="text-align: center; margin: 30px 0;">
         <a href="https://onthejobtracker.site/" 
            style="display: inline-block; background: linear-gradient(135deg, #800000 0%, #6B1028 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
@@ -595,33 +636,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $student_id = (int)$_POST['student_id'];
     $search = isset($_POST['search']) ? mysqli_real_escape_string($conn, $_POST['search']) : '';
     
-    // Get all required documents with deadlines
-    $required_docs_query = "SELECT id, name, submission_deadline FROM document_requirements WHERE is_required = 1 ORDER BY name";
+    // Get student's assigned adviser first
+    $student_adviser_query = "SELECT section FROM students WHERE id = ?";
+    $student_adviser_stmt = mysqli_prepare($conn, $student_adviser_query);
+    mysqli_stmt_bind_param($student_adviser_stmt, "i", $student_id);
+    mysqli_stmt_execute($student_adviser_stmt);
+    $student_adviser_result = mysqli_stmt_get_result($student_adviser_stmt);
+    $student_data = mysqli_fetch_assoc($student_adviser_result);
+    $student_section = $student_data['section'];
+    mysqli_stmt_close($student_adviser_stmt);
+    
+    // Find which adviser is responsible for this student
+    $responsible_adviser_query = "
+        SELECT id, role, assigned_groups 
+        FROM academic_adviser 
+        WHERE (
+            role = 'coordinator' 
+            OR (
+                role = 'adviser' 
+                AND (
+                    FIND_IN_SET(?, REPLACE(assigned_groups, ', ', ',')) > 0
+                    OR FIND_IN_SET(?, REPLACE(REPLACE(assigned_groups, ' G', '-G'), ', ', ',')) > 0
+                    OR FIND_IN_SET(?, REPLACE(REPLACE(assigned_groups, '-G', ' G'), ', ', ',')) > 0
+                )
+            )
+        )
+        AND status = 'active'
+    ";
+    $responsible_adviser_stmt = mysqli_prepare($conn, $responsible_adviser_query);
+    mysqli_stmt_bind_param($responsible_adviser_stmt, "sss", $student_section, $student_section, $student_section);
+    mysqli_stmt_execute($responsible_adviser_stmt);
+    $responsible_adviser_result = mysqli_stmt_get_result($responsible_adviser_stmt);
+    $responsible_advisers = mysqli_fetch_all($responsible_adviser_result, MYSQLI_ASSOC);
+    mysqli_stmt_close($responsible_adviser_stmt);
+    
+    // Build adviser IDs filter
+    $adviser_ids = array_column($responsible_advisers, 'id');
+    
+    // Get only required documents created by responsible advisers
+    $required_docs_query = "
+        SELECT id, name, submission_deadline 
+        FROM document_requirements 
+        WHERE is_required = 1";
+    
+    if (!empty($adviser_ids)) {
+        $adviser_ids_str = implode(',', array_map('intval', $adviser_ids));
+        $required_docs_query .= " AND (academic_adviser_id IN ($adviser_ids_str) OR academic_adviser_id IS NULL)";
+    } else {
+        // If no responsible adviser found, only show documents without assigned adviser
+        $required_docs_query .= " AND academic_adviser_id IS NULL";
+    }
+    
+    $required_docs_query .= " ORDER BY name";
     $required_docs_result = mysqli_query($conn, $required_docs_query);
     $required_documents = mysqli_fetch_all($required_docs_result, MYSQLI_ASSOC);
     
-    // Get student's submitted documents with deadline comparison
-    $documents_query = "
-        SELECT 
-            sd.*, 
-            s.first_name, 
-            s.last_name, 
-            s.student_id as student_number, 
-            dr.name as document_name, 
-            dr.description as document_description,
-            dr.submission_deadline,
-            CASE 
-                WHEN dr.submission_deadline IS NULL THEN 'no-deadline'
-                WHEN sd.submitted_at <= dr.submission_deadline THEN 'on-time'
-                WHEN sd.submitted_at > dr.submission_deadline THEN 'late'
-                ELSE 'not-submitted'
-            END as submission_timeliness,
-            DATEDIFF(sd.submitted_at, dr.submission_deadline) as days_difference
-        FROM student_documents sd
-        JOIN students s ON sd.student_id = s.id
-        LEFT JOIN document_requirements dr ON sd.document_id = dr.id
-        WHERE sd.student_id = ?
-    ";
+    // MODIFIED: Get student's submitted documents that match visible requirements
+    // Get student's submitted documents that match visible requirements
+$documents_query = "
+    SELECT 
+        sd.*, 
+        s.first_name, 
+        s.last_name, 
+        s.student_id as student_number, 
+        dr.name as document_name, 
+        dr.description as document_description,
+        dr.submission_deadline,
+        dr.academic_adviser_id,
+        CASE 
+            WHEN dr.submission_deadline IS NULL THEN 'no-deadline'
+            WHEN sd.submitted_at <= dr.submission_deadline THEN 'on-time'
+            WHEN sd.submitted_at > dr.submission_deadline THEN 'late'
+            ELSE 'not-submitted'
+        END as submission_timeliness,
+        DATEDIFF(sd.submitted_at, dr.submission_deadline) as days_difference
+    FROM student_documents sd
+    JOIN students s ON sd.student_id = s.id
+    LEFT JOIN document_requirements dr ON sd.document_id = dr.id
+    WHERE sd.student_id = ?";
+
+if (!empty($adviser_ids)) {
+    $adviser_ids_str = implode(',', array_map('intval', $adviser_ids));
+    $documents_query .= " AND (dr.academic_adviser_id IN ($adviser_ids_str) OR dr.academic_adviser_id IS NULL)";
+} else {
+    $documents_query .= " AND dr.academic_adviser_id IS NULL";
+}
+    
+    if ($adviser_role === 'adviser') {
+        // Regular advisers only see submitted documents for requirements they created
+        $documents_query .= " AND (dr.academic_adviser_id = $adviser_id OR dr.academic_adviser_id IS NULL)";
+    }
     
     if (!empty($search)) {
         $documents_query .= " AND (sd.name LIKE '%$search%' OR sd.description LIKE '%$search%' OR sd.original_filename LIKE '%$search%' OR s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%')";
@@ -647,7 +751,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     
-    // Check requirements status (existing code)
+    // Check requirements status
     $all_requirements_met = true;
     $missing_documents = [];
     $pending_documents = [];

@@ -1109,8 +1109,8 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
 
 // Fetch adviser profile picture
 try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
-    $adviser_stmt = mysqli_prepare($conn, $adviser_query);
+$adviser_query = "SELECT profile_picture FROM academic_adviser WHERE id = ?"; 
+   $adviser_stmt = mysqli_prepare($conn, $adviser_query);
     mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
     mysqli_stmt_execute($adviser_stmt);
     $adviser_result = mysqli_stmt_get_result($adviser_stmt);

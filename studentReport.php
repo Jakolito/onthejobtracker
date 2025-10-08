@@ -941,13 +941,6 @@ tailwind.config = {
                         </h1>
                         <p class="text-blue-100">Generated on <?php echo date('F j, Y g:i A'); ?></p>
                     </div>
-                    <div class="flex flex-col sm:flex-row gap-3 mt-4 sm:mt-0">
-                        <button onclick="window.print()" class="flex items-center justify-center px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-md transition-colors">
-                            <i class="fas fa-print mr-2"></i>
-                            <span class="hidden sm:inline">Print Report</span>
-                            <span class="sm:hidden">Print</span>
-                        </button>
-                    </div>
                 </div>
             </div>
 

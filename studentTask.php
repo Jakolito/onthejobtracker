@@ -305,6 +305,38 @@ tailwind.config = {
             0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
             50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
         }
+
+        /* Document viewer modal styles */
+        .document-modal {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+        }
+
+        .document-viewer {
+            max-height: 90vh;
+            max-width: 90vw;
+        }
+
+        .document-iframe {
+            border: none;
+            border-radius: 8px;
+        }
+
+        @keyframes fadeInUp {
+            from { 
+                opacity: 0; 
+                transform: translateY(40px);
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-fadeInUp { 
+            animation: fadeInUp 0.8s ease-out;
+        }
+
     </style>
 </head>
 <body class="bg-gray-50">
@@ -748,16 +780,32 @@ $status_classes = [
                                         <?php endif; ?>
 
                                         <?php if (!empty($task['attachment'])): ?>
-                                            <div>
-                                                <span class="text-sm font-medium text-gray-600">Attachment:</span>
-                                                <a href="<?php echo htmlspecialchars($task['attachment']); ?>" 
-                                                   target="_blank"
-                                                   class="inline-flex items-center ml-2 text-sm text-blue-600 hover:text-blue-800">
-                                                    <i class="fas fa-file mr-1"></i>
-                                                    View File
-                                                </a>
-                                            </div>
-                                        <?php endif; ?>
+    <div>
+        <span class="text-sm font-medium text-gray-600">Attachment:</span>
+        <?php
+        $file_extension = strtolower(pathinfo($task['attachment'], PATHINFO_EXTENSION));
+        $file_name = basename($task['attachment']);
+        $icon_class = 'fa-file';
+        $icon_color = 'text-gray-500';
+        
+        if (in_array($file_extension, ['pdf'])) {
+            $icon_class = 'fa-file-pdf';
+            $icon_color = 'text-red-500';
+        } elseif (in_array($file_extension, ['doc', 'docx'])) {
+            $icon_class = 'fa-file-word';
+            $icon_color = 'text-blue-500';
+        } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png', 'gif'])) {
+            $icon_class = 'fa-file-image';
+            $icon_color = 'text-green-500';
+        }
+        ?>
+        <button onclick="viewTaskDocument('<?php echo htmlspecialchars($task['attachment']); ?>', '<?php echo htmlspecialchars($file_name); ?>')"
+                class="inline-flex items-center ml-2 px-3 py-1 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
+            <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
+            View File
+        </button>
+    </div>
+<?php endif; ?>
                                             
                                         <?php if (!empty($task['feedback'])): ?>
                                             <div class="border-t border-gray-200 pt-3">
@@ -787,6 +835,36 @@ $status_classes = [
         </div>
     </div>
 
+<div id="taskDocumentViewerModal" class="fixed inset-0 document-modal z-50 hidden">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg shadow-2xl document-viewer w-full h-full max-w-6xl flex flex-col" style="height: 90vh;">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white rounded-t-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-file-alt mr-3 text-bulsu-gold"></i>
+                    <h3 id="taskDocumentTitle" class="text-lg font-medium">Document Viewer</h3>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <a id="taskDocumentDownload" href="#" download 
+                       class="inline-flex items-center px-3 py-1 bg-bulsu-gold hover:bg-yellow-500 text-bulsu-maroon rounded-md text-sm font-medium transition-colors">
+                        <i class="fas fa-download mr-2"></i>
+                        Download
+                    </a>
+                    <button onclick="closeTaskDocumentViewer()" class="text-bulsu-light-gold hover:text-white p-1">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="flex-1 p-4 overflow-hidden">
+                <div id="taskDocumentContent" class="w-full h-full flex items-center justify-center">
+                    <!-- Content will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
     <!-- Task Details Modal -->
     <div id="taskDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden modal-backdrop">
         <div class="flex items-center justify-center min-h-screen px-4">
@@ -847,27 +925,30 @@ $status_classes = [
                         </div>
                         
                         <!-- File Upload -->
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Attach File (Required)
-                            </label>
-                            <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                                <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png">
-                                <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
-                                    <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
-                                    <p class="text-gray-600">Click to upload or drag and drop</p>
-                                    <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
-                                </div>
-                                <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
-                                    <i class="fas fa-file text-blue-600 mr-2"></i>
-                                    <span class="text-blue-800" id="fileNameText"></span>
-                                    <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+<div class="mb-6">
+    <label class="block text-sm font-medium text-gray-700 mb-2">
+        Attach File <span class="text-red-500">*</span>
+    </label>
+    <div class="file-upload-area border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+        <input type="file" name="submission_file" id="submissionFile" class="hidden" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" required>
+        <div id="uploadArea" class="cursor-pointer" onclick="document.getElementById('submissionFile').click()">
+            <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
+            <p class="text-gray-600">Click to upload or drag and drop</p>
+            <p class="text-sm text-gray-500 mt-1">PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</p>
+        </div>
+        <div id="fileName" class="hidden mt-3 p-3 bg-blue-50 rounded-md">
+            <i class="fas fa-file text-blue-600 mr-2"></i>
+            <span class="text-blue-800" id="fileNameText"></span>
+            <button type="button" onclick="removeFile()" class="ml-2 text-red-600 hover:text-red-800">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+    <p id="fileError" class="hidden text-red-600 text-sm mt-2">
+        <i class="fas fa-exclamation-circle mr-1"></i>
+        Please attach a file before submitting.
+    </p>
+</div>
                     
                     <!-- Modal Footer -->
                     <div class="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
@@ -1267,15 +1348,87 @@ $status_classes = [
         }
 
         // Form submission
-        document.getElementById('submissionForm').addEventListener('submit', function(e) {
-            const submitBtn = document.getElementById('submitBtn');
-            const submitText = submitBtn.querySelector('.submit-text');
-            const loading = submitBtn.querySelector('.loading');
-            
-            submitBtn.disabled = true;
-            submitText.classList.add('hidden');
-            loading.classList.remove('hidden');
-        });
+        // Form submission
+document.getElementById('submissionForm').addEventListener('submit', function(e) {
+    const descriptionInput = document.getElementById('submissionText');
+    const fileInput = document.getElementById('submissionFile');
+    const fileError = document.getElementById('fileError');
+    
+    let hasError = false;
+    
+    // Check if description is empty
+    if (!descriptionInput.value.trim()) {
+        e.preventDefault();
+        hasError = true;
+        
+        // Highlight the description textarea
+        descriptionInput.classList.add('border-red-500', 'focus:ring-red-500');
+        
+        // Create or show error message for description
+        let descError = document.getElementById('descriptionError');
+        if (!descError) {
+            descError = document.createElement('p');
+            descError.id = 'descriptionError';
+            descError.className = 'text-red-600 text-sm mt-2';
+            descError.innerHTML = '<i class="fas fa-exclamation-circle mr-1"></i>Please provide a description of your work.';
+            descriptionInput.parentElement.appendChild(descError);
+        } else {
+            descError.classList.remove('hidden');
+        }
+        
+        // Scroll to description field
+        descriptionInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Remove highlight after 3 seconds
+        setTimeout(() => {
+            descriptionInput.classList.remove('border-red-500', 'focus:ring-red-500');
+        }, 3000);
+    } else {
+        // Hide description error if filled
+        descriptionInput.classList.remove('border-red-500', 'focus:ring-red-500');
+        const descError = document.getElementById('descriptionError');
+        if (descError) {
+            descError.classList.add('hidden');
+        }
+    }
+    
+    // Check if file is attached
+    if (!fileInput.files || fileInput.files.length === 0) {
+        e.preventDefault();
+        hasError = true;
+        fileError.classList.remove('hidden');
+        
+        // Highlight the upload area
+        const uploadContainer = fileInput.closest('.file-upload-area');
+        uploadContainer.classList.add('border-red-500');
+        
+        // If description was filled, scroll to file upload section
+        if (descriptionInput.value.trim()) {
+            uploadContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        // Remove highlight after 3 seconds
+        setTimeout(() => {
+            uploadContainer.classList.remove('border-red-500');
+        }, 3000);
+    } else {
+        // Hide file error if attached
+        fileError.classList.add('hidden');
+    }
+    
+    // If there are errors, stop submission
+    if (hasError) {
+        return false;
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    const submitText = submitBtn.querySelector('.submit-text');
+    const loading = submitBtn.querySelector('.loading');
+    
+    submitBtn.disabled = true;
+    submitText.classList.add('hidden');
+    loading.classList.remove('hidden');
+});
 
         // Toggle submission details
         function toggleSubmissionDetails(button) {
@@ -1336,6 +1489,118 @@ $status_classes = [
                 }, 100);
             });
         });
+        function viewTaskDocument(filePath, fileName) {
+    const modal = document.getElementById('taskDocumentViewerModal');
+    const content = document.getElementById('taskDocumentContent');
+    const title = document.getElementById('taskDocumentTitle');
+    const downloadBtn = document.getElementById('taskDocumentDownload');
+    
+    title.textContent = fileName;
+    downloadBtn.href = filePath;
+    downloadBtn.download = fileName;
+    
+    content.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><i class="fas fa-spinner fa-spin text-bulsu-gold text-3xl mb-4"></i><p class="text-gray-600">Loading document...</p></div>';
+    
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    
+    const ext = fileName.toLowerCase().split('.').pop();
+    
+    if (ext === 'pdf') {
+        content.innerHTML = `
+            <embed src="${filePath}" 
+                   type="application/pdf" 
+                   class="w-full h-full rounded-lg">
+        `;
+    } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        content.innerHTML = `
+            <div class="w-full h-full flex items-center justify-center p-4">
+                <img src="${filePath}" 
+                     alt="${fileName}"
+                     class="max-w-full max-h-full object-contain rounded shadow-lg">
+            </div>
+        `;
+    } else if (['doc', 'docx'].includes(ext)) {
+        const fullUrl = window.location.origin + '/' + filePath;
+        content.innerHTML = `
+            <iframe src="https://docs.google.com/gview?url=${encodeURIComponent(fullUrl)}&embedded=true" 
+                    class="w-full h-full rounded-lg"
+                    frameborder="0"
+                    style="background: white;">
+            </iframe>
+            <div class="absolute bottom-4 left-0 right-0 text-center">
+                <div class="inline-block bg-white px-4 py-2 rounded-lg shadow-lg">
+                    <p class="text-sm text-gray-600 mb-2">Preview not loading?</p>
+                    <a href="${filePath}" download="${fileName}" 
+                       class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon text-sm">
+                        <i class="fas fa-download mr-2"></i>
+                        Download Document
+                    </a>
+                </div>
+            </div>
+        `;
+    } else if (['txt'].includes(ext)) {
+        // For text files, fetch and display content
+        fetch(filePath)
+            .then(response => response.text())
+            .then(text => {
+                content.innerHTML = `
+                    <div class="w-full h-full overflow-auto p-6 bg-gray-50 rounded-lg">
+                        <pre class="whitespace-pre-wrap text-sm text-gray-800 font-mono">${text}</pre>
+                    </div>
+                `;
+            })
+            .catch(error => {
+                content.innerHTML = `
+                    <div class="text-center p-8">
+                        <i class="fas fa-exclamation-triangle text-yellow-500 text-6xl mb-4"></i>
+                        <p class="text-gray-600 mb-4">Cannot preview this file.</p>
+                        <a href="${filePath}" download="${fileName}" 
+                           class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon">
+                            <i class="fas fa-download mr-2"></i>
+                            Download File
+                        </a>
+                    </div>
+                `;
+            });
+    } else {
+        content.innerHTML = `
+            <div class="text-center p-8">
+                <i class="fas fa-file text-gray-400 text-6xl mb-4"></i>
+                <p class="text-gray-600 mb-4">Cannot preview this file type.</p>
+                <a href="${filePath}" download="${fileName}" 
+                   class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon">
+                    <i class="fas fa-download mr-2"></i>
+                    Download File
+                </a>
+            </div>
+        `;
+    }
+}
+
+function closeTaskDocumentViewer() {
+    const modal = document.getElementById('taskDocumentViewerModal');
+    modal.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+}
+
+// Close viewer modal when clicking outside
+document.getElementById('taskDocumentViewerModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeTaskDocumentViewer();
+    }
+});
+
+// Close viewer with Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const taskViewerModal = document.getElementById('taskDocumentViewerModal');
+        if (taskViewerModal && !taskViewerModal.classList.contains('hidden')) {
+            closeTaskDocumentViewer();
+        }
+    }
+});
+        
     </script>
 </body>
 </html>

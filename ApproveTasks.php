@@ -329,8 +329,38 @@ tailwind.config = {
             display: none;
         }
 
-        .submission-card.status-submitted .compact-summary {
+         .submission-card.status-submitted .compact-summary {
             display: none;
+        }
+
+        /* Document viewer modal styles - ADD THIS SECTION */
+        .document-modal {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+        }
+
+        .document-viewer {
+            max-height: 90vh;
+            max-width: 90vw;
+        }
+
+        .document-iframe {
+            border: none;
+            border-radius: 8px;
+        }
+
+        @keyframes fadeInUp {
+            from { 
+                opacity: 0; 
+                transform: translateY(40px);
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0);
+            }
+        }
+        .animate-fadeInUp { 
+            animation: fadeInUp 0.8s ease-out;
         }
     </style>
 </head>
@@ -702,11 +732,12 @@ tailwind.config = {
                                                 Submitted: <?php echo date('M j, Y g:i A', strtotime($submission['submitted_at'])); ?>
                                             </span>
                                             <?php if (!empty($submission['attachment'])): ?>
-                                                <a href="<?php echo htmlspecialchars($submission['attachment']); ?>" class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mt-1 sm:mt-0" target="_blank">
-                                                    <i class="fas fa-paperclip mr-1"></i>
-                                                    View Attachment
-                                                </a>
-                                            <?php endif; ?>
+    <button onclick="viewAttachment('<?php echo htmlspecialchars($submission['attachment']); ?>', '<?php echo htmlspecialchars(basename($submission['attachment'])); ?>')" 
+            class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium mt-1 sm:mt-0">
+        <i class="fas fa-eye mr-1"></i>
+        View Attachment
+    </button>
+<?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -946,7 +977,32 @@ tailwind.config = {
             </form>
         </div>
     </div>
-    
+
+    <div id="documentViewerModal" class="fixed inset-0 document-modal z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-2xl document-viewer w-full h-full max-w-6xl flex flex-col" style="height: 90vh;">
+                <!-- Modal Header -->
+                <div class="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon text-white rounded-t-lg">
+                    <div class="flex items-center">
+                        <i class="fas fa-file-alt mr-3 text-bulsu-gold"></i>
+                        <h3 id="documentTitle" class="text-lg font-medium">Document Viewer</h3>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="closeDocumentViewer()" class="text-bulsu-light-gold hover:text-white p-1">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Modal Body -->
+                <div class="flex-1 p-4 overflow-hidden">
+                    <div id="documentContent" class="w-full h-full flex items-center justify-center">
+                        <!-- Content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- View Details Modal -->
     <div id="detailsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -1145,13 +1201,14 @@ tailwind.config = {
                         </div>
                     </div>
                     
-                    ${submission.attachment ? `
+                     ${submission.attachment ? `
                         <div class="mb-6">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Attachment:</label>
-                            <a href="${submission.attachment}" class="inline-flex items-center px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 transition-colors" target="_blank">
-                                <i class="fas fa-paperclip mr-2"></i>
+                            <button onclick="viewAttachment('${submission.attachment}', '${submission.attachment.split('/').pop()}')" 
+                                    class="inline-flex items-center px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 transition-colors">
+                                <i class="fas fa-eye mr-2"></i>
                                 View Attachment
-                            </a>
+                            </button>
                         </div>
                     ` : ''}
                     
@@ -1200,11 +1257,80 @@ tailwind.config = {
         }
 
         // Close modals with Escape key
+        function viewAttachment(filePath, fileName) {
+            const modal = document.getElementById('documentViewerModal');
+            const content = document.getElementById('documentContent');
+            const title = document.getElementById('documentTitle');
+            
+            title.textContent = fileName;
+            content.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><i class="fas fa-spinner fa-spin text-bulsu-gold text-3xl"></i><p class="mt-4 text-gray-600">Loading document...</p></div>';
+            
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            
+            const ext = fileName.toLowerCase().split('.').pop();
+            
+            if (ext === 'pdf') {
+                content.innerHTML = `
+                    <embed src="${filePath}" 
+                           type="application/pdf" 
+                           class="w-full h-full rounded-lg">
+                `;
+            } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+                content.innerHTML = `
+                    <div class="w-full h-full flex items-center justify-center p-4">
+                        <img src="${filePath}" 
+                             alt="${fileName}"
+                             class="max-w-full max-h-full object-contain rounded shadow-lg">
+                    </div>
+                `;
+            } else if (['doc', 'docx'].includes(ext)) {
+                const fullUrl = window.location.origin + '/' + filePath;
+                content.innerHTML = `
+                    <iframe src="https://docs.google.com/gview?url=${encodeURIComponent(fullUrl)}&embedded=true" 
+                            class="w-full h-full rounded-lg"
+                            frameborder="0"
+                            style="background: white;">
+                    </iframe>
+                    <div class="absolute bottom-4 left-0 right-0 text-center">
+                        <div class="inline-block bg-white px-4 py-2 rounded-lg shadow-lg">
+                            <p class="text-sm text-gray-600 mb-2">Preview not loading?</p>
+                            <a href="${filePath}" download="${fileName}" 
+                               class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon text-sm">
+                                <i class="fas fa-download mr-2"></i>
+                                Download Document
+                            </a>
+                        </div>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `
+                    <div class="text-center p-8">
+                        <i class="fas fa-file text-gray-400 text-6xl mb-4"></i>
+                        <p class="text-gray-600 mb-4">Cannot preview this file type.</p>
+                        <a href="${filePath}" download="${fileName}" 
+                           class="inline-flex items-center px-4 py-2 bg-bulsu-maroon text-white rounded-md hover:bg-bulsu-dark-maroon">
+                            <i class="fas fa-download mr-2"></i>
+                            Download File
+                        </a>
+                    </div>
+                `;
+            }
+        }
+
+        function closeDocumentViewer() {
+            const modal = document.getElementById('documentViewerModal');
+            modal.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        }
+
+        // UPDATED: Close modals with Escape key (ADD closeDocumentViewer)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 closeApproveModal();
                 closeRejectModal();
                 closeDetailsModal();
+                closeDocumentViewer(); // ADD THIS LINE
             }
         });
 

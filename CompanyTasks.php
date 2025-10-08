@@ -699,7 +699,6 @@ tailwind.config = {
                                         <option value="Research">Research</option>
                                         <option value="Meeting">Meeting</option>
                                         <option value="Training">Training</option>
-                                        <option value="Other">Other</option>
                                     </select>
                                 </div>
                             </div>
@@ -726,7 +725,6 @@ tailwind.config = {
                                         <option value="Low">Low</option>
                                         <option value="Medium">Medium</option>
                                         <option value="High">High</option>
-                                        <option value="Urgent">Urgent</option>
                                     </select>
                                 </div>
                             </div>

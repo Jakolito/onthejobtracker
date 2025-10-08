@@ -616,26 +616,10 @@ tailwind.config = {
 @media print {
     /* Hide non-essential elements */
     .sidebar, .topbar, .report-filters, .export-options, 
-    #mobileMenuBtn, #profileBtn, #profileDropdown,
-    .report-config-section {
+    #mobileMenuBtn, #profileBtn, #profileDropdown {
         display: none !important;
     }
-    /* Make important columns stand out */
-td:first-child {
-    font-weight: bold !important;
-    background-color: #f9f9f9 !important;
-}
-
-/* Better spacing for multi-line cells */
-td div + div {
-    margin-top: 2px !important;
-}
-
-/* Status indicators */
-.inline-flex.items-center {
-    font-weight: bold !important;
-    padding: 2px 4px !important;
-}
+    
     /* Reset layout for print */
     .main-content, body {
         margin: 0 !important;
@@ -646,14 +630,10 @@ td div + div {
     }
     
     /* Page setup */
-   @page {
-    size: A4 landscape;
-    margin: 0.5in 0.4in;
-}
-
-@page :first {
-    margin-top: 0.75in;
-}
+    @page {
+        size: A4 landscape; /* Changed to landscape for better table display */
+        margin: 0.5in;
+    }
     
     /* Container adjustments */
     .lg\\:ml-64 {
@@ -694,16 +674,15 @@ td div + div {
     
     /* Table headers */
     th {
-    background-color: #f5f5f5 !important;
-    border: 1px solid #000 !important;
-    padding: 5px 3px !important;
-    font-weight: bold !important;
-    font-size: 9px !important;
-    text-align: left !important;
-    vertical-align: top !important;
-    word-wrap: break-word !important;
-    max-width: 150px !important;
-}
+        background-color: #f5f5f5 !important;
+        border: 1px solid #000 !important;
+        padding: 4px 2px !important;
+        font-weight: bold !important;
+        font-size: 8px !important;
+        text-align: left !important;
+        vertical-align: top !important;
+        word-wrap: break-word !important;
+    }
     
     /* Table cells */
     td {
@@ -764,31 +743,6 @@ td div + div {
         padding: 6px !important;
         margin-bottom: 8px !important;
     }
-    /* Add print-specific header */
-.print-header {
-    text-align: center;
-    border-bottom: 3px solid #800000;
-    padding-bottom: 15px;
-    margin-bottom: 20px;
-    page-break-after: avoid;
-}
-
-.print-header h1 {
-    font-size: 20px !important;
-    color: #800000 !important;
-    margin-bottom: 5px !important;
-}
-
-.print-header .subtitle {
-    font-size: 12px !important;
-    color: #666 !important;
-}
-
-.print-logo {
-    width: 60px;
-    height: 60px;
-    margin: 0 auto 10px;
-}
     
     .border-l-4 {
         border-left: 4px solid #000 !important;
@@ -847,24 +801,12 @@ td div + div {
     }
     
     /* Page breaks */
-    /* Page breaks */
-.bg-white.rounded-lg.shadow-sm.border.border-gray-200 {
-    page-break-before: auto !important;
-    page-break-after: auto !important;
-    page-break-inside: avoid !important;
-    margin-bottom: 25px !important;
-    border: 2px solid #800000 !important;
-}
-
-/* Prevent orphaned headers */
-h2, h3, h4 {
-    page-break-after: avoid !important;
-}
-
-/* Keep analysis cards together */
-.bg-gray-50.rounded-lg.p-6 {
-    page-break-inside: avoid !important;
-}
+    .bg-white.rounded-lg.shadow-sm.border.border-gray-200 {
+        page-break-before: auto !important;
+        page-break-after: auto !important;
+        page-break-inside: avoid !important;
+        margin-bottom: 20px !important;
+    }
     
     /* Hide empty elements */
     .text-center.py-8 {
@@ -890,31 +832,15 @@ h2, h3, h4 {
     }
     
     /* Add print header */
-    /* Add print header with BULSU branding */
-@page {
-    margin-top: 0.75in;
-}
-
-body::before {
-    content: "";
-    display: block;
-    height: 80px;
-    background: linear-gradient(135deg, #800000 0%, #6B1028 100%);
-    margin: -10px -10px 20px -10px;
-    padding: 15px;
-}
-
-body::after {
-    content: "OnTheJob Tracker - Student Reports | Generated: " attr(data-print-date) " | Bulacan State University";
-    display: block;
-    text-align: center;
-    font-weight: bold;
-    font-size: 14px;
-    color: #800000;
-    border-bottom: 3px solid #800000;
-    padding-bottom: 10px;
-    margin: -5px -10px 20px -10px;
-}
+    body::before {
+        content: "OnTheJob Tracker - Student Reports | Generated: " attr(data-print-date);
+        display: block;
+        text-align: center;
+        font-weight: bold;
+        border-bottom: 2px solid #000;
+        padding-bottom: 8px;
+        margin-bottom: 15px;
+    }
 }
 
 
@@ -1083,8 +1009,8 @@ body::after {
         <!-- Main Container -->
         <div class="p-4 sm:p-6 lg:p-8">
             <!-- Report Generation Form -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 sm:mb-8 report-config-section">
-                    <div class="p-4 sm:p-6 border-b border-gray-200">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 sm:mb-8">
+                <div class="p-4 sm:p-6 border-b border-gray-200">
                     <div class="flex items-center">
                         <i class="fas fa-chart-line text-blue-600 mr-3"></i>
                         <h3 class="text-lg font-medium text-gray-900">Report Configuration</h3>

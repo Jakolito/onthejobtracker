@@ -109,11 +109,11 @@
                         <h3 class="text-xl font-bold text-bulsu-maroon mb-2">Real-Time Progress Dashboard</h3>
                         <p class="text-gray-600">Interactive dashboards displaying OJT completion rates, skill development metrics, and supervisor ratings with AI-generated insights tailored for BULSU programs.</p>
                     </div>
-                    <div class="bg-white border-t-4 border-bulsu-gold rounded-lg p-8 shadow-lg hover:-translate-y-2 hover:shadow-xl transition duration-300">
-                        <div class="text-4xl mb-4">🔔</div>
-                        <h3 class="text-xl font-bold text-bulsu-maroon mb-2">Predictive Alerts for At-Risk Students</h3>
-                        <p class="text-gray-600">ML-powered early warning system identifies BULSU students likely to struggle or fail, enabling timely intervention strategies by faculty and supervisors.</p>
-                    </div>
+                   <div class="bg-white border-t-4 border-bulsu-gold rounded-lg p-8 shadow-lg hover:-translate-y-2 hover:shadow-xl transition duration-300">
+    <div class="text-4xl mb-4">🔔</div>
+    <h3 class="text-xl font-bold text-bulsu-maroon mb-2">Predictive Alerts for At-Risk Students</h3>
+    <p class="text-gray-600">AI-powered early warning system uses weighted analytics to identify BULSU students at risk of OJT failure, enabling timely data-driven intervention strategies by academic advisers and supervisors.</p>
+</div>
                     <div class="bg-white border-t-4 border-bulsu-gold rounded-lg p-8 shadow-lg hover:-translate-y-2 hover:shadow-xl transition duration-300">
                         <div class="text-4xl mb-4">📄</div>
                         <h3 class="text-xl font-bold text-bulsu-maroon mb-2">Automated Report Generation</h3>

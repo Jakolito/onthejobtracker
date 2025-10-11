@@ -1,7 +1,7 @@
 <?php
 include('connect.php');
 session_start();
-
+date_default_timezone_set('Asia/Manila');
 // Cache control headers
 header("Cache-Control: no-cache, no-store, must-revalidate");
 header("Pragma: no-cache");
@@ -956,9 +956,16 @@ tailwind.config = {
             }
 
             let messagesHTML = '';
-            messages.forEach(message => {
-                const messageTime = new Date(message.sent_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                const messageDate = new Date(message.sent_at).toLocaleDateString();
+messages.forEach(message => {
+    // Format time in Philippine timezone
+    const messageTime = new Date(message.sent_at).toLocaleTimeString('en-PH', {
+        hour: '2-digit', 
+        minute: '2-digit',
+        timeZone: 'Asia/Manila'
+    });
+    const messageDate = new Date(message.sent_at).toLocaleDateString('en-PH', {
+        timeZone: 'Asia/Manila'
+    });
                 
                 if (message.is_own) {
                     messagesHTML += `

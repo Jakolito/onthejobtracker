@@ -3,6 +3,7 @@
 include('connect.php');
 
 session_start();
+date_default_timezone_set('Asia/Manila');
 
 // ADD THESE 3 LINES:
 header("Cache-Control: no-cache, no-store, must-revalidate"); // HTTP 1.1.
@@ -987,21 +988,23 @@ function confirmMarkAllAsRead() {
 
         // Display notification details in modal
         function displayNotificationDetails(notification) {
-            const createdDate = new Date(notification.created_at).toLocaleString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            
-            const readDate = notification.read_at ? new Date(notification.read_at).toLocaleString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            }) : null;
+            const createdDate = new Date(notification.created_at).toLocaleString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Manila'
+});
+
+const readDate = notification.read_at ? new Date(notification.read_at).toLocaleString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Manila'
+}) : null;
             
             let typeIcon = 'fa-info-circle';
             let typeClass = 'bg-gray-100 text-gray-800';

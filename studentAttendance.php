@@ -360,9 +360,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Print attendance data
-    if ($action === 'print_attendance') {
+    // Print attendance data
+if ($action === 'print_attendance') {
     try {
-        if (!$is_deployed) {
+        // Check if deployment exists first AND is not boolean false
+        if (!$is_deployed || $is_deployed === false) {
             echo json_encode([
                 'success' => false,
                 'message' => 'No active deployment found.'
@@ -388,9 +390,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $today_dt = new DateTime();
         
         // FIXED: Determine the correct cutoff date based on OJT completion status
-        if ($is_deployed['is_ojt_completed']) {
+        // FIXED: Determine the correct cutoff date based on OJT completion status
+        // Check if is_ojt_completed key exists and is true (prevents array access on boolean)
+        $is_ojt_completed = isset($is_deployed['is_ojt_completed']) && $is_deployed['is_ojt_completed'];
+        $is_hours_completed = isset($is_deployed['is_hours_completed']) && $is_deployed['is_hours_completed'];
+        
+        if ($is_ojt_completed) {
             // For completed OJT, find the actual completion date
-            if ($is_deployed['is_hours_completed']) {
+            if ($is_hours_completed) {
                 // Find the date when required hours were reached
                 $hours_completion_stmt = $conn->prepare("
                     SELECT date, 
@@ -406,7 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $hours_result = $hours_completion_stmt->get_result();
                 
                 $completion_date = null;
-                $required_hours = (float)$is_deployed['required_hours'];
+                $required_hours = isset($is_deployed['required_hours']) ? (float)$is_deployed['required_hours'] : 0;
                 
                 while ($row = $hours_result->fetch_assoc()) {
                     if ((float)$row['running_total'] >= $required_hours) {
@@ -534,6 +541,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         });
         
         // Add completion information to deployment info
+        // Add completion information to deployment info
         $deployment_info_with_completion = [
             'company_name' => $is_deployed['company_name'],
             'company_address' => $is_deployed['company_address'],
@@ -542,11 +550,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'work_schedule_start' => $work_schedule_start,
             'work_schedule_end' => $work_schedule_end,
             'work_days' => $work_days_string,
-            'required_hours' => $is_deployed['required_hours'] ?? 0,
-            'is_completed' => $is_deployed['is_ojt_completed'],
-            'completion_date' => $is_deployed['is_ojt_completed'] ? $limit_date->format('Y-m-d') : null,
-            'completion_reason' => $is_deployed['is_hours_completed'] ? 'Required hours completed' : 
-                                 ($is_deployed['is_after_end'] ? 'End date reached' : null)
+            'required_hours' => isset($is_deployed['required_hours']) ? $is_deployed['required_hours'] : 0,
+            'is_completed' => $is_ojt_completed,
+            'completion_date' => $is_ojt_completed ? $limit_date->format('Y-m-d') : null,
+            'completion_reason' => $is_hours_completed ? 'Required hours completed' : 
+                                 (isset($is_deployed['is_after_end']) && $is_deployed['is_after_end'] ? 'End date reached' : null)
         ];
         
         echo json_encode([
@@ -1439,7 +1447,7 @@ tailwind.config = {
 </div>
 
 <!-- Conditional Facial Recognition Card - Only show if OJT is not complete -->
-<?php if ($has_face_enrolled && $can_record_attendance && !$is_deployed['is_ojt_completed']): ?>
+<?php if ($has_face_enrolled && $can_record_attendance && (!$is_deployed || !isset($is_deployed['is_ojt_completed']) || !$is_deployed['is_ojt_completed'])): ?>
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
     <div class="p-4 sm:p-6 border-b border-gray-200">
         <div class="flex items-center">
@@ -1483,7 +1491,7 @@ tailwind.config = {
         </div>
     </div>
 </div>
-<?php elseif ($is_deployed['is_ojt_completed']): ?>
+<?php elseif ($is_deployed && isset($is_deployed['is_ojt_completed']) && $is_deployed['is_ojt_completed']): ?>
 <!-- OJT Completed Message -->
 <div class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg shadow-sm border border-green-200 mb-6">
     <div class="p-4 sm:p-6 border-b border-green-200">

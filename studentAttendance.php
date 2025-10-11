@@ -96,27 +96,20 @@ function checkDeploymentStatus($conn, $user_id) {
             }
             
             // Add comprehensive status flags
-            // Get current day name and work days array
-$today_day_name = strtolower(date('l', strtotime($today))); // e.g., "saturday"
-$work_days_array = array_map('trim', explode(',', strtolower($deployment['work_days']))); // e.g., ["monday", "tuesday", ...]
-
-// Add comprehensive status flags
-$deployment['can_record_today'] = (
-    $deployment['ojt_status'] === 'Active' && 
-    $today >= $start_date && 
-    $today <= $end_date &&
-    !$hours_completed &&
-    in_array($today_day_name, $work_days_array) // ✅ NEW: Check if today is a work day
-);
-
-$deployment['is_before_start'] = ($today < $start_date);
-$deployment['is_after_end'] = ($today > $end_date);
-$deployment['is_ojt_completed'] = ($deployment['ojt_status'] === 'Completed');
-$deployment['is_hours_completed'] = $hours_completed;
-$deployment['is_non_work_day'] = !in_array($today_day_name, $work_days_array); // ✅ NEW: Flag for non-work days
-$deployment['days_until_start'] = $today < $start_date ? (strtotime($start_date) - strtotime($today)) / (60 * 60 * 24) : 0;
-$deployment['completed_hours'] = $completed_hours;
-$deployment['hours_progress_percentage'] = $required_hours > 0 ? min(100, ($completed_hours / $required_hours) * 100) : 0;
+            $deployment['can_record_today'] = (
+                $deployment['ojt_status'] === 'Active' && 
+                $today >= $start_date && 
+                $today <= $end_date &&
+                !$hours_completed
+            );
+            
+            $deployment['is_before_start'] = ($today < $start_date);
+            $deployment['is_after_end'] = ($today > $end_date);
+            $deployment['is_ojt_completed'] = ($deployment['ojt_status'] === 'Completed');
+            $deployment['is_hours_completed'] = $hours_completed;
+            $deployment['days_until_start'] = $today < $start_date ? (strtotime($start_date) - strtotime($today)) / (60 * 60 * 24) : 0;
+            $deployment['completed_hours'] = $completed_hours;
+            $deployment['hours_progress_percentage'] = $required_hours > 0 ? min(100, ($completed_hours / $required_hours) * 100) : 0;
             
             return $deployment;
         }

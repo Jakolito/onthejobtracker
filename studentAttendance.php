@@ -2612,7 +2612,7 @@ function generateComprehensivePrintHTML(attendanceData, studentInfo, deploymentI
             
             const statusText = document.getElementById('statusText');
             const statusIcon = document.getElementById('statusIcon');
-            
+           // Veri Algo
             faceDetectionInterval = setInterval(async () => {
                 try {
                     const detections = await faceapi
@@ -2960,7 +2960,7 @@ function generateComprehensivePrintHTML(attendanceData, studentInfo, deploymentI
                     }
                 });
             }
-            
+            //enr
             if (photoUpload) {
                 photoUpload.addEventListener('change', (e) => {
                     if (e.target.files.length > 0) {

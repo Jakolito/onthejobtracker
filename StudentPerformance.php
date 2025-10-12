@@ -839,7 +839,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OnTheJob Tracker - Student Performance with AI Prediction</title>
+    <title>OnTheJob Tracker - Student Performance</title>
     <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
     <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1062,7 +1062,7 @@ tailwind.config = {
                 <div class="flex-1 lg:ml-0 ml-4">
                     <h1 class="text-xl sm:text-2xl font-bold text-gray-900">
                         <?php if (!$view_student): ?>
-                              Student Performance with AI Prediction
+                              Student Performance 
                               <?php else: ?>
                             <?php echo htmlspecialchars($student_details['first_name'] . ' ' . $student_details['last_name']); ?>
                         <?php endif; ?>

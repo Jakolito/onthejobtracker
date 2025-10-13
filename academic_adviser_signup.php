@@ -279,6 +279,7 @@ $assigned_groups = $year_section . '-G1,' . $year_section . '-G2';
             }
         }
     }
+      
     
     </script>
 </head>

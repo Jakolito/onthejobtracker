@@ -101,7 +101,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                     <div class="bg-white border-t-4 border-bulsu-gold rounded-lg p-8 shadow-lg hover:-translate-y-2 hover:shadow-xl transition duration-300">
                         <div class="text-4xl mb-4">🤖</div>
-                        <h3 class="text-xl font-bold text-bulsu-maroon mb-2">AI-Based Performance Analysis</h3>
+                        <h3 class="text-xl font-bold text-bulsu-maroon mb-2">Performance Analysis</h3>
                         <p class="text-gray-600">Machine Learning algorithms analyze student feedback and performance data to predict trends and identify key success factors for BULSU OJT programs.</p>
                     </div>
                     <div class="bg-white border-t-4 border-bulsu-gold rounded-lg p-8 shadow-lg hover:-translate-y-2 hover:shadow-xl transition duration-300">

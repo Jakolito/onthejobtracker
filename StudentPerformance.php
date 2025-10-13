@@ -362,7 +362,7 @@ function getStudentDataForPrediction($student_id, $conn) {
 }
 
 // OJT Pass Prediction Function - CONSISTENT VERSION
-// OJT Pass Prediction Function - REALISTIC VERSION
+
 function predictOJTSuccess($studentData, $conn) {
     $prediction = [
         'pass_probability' => 0,

@@ -33,17 +33,18 @@ $adviser_assigned_groups = $adviser_data['assigned_groups'];
 mysqli_stmt_close($adviser_stmt);
 
 // Build WHERE clause for filtering students based on adviser's role and assignments
-function buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions = '') {
+
+// Build WHERE clause for filtering students based on adviser's role and assignments
+function buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions = '', $section_filter = []) {
     $student_where_clause = "s.status != 'Blocked'";
     
     // Apply filters based on role and assignments
     if ($adviser_role === 'coordinator') {
-        // Coordinators can see all OR filter by their assigned groups
-        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
-            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+        // For coordinators: Check if they selected a specific section
+        if (!empty($section_filter) && !in_array('', $section_filter)) {
+            // Specific section(s) selected
             $group_conditions = [];
-            
-            foreach ($groups as $group) {
+            foreach ($section_filter as $group) {
                 if (!empty($group)) {
                     $group_escaped = mysqli_real_escape_string($conn, $group);
                     
@@ -63,39 +64,74 @@ function buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups,
                 $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
             }
         }
-        // If coordinator has no assigned groups, they see ALL students (no additional filter)
+        // If "All Sections" is selected (empty section_filter), don't add any section filter
+        // Coordinator sees ALL students
         
     } elseif ($adviser_role === 'adviser') {
-        // Regular advisers MUST have assigned groups
-        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
-            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
-            $group_conditions = [];
-            
-            foreach ($groups as $group) {
-                if (!empty($group)) {
-                    $group_escaped = mysqli_real_escape_string($conn, $group);
-                    
-                    // Try both formats (space and hyphen)
-                    $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
-                    $group_with_space = str_replace('-G', ' G', $group_escaped);
-                    
-                    $group_conditions[] = "(
-                        TRIM(s.section) = TRIM('$group_escaped')
-                        OR TRIM(s.section) = TRIM('$group_with_hyphen')
-                        OR TRIM(s.section) = TRIM('$group_with_space')
-                    )";
+        // Regular advisers: Check if they selected a specific section from their assigned groups
+        if (!empty($section_filter) && !in_array('', $section_filter)) {
+            // Specific section selected - validate it's in their assigned groups
+            if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+                $assigned_groups = array_map('trim', explode(',', $adviser_assigned_groups));
+                $group_conditions = [];
+                
+                foreach ($section_filter as $selected_group) {
+                    // Check if selected group is in adviser's assigned groups
+                    if (in_array($selected_group, $assigned_groups)) {
+                        $group_escaped = mysqli_real_escape_string($conn, $selected_group);
+                        
+                        $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                        $group_with_space = str_replace('-G', ' G', $group_escaped);
+                        
+                        $group_conditions[] = "(
+                            TRIM(s.section) = TRIM('$group_escaped')
+                            OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                            OR TRIM(s.section) = TRIM('$group_with_space')
+                        )";
+                    }
                 }
-            }
-            
-            if (!empty($group_conditions)) {
-                $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+                
+                if (!empty($group_conditions)) {
+                    $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+                } else {
+                    // Selected section not in assigned groups - show nothing
+                    $student_where_clause .= " AND 1=0";
+                }
             } else {
-                // Adviser with no groups sees NO students
+                // No assigned groups - show nothing
                 $student_where_clause .= " AND 1=0";
             }
         } else {
-            // Adviser with no assigned groups sees NO students
-            $student_where_clause .= " AND 1=0";
+            // "All Sections" selected - show all their assigned groups
+            if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+                $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+                $group_conditions = [];
+                
+                foreach ($groups as $group) {
+                    if (!empty($group)) {
+                        $group_escaped = mysqli_real_escape_string($conn, $group);
+                        
+                        $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                        $group_with_space = str_replace('-G', ' G', $group_escaped);
+                        
+                        $group_conditions[] = "(
+                            TRIM(s.section) = TRIM('$group_escaped')
+                            OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                            OR TRIM(s.section) = TRIM('$group_with_space')
+                        )";
+                    }
+                }
+                
+                if (!empty($group_conditions)) {
+                    $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+                } else {
+                    // No valid groups - show nothing
+                    $student_where_clause .= " AND 1=0";
+                }
+            } else {
+                // No assigned groups - show nothing
+                $student_where_clause .= " AND 1=0";
+            }
         }
     }
     
@@ -114,40 +150,51 @@ if (isset($_POST['generate_report'])) {
     $date_to = $_POST['date_to'];
     $student_filter = $_POST['student_filter'] ?? '';
     
+    // NEW: Handle section filter
+    $section_filter = $_POST['section_filter'] ?? [];
+    // Convert to array if not already
+    if (!is_array($section_filter)) {
+        $section_filter = !empty($section_filter) ? [$section_filter] : [];
+    }
+    // Remove empty values
+    $section_filter = array_filter($section_filter, function($val) { return !empty($val); });
+    
     // Generate report based on type with adviser filtering
-    $report_data = generateReport($conn, $report_type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
+    $report_data = generateReport($conn, $report_type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
 }
 
-function generateReport($conn, $type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+function generateReport($conn, $type, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {
     $data = array();
     
     switch($type) {
         case 'student_information':
-            $data = generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
+            $data = generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
             break;
         case 'student_deployment':
-            $data = generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
+            $data = generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
             break;
         case 'student_attendance':
-            $data = generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
+            $data = generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
             break;
         case 'student_complete_ojt':
-            $data = generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups);
+            $data = generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
+            break;
+            case 'admin_alerts':
+            $data = generateAdminAlertsReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter);
             break;
     }
     
     return $data;
 }
 
-function generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
-    // For student information, use created_at OR allow all students (more flexible)
+function generateStudentInformationReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {    // For student information, use created_at OR allow all students (more flexible)
     $additional_conditions = "(s.created_at BETWEEN '$date_from' AND '$date_to' OR s.created_at IS NOT NULL)";
     
     if (!empty($student_filter)) {
         $additional_conditions .= " AND s.id = '$student_filter'";
     }
     
-    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
+$where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions, $section_filter);
     
     $query = "SELECT 
         s.id,
@@ -190,7 +237,7 @@ function generateStudentInformationReport($conn, $date_from, $date_to, $student_
     return array('students' => $students, 'type' => 'student_information');
 }
 
-function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {
     // For deployments, filter by deployment creation date OR show all deployments
     $additional_conditions = "sd.deployment_id IS NOT NULL AND (sd.created_at BETWEEN '$date_from' AND '$date_to' OR sd.start_date BETWEEN '$date_from' AND '$date_to' OR sd.end_date BETWEEN '$date_from' AND '$date_to')";
     
@@ -198,7 +245,7 @@ function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_f
         $additional_conditions .= " AND s.id = '$student_filter'";
     }
     
-    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
+$where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions, $section_filter);
     
     $query = "SELECT 
         s.student_id,
@@ -240,7 +287,7 @@ function generateStudentDeploymentReport($conn, $date_from, $date_to, $student_f
     return array('deployments' => $deployments, 'type' => 'student_deployment');
 }
 
-function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {
     // For attendance, filter by attendance date (this one should stay strict)
     $additional_conditions = "sa.attendance_id IS NOT NULL AND sa.date BETWEEN '$date_from' AND '$date_to'";
     
@@ -248,7 +295,7 @@ function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_f
         $additional_conditions .= " AND s.id = '$student_filter'";
     }
     
-    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
+$where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions, $section_filter);
     
     $query = "SELECT 
         s.student_id,
@@ -283,7 +330,7 @@ function generateStudentAttendanceReport($conn, $date_from, $date_to, $student_f
     return array('attendance_data' => $attendance_data, 'type' => 'student_attendance');
 }
 
-function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups) {
+function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {
     // For completed OJT, filter by completion date OR show all completed
     $additional_conditions = "sd.ojt_status = 'Completed' AND (sd.updated_at BETWEEN '$date_from' AND '$date_to' OR sd.end_date BETWEEN '$date_from' AND '$date_to')";
     
@@ -291,7 +338,7 @@ function generateStudentCompleteOJTReport($conn, $date_from, $date_to, $student_
         $additional_conditions .= " AND s.id = '$student_filter'";
     }
     
-    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions);
+$where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions, $section_filter);
     
     $query = "SELECT 
         s.student_id,
@@ -511,7 +558,423 @@ function generatePerformanceAnalysis($data) {
     
     return $analysis;
 }
-
+function generateAdminAlertsReport($conn, $date_from, $date_to, $student_filter, $adviser_role, $adviser_assigned_groups, $section_filter = []) {
+    // Build WHERE clause for student filtering
+    $additional_conditions = "1=1"; // Start with always true condition
+    
+    if (!empty($student_filter)) {
+        $additional_conditions .= " AND s.id = '$student_filter'";
+    }
+    
+    $where_clause = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, $additional_conditions, $section_filter);
+    
+    // ✅ FIXED: More flexible date filtering
+    $query = "
+        -- Task Alerts (EXISTING - KEEP AS IS)
+        SELECT 
+            s.id as student_db_id,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.section,
+            s.program,
+            'Task Alert' as alert_category,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN CONCAT(ra.alert_type, ' (RESOLVED)')
+                ELSE 'Overdue Tasks'
+            END as alert_type,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 'resolved'
+                WHEN COUNT(t.task_id) >= 5 THEN 'critical'
+                WHEN COUNT(t.task_id) >= 3 THEN 'warning'
+                ELSE 'info'
+            END as severity,
+            CONCAT(COUNT(t.task_id), ' overdue tasks (up to ', MAX(DATEDIFF(CURDATE(), t.due_date)), ' days late)') as details,
+            GROUP_CONCAT(DISTINCT t.task_title ORDER BY t.due_date SEPARATOR ' | ') as additional_info,
+            COALESCE(ra.resolved_at, MAX(t.due_date)) as alert_date,
+            ra.resolved_at,
+            ra.resolved_by,
+            ra.notes as resolution_notes
+        FROM students s
+        JOIN student_deployments sd ON s.id = sd.student_id
+        JOIN tasks t ON sd.deployment_id = t.deployment_id AND s.id = t.student_id
+        LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type = 'Overdue Tasks'
+        WHERE sd.ojt_status = 'Active' 
+        AND t.status IN ('Pending', 'In Progress')
+        AND t.due_date < CURDATE()
+        AND $where_clause
+        AND (
+            t.due_date >= DATE_SUB('$date_to', INTERVAL 90 DAY)
+            OR ra.resolved_at BETWEEN '$date_from' AND '$date_to'
+        )
+        GROUP BY s.id, ra.id
+        
+        UNION ALL
+        
+        -- ✅ FIXED: Attendance Alerts - More Comprehensive Query
+        SELECT 
+            s.id as student_db_id,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.section,
+            s.program,
+            'Attendance Alert' as alert_category,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 
+                    CASE 
+                        WHEN ra.alert_type LIKE '%Excessive%' THEN 'Excessive Absences (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%High%' THEN 'High Absence Rate (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%Multiple%' THEN 'Multiple Absences (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%No Recent%' THEN 'No Recent Attendance (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%Missing Recent%' THEN 'Missing Recent Attendance (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%Consecutive%' THEN 'Consecutive Absences (RESOLVED)'
+                        WHEN ra.alert_type LIKE '%Tardiness%' THEN 'Frequent Tardiness (RESOLVED)'
+                        ELSE CONCAT(ra.alert_type, ' (RESOLVED)')
+                    END
+                WHEN absent_days >= 10 THEN 'Excessive Absences'
+                WHEN absent_days >= 5 THEN 'High Absence Rate'
+                WHEN absent_days >= 3 THEN 'Multiple Absences'
+                WHEN days_since_last >= 7 THEN 'No Recent Attendance'
+                WHEN days_since_last >= 3 THEN 'Missing Recent Attendance'
+                WHEN consecutive_absences >= 3 THEN 'Consecutive Absences'
+                WHEN late_count >= 5 THEN 'Frequent Tardiness'
+                ELSE 'Attendance Concern'
+            END as alert_type,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 'resolved'
+                WHEN absent_days >= 10 OR days_since_last >= 7 OR consecutive_absences >= 5 THEN 'critical'
+                ELSE 'warning'
+            END as severity,
+            CASE
+                WHEN absent_days > 0 THEN CONCAT(absent_days, ' absent days out of ', total_expected_days, ' expected work days')
+                WHEN days_since_last > 0 THEN CONCAT('No attendance for ', days_since_last, ' days')
+                WHEN consecutive_absences > 0 THEN CONCAT(consecutive_absences, ' consecutive days absent')
+                WHEN late_count > 0 THEN CONCAT(late_count, ' late arrivals (avg ', ROUND(avg_late_minutes), ' min late)')
+                ELSE 'Attendance pattern concern'
+            END as details,
+            CONCAT(
+                'Attendance rate: ', ROUND(attendance_rate, 1), '% | ',
+                'Last attendance: ', COALESCE(DATE_FORMAT(last_attendance, '%b %d, %Y'), 'Never')
+            ) as additional_info,
+            COALESCE(ra.resolved_at, CURDATE()) as alert_date,
+            ra.resolved_at,
+            ra.resolved_by,
+            ra.notes as resolution_notes
+        FROM (
+            SELECT 
+                s.id,
+                s.student_id,
+                s.first_name,
+                s.last_name,
+                s.email,
+                s.section,
+                s.program,
+                sd.deployment_id,
+                sd.start_date,
+                sd.end_date,
+                cs.work_days,
+                
+                -- Calculate expected work days
+                COUNT(DISTINCT work_days_calendar.work_date) as total_expected_days,
+                
+                -- Calculate attendance metrics
+                COUNT(DISTINCT sa.date) as days_with_attendance,
+                COUNT(DISTINCT CASE WHEN sa.time_in IS NOT NULL AND sa.time_out IS NOT NULL THEN sa.date END) as complete_days,
+                COUNT(DISTINCT CASE WHEN sa.time_in IS NULL AND sa.time_out IS NULL THEN work_days_calendar.work_date END) as absent_days,
+                
+                -- Calculate attendance rate
+                CASE 
+                    WHEN COUNT(DISTINCT work_days_calendar.work_date) > 0 THEN
+                        (COUNT(DISTINCT CASE WHEN sa.time_in IS NOT NULL AND sa.time_out IS NOT NULL THEN sa.date END) / 
+                         COUNT(DISTINCT work_days_calendar.work_date)) * 100
+                    ELSE 0
+                END as attendance_rate,
+                
+                -- Days since last attendance
+                COALESCE(DATEDIFF(CURDATE(), MAX(sa.date)), 999) as days_since_last,
+                MAX(sa.date) as last_attendance,
+                
+                -- Consecutive absences (simplified calculation)
+                (
+                    SELECT COUNT(*)
+                    FROM student_attendance sa2
+                    WHERE sa2.student_id = s.id
+                    AND sa2.date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+                    AND sa2.time_in IS NULL 
+                    AND sa2.time_out IS NULL
+                    AND sa2.date >= (
+                        SELECT MAX(sa3.date)
+                        FROM student_attendance sa3
+                        WHERE sa3.student_id = s.id
+                        AND sa3.time_in IS NOT NULL
+                        AND sa3.date <= CURDATE()
+                    )
+                ) as consecutive_absences,
+                
+                -- Late arrivals
+                COUNT(DISTINCT CASE 
+                    WHEN sa.time_in IS NOT NULL 
+                    AND TIMESTAMPDIFF(MINUTE, ADDTIME(sa.date, cs.work_schedule_start), ADDTIME(sa.date, sa.time_in)) > 15 
+                    THEN sa.date 
+                END) as late_count,
+                
+                AVG(CASE 
+                    WHEN sa.time_in IS NOT NULL 
+                    AND TIMESTAMPDIFF(MINUTE, ADDTIME(sa.date, cs.work_schedule_start), ADDTIME(sa.date, sa.time_in)) > 15 
+                    THEN TIMESTAMPDIFF(MINUTE, ADDTIME(sa.date, cs.work_schedule_start), ADDTIME(sa.date, sa.time_in))
+                END) as avg_late_minutes
+                
+            FROM students s
+            JOIN student_deployments sd ON s.id = sd.student_id
+            JOIN company_supervisors cs ON sd.supervisor_id = cs.supervisor_id
+            JOIN (
+                SELECT 
+                    DATE_ADD(sd_inner.start_date, INTERVAL numbers.n DAY) as work_date,
+                    sd_inner.student_id
+                FROM student_deployments sd_inner
+                JOIN company_supervisors cs_inner ON sd_inner.supervisor_id = cs_inner.supervisor_id
+                JOIN (
+                    SELECT 0 as n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
+                    UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 
+                    UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 
+                    UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19 
+                    UNION SELECT 20 UNION SELECT 21 UNION SELECT 22 UNION SELECT 23 UNION SELECT 24 
+                    UNION SELECT 25 UNION SELECT 26 UNION SELECT 27 UNION SELECT 28 UNION SELECT 29 
+                    UNION SELECT 30 UNION SELECT 31 UNION SELECT 32 UNION SELECT 33 UNION SELECT 34 
+                    UNION SELECT 35 UNION SELECT 36 UNION SELECT 37 UNION SELECT 38 UNION SELECT 39 
+                    UNION SELECT 40 UNION SELECT 41 UNION SELECT 42 UNION SELECT 43 UNION SELECT 44 
+                    UNION SELECT 45 UNION SELECT 46 UNION SELECT 47 UNION SELECT 48 UNION SELECT 49 
+                    UNION SELECT 50 UNION SELECT 51 UNION SELECT 52 UNION SELECT 53 UNION SELECT 54 
+                    UNION SELECT 55 UNION SELECT 56 UNION SELECT 57 UNION SELECT 58 UNION SELECT 59 
+                    UNION SELECT 60 UNION SELECT 61 UNION SELECT 62 UNION SELECT 63 UNION SELECT 64 
+                    UNION SELECT 65 UNION SELECT 66 UNION SELECT 67 UNION SELECT 68 UNION SELECT 69 
+                    UNION SELECT 70 UNION SELECT 71 UNION SELECT 72 UNION SELECT 73 UNION SELECT 74 
+                    UNION SELECT 75 UNION SELECT 76 UNION SELECT 77 UNION SELECT 78 UNION SELECT 79 
+                    UNION SELECT 80 UNION SELECT 81 UNION SELECT 82 UNION SELECT 83 UNION SELECT 84 
+                    UNION SELECT 85 UNION SELECT 86 UNION SELECT 87 UNION SELECT 88 UNION SELECT 89 
+                    UNION SELECT 90
+                ) numbers ON DATE_ADD(sd_inner.start_date, INTERVAL numbers.n DAY) <= LEAST(sd_inner.end_date, CURDATE())
+                WHERE sd_inner.ojt_status = 'Active'
+                AND FIND_IN_SET(LOWER(DAYNAME(DATE_ADD(sd_inner.start_date, INTERVAL numbers.n DAY))), LOWER(cs_inner.work_days)) > 0
+            ) work_days_calendar ON work_days_calendar.student_id = s.id
+            LEFT JOIN student_attendance sa ON s.id = sa.student_id AND sa.date = work_days_calendar.work_date
+            WHERE sd.ojt_status = 'Active'
+            AND work_days_calendar.work_date >= sd.start_date 
+            AND work_days_calendar.work_date <= CURDATE()
+            AND $where_clause
+            GROUP BY s.id
+        ) attendance_data
+        JOIN students s ON attendance_data.id = s.id
+        LEFT JOIN resolved_alerts ra ON s.id = ra.student_id 
+            AND ra.alert_type IN (
+                'Excessive Absences', 'High Absence Rate', 'Multiple Absences', 
+                'No Recent Attendance', 'Missing Recent Attendance', 'Consecutive Absences', 
+                'Frequent Tardiness', 'Poor Attendance', 'Attendance Concern'
+            )
+        WHERE (
+            -- Active alerts
+            (absent_days >= 3 AND ra.id IS NULL) OR
+            (days_since_last >= 3 AND ra.id IS NULL) OR
+            (consecutive_absences >= 3 AND ra.id IS NULL) OR
+            (late_count >= 5 AND ra.id IS NULL) OR
+            (attendance_rate < 85 AND total_expected_days >= 5 AND ra.id IS NULL) OR
+            -- Resolved alerts within date range
+            (ra.resolved_at BETWEEN '$date_from' AND '$date_to')
+        )
+        
+        UNION ALL
+        
+        -- Performance Alerts (KEEP EXISTING)
+        SELECT 
+            s.id as student_db_id,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.section,
+            s.program,
+            'Performance Alert' as alert_category,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN CONCAT(ra.alert_type, ' (RESOLVED)')
+                WHEN se.equivalent_rating < 75 THEN 'Critical Performance Issue'
+                ELSE 'Low Performance Score'
+            END as alert_type,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 'resolved'
+                WHEN se.equivalent_rating < 75 THEN 'critical'
+                ELSE 'warning'
+            END as severity,
+            CONCAT('Score: ', se.total_score, '/200 (', se.equivalent_rating, '%) - ', se.verbal_interpretation) as details,
+            CONCAT('Evaluated: ', DATE_FORMAT(se.created_at, '%b %d, %Y')) as additional_info,
+            COALESCE(ra.resolved_at, se.created_at) as alert_date,
+            ra.resolved_at,
+            ra.resolved_by,
+            ra.notes as resolution_notes
+        FROM students s
+        JOIN student_deployments sd ON s.id = sd.student_id
+        JOIN student_evaluations se ON s.id = se.student_id
+        LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type IN ('Low Performance Score', 'Critical Performance Issue')
+        WHERE sd.ojt_status = 'Active'
+        AND se.equivalent_rating < 80
+        AND $where_clause
+        AND (
+            se.created_at >= DATE_SUB('$date_to', INTERVAL 90 DAY)
+            OR ra.resolved_at BETWEEN '$date_from' AND '$date_to'
+        )
+        
+        UNION ALL
+        
+        -- Wellbeing Alerts (KEEP EXISTING)
+        SELECT 
+            s.id as student_db_id,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.section,
+            s.program,
+            'Wellbeing Alert' as alert_category,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN CONCAT('Stress/Wellbeing Concern (RESOLVED)')
+                WHEN ssa.stress_level = 5 THEN 'Critical Stress Level'
+                WHEN ssa.stress_level = 4 THEN 'High Stress Level'
+                WHEN ssa.workplace_satisfaction <= 2 THEN 'Low Workplace Satisfaction'
+                ELSE 'Wellbeing Concerns'
+            END as alert_type,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 'resolved'
+                WHEN ssa.stress_level >= 4 OR ssa.workplace_satisfaction = 1 THEN 'critical'
+                ELSE 'warning'
+            END as severity,
+            CONCAT('Stress: ', ssa.stress_level, '/5 | Satisfaction: ', ssa.workplace_satisfaction, '/5 | Confidence: ', ssa.confidence_level, '/5') as details,
+            CONCAT('Challenges: ', SUBSTRING(ssa.challenges_faced, 1, 100)) as additional_info,
+            COALESCE(ra.resolved_at, ssa.created_at) as alert_date,
+            ra.resolved_at,
+            ra.resolved_by,
+            ra.notes as resolution_notes
+        FROM students s
+        JOIN student_deployments sd ON s.id = sd.student_id
+        JOIN student_self_assessments ssa ON s.id = ssa.student_id
+        LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type LIKE '%stress%'
+        WHERE sd.ojt_status = 'Active'
+        AND (ssa.stress_level >= 3 OR ssa.workplace_satisfaction <= 2 OR ssa.confidence_level <= 2)
+        AND $where_clause
+        AND (
+            ssa.created_at >= DATE_SUB('$date_to', INTERVAL 60 DAY)
+            OR ra.resolved_at BETWEEN '$date_from' AND '$date_to'
+        )
+        
+        UNION ALL
+        
+        -- Document Alerts (KEEP EXISTING)
+        SELECT 
+            s.id as student_db_id,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.section,
+            s.program,
+            'Document Alert' as alert_category,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN CONCAT('Document Issue (RESOLVED)')
+                WHEN sd_doc.id IS NULL AND dr.submission_deadline < CURDATE() THEN 'Document Overdue - Not Submitted'
+                WHEN sd_doc.status = 'rejected' AND dr.submission_deadline < CURDATE() THEN 'Rejected Document Overdue'
+                WHEN sd_doc.id IS NULL THEN 'Document Pending Submission'
+                ELSE 'Document Resubmission Needed'
+            END as alert_type,
+            CASE 
+                WHEN ra.id IS NOT NULL THEN 'resolved'
+                WHEN dr.submission_deadline < CURDATE() THEN 'critical'
+                WHEN DATEDIFF(dr.submission_deadline, CURDATE()) <= 3 THEN 'critical'
+                ELSE 'warning'
+            END as severity,
+            CONCAT(dr.name, ' - Deadline: ', DATE_FORMAT(dr.submission_deadline, '%b %d, %Y')) as details,
+            CASE 
+                WHEN sd_doc.status = 'rejected' THEN CONCAT('Status: Rejected | Needs resubmission')
+                WHEN sd_doc.id IS NULL THEN 'Status: Not submitted'
+                ELSE CONCAT('Status: ', sd_doc.status)
+            END as additional_info,
+            COALESCE(ra.resolved_at, dr.submission_deadline) as alert_date,
+            ra.resolved_at,
+            ra.resolved_by,
+            ra.notes as resolution_notes
+        FROM students s
+        CROSS JOIN document_requirements dr
+        LEFT JOIN student_documents sd_doc ON s.id = sd_doc.student_id AND dr.id = sd_doc.document_id
+        LEFT JOIN resolved_alerts ra ON s.id = ra.student_id AND ra.alert_type LIKE CONCAT('%', dr.name, '%')
+        WHERE s.verified = 1
+        AND s.status = 'Active'
+        AND $where_clause
+        AND (
+            dr.submission_deadline >= DATE_SUB('$date_to', INTERVAL 60 DAY)
+            OR ra.resolved_at BETWEEN '$date_from' AND '$date_to'
+        )
+        AND (
+            sd_doc.id IS NULL 
+            OR sd_doc.status = 'rejected'
+            OR ra.id IS NOT NULL
+        )
+        
+        ORDER BY alert_date DESC, severity ASC
+    ";
+    
+    $result = mysqli_query($conn, $query);
+    
+    if (!$result) {
+        error_log("Admin Alerts Report Query Error: " . mysqli_error($conn));
+        return array('alerts' => array(), 'type' => 'admin_alerts', 'error' => mysqli_error($conn));
+    }
+    
+    $alerts = array();
+    $stats = array(
+        'total' => 0,
+        'critical' => 0,
+        'warning' => 0,
+        'resolved' => 0,
+        'by_category' => array(
+            'Task Alert' => 0,
+            'Attendance Alert' => 0,
+            'Performance Alert' => 0,
+            'Wellbeing Alert' => 0,
+            'Document Alert' => 0
+        ),
+        'by_type' => array()
+    );
+    
+    while ($row = mysqli_fetch_assoc($result)) {
+        $alerts[] = $row;
+        $stats['total']++;
+        
+        if ($row['resolved_at']) {
+            $stats['resolved']++;
+        }
+        
+        if ($row['severity'] === 'critical') {
+            $stats['critical']++;
+        } elseif ($row['severity'] === 'warning') {
+            $stats['warning']++;
+        }
+        
+        // Count by category
+        if (isset($stats['by_category'][$row['alert_category']])) {
+            $stats['by_category'][$row['alert_category']]++;
+        }
+        
+        // Count by specific alert type
+        $type_key = $row['alert_type'];
+        if (!isset($stats['by_type'][$type_key])) {
+            $stats['by_type'][$type_key] = 0;
+        }
+        $stats['by_type'][$type_key]++;
+    }
+    
+    return array(
+        'alerts' => $alerts, 
+        'type' => 'admin_alerts',
+        'stats' => $stats,
+        'date_from' => $date_from,
+        'date_to' => $date_to
+    );
+}
 // Get unread messages count with filtering
 $unread_messages_query = "SELECT COUNT(*) as count 
     FROM messages m 
@@ -520,13 +983,13 @@ $unread_messages_query = "SELECT COUNT(*) as count
     AND m.sender_type = 'student' 
     AND m.is_read = 0 
     AND m.is_deleted_by_recipient = 0 
-    AND " . buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups);
+    AND " . buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, '', []);
 $unread_messages_result = mysqli_query($conn, $unread_messages_query);
 $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
 
 // Get filter options for students with adviser filtering
 // Get filter options for students with adviser filtering (ALL students, verified or not)
-$students_where = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups);
+$students_where = buildStudentWhereClause($conn, $adviser_role, $adviser_assigned_groups, '', []);
 $students_query = "SELECT s.id, CONCAT(s.first_name, ' ', s.last_name) as name, s.student_id, s.section 
                    FROM students s 
                    WHERE $students_where 
@@ -619,6 +1082,7 @@ tailwind.config = {
     #mobileMenuBtn, #profileBtn, #profileDropdown {
         display: none !important;
     }
+    
     
     /* Reset layout for print */
     .main-content, body {
@@ -921,6 +1385,10 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+            <a href="AcademicStudentEvaluation.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-star mr-3"></i>
+                    Student Evaluation
+                </a>
              <?php if ($adviser_role === 'coordinator'): ?>
             <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-user-tie mr-3"></i>
@@ -1027,6 +1495,8 @@ tailwind.config = {
                                 <option value="student_deployment">Student Deployment Report</option>
                                 <option value="student_attendance">Student Attendance Report</option>
                                 <option value="student_complete_ojt">Student Complete OJT Report</option>
+                                <option value="admin_alerts">Administrative Alerts Report</option>
+
                             </select>
                         </div>
                         
@@ -1045,16 +1515,66 @@ tailwind.config = {
                         </div>
                         
                         <div>
-                            <label for="student_filter" class="block text-sm font-medium text-gray-700 mb-2">Filter by Student (Optional)</label>
-                            <select name="student_filter" id="student_filter" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">All Students</option>
-                                <?php while ($student = mysqli_fetch_assoc($students_result)): ?>
-                                    <option value="<?php echo $student['id']; ?>">
-                                        <?php echo htmlspecialchars($student['name'] . ' (' . $student['student_id'] . ')'); ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                        </div>
+    <label for="student_filter" class="block text-sm font-medium text-gray-700 mb-2">Filter by Student (Optional)</label>
+    <select name="student_filter" id="student_filter" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All Students</option>
+        <?php while ($student = mysqli_fetch_assoc($students_result)): ?>
+            <option value="<?php echo $student['id']; ?>">
+                <?php echo htmlspecialchars($student['name'] . ' (' . $student['student_id'] . ')'); ?>
+            </option>
+        <?php endwhile; ?>
+    </select>
+</div>
+
+<!-- NEW SECTION FILTER FIELD -->
+<div>
+    <label for="section_filter" class="block text-sm font-medium text-gray-700 mb-2">
+        Filter by Section <?php echo ($adviser_role === 'adviser') ? '(Your Assigned Groups)' : '(Optional)'; ?>
+    </label>
+    
+    <select name="section_filter" id="section_filter" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All Sections</option>
+        <?php 
+        if ($adviser_role === 'coordinator') {
+            // Coordinator: Show all unique sections from students table
+            $sections_query = "SELECT DISTINCT section FROM students WHERE section IS NOT NULL AND section != '' ORDER BY section";
+            $sections_result = mysqli_query($conn, $sections_query);
+            while ($section = mysqli_fetch_assoc($sections_result)): 
+        ?>
+                <option value="<?php echo htmlspecialchars($section['section']); ?>">
+                    <?php echo htmlspecialchars($section['section']); ?>
+                </option>
+        <?php 
+            endwhile;
+        } else {
+            // Adviser: Show only their assigned groups
+            if (!empty($adviser_assigned_groups)) {
+                $assigned_groups = array_map('trim', explode(',', $adviser_assigned_groups));
+                foreach ($assigned_groups as $group):
+                    if (!empty($group)):
+        ?>
+                        <option value="<?php echo htmlspecialchars($group); ?>">
+                            <?php echo htmlspecialchars($group); ?>
+                        </option>
+        <?php 
+                    endif;
+                endforeach;
+            } else {
+                // No assigned groups
+                echo '<option value="" disabled>No assigned groups</option>';
+            }
+        }
+        ?>
+    </select>
+    
+    <p class="text-xs text-gray-500 mt-1">
+        <?php if ($adviser_role === 'coordinator'): ?>
+            Select a section to filter, or leave as "All Sections"
+        <?php else: ?>
+            Your assigned section groups only
+        <?php endif; ?>
+    </p>
+</div>
                     </div>
                     
                     <div class="mt-6 text-center">
@@ -1430,6 +1950,214 @@ tailwind.config = {
                             <?php endif; ?>
                         </div>
                     </div>
+                   <?php elseif ($report_data['type'] === 'admin_alerts'): ?>
+    <!-- Administrative Alerts Report - UPDATED CONSISTENT DESIGN -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div class="p-4 sm:p-6 border-b border-gray-200">
+            <h2 class="text-xl font-bold text-gray-900 mb-2">Administrative Alerts Report</h2>
+            <p class="text-sm text-gray-600">
+                Comprehensive alert monitoring and tracking system from 
+                <?php echo date('M j, Y', strtotime($report_data['date_from'])); ?> to 
+                <?php echo date('M j, Y', strtotime($report_data['date_to'])); ?>
+            </p>
+        </div>
+        
+        <div class="p-4 sm:p-6">
+            <?php if (!empty($report_data['alerts'])): ?>
+                <!-- Summary Statistics Cards - Matching other reports style -->
+                <div class="mt-6 grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+                    <div class="bg-blue-50 rounded-lg p-4 text-center">
+                        <div class="text-3xl font-bold text-blue-600"><?php echo $report_data['stats']['total']; ?></div>
+                        <div class="text-sm text-blue-800 font-medium">Total Alerts</div>
+                    </div>
+                    <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-yellow-600"><?php echo $report_data['stats']['by_category']['Task Alert'] ?? 0; ?></div>
+                        <div class="text-sm text-yellow-800">Task Alerts</div>
+                    </div>
+                    <div class="bg-red-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-red-600"><?php echo $report_data['stats']['by_category']['Attendance Alert'] ?? 0; ?></div>
+                        <div class="text-sm text-red-800">Attendance</div>
+                    </div>
+                    <div class="bg-purple-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-purple-600"><?php echo $report_data['stats']['by_category']['Performance Alert'] ?? 0; ?></div>
+                        <div class="text-sm text-purple-800">Performance</div>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-green-600"><?php echo $report_data['stats']['by_category']['Wellbeing Alert'] ?? 0; ?></div>
+                        <div class="text-sm text-green-800">Wellbeing</div>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-gray-600"><?php echo $report_data['stats']['by_category']['Document Alert'] ?? 0; ?></div>
+                        <div class="text-sm text-gray-800">Document</div>
+                    </div>
+                </div>
+
+                <!-- Main Alerts Table - Matching other reports style -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Category</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Type</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <?php foreach ($report_data['alerts'] as $alert): ?>
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($alert['student_name']); ?></div>
+                                        <div class="text-sm text-gray-500"><?php echo htmlspecialchars($alert['student_id']); ?></div>
+                                        <div class="text-xs text-gray-400"><?php echo htmlspecialchars($alert['section']); ?></div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <?php 
+                                        $category_class = '';
+                                        switch($alert['alert_category']) {
+                                            case 'Task Alert': $category_class = 'bg-yellow-100 text-yellow-800'; break;
+                                            case 'Attendance Alert': $category_class = 'bg-red-100 text-red-800'; break;
+                                            case 'Performance Alert': $category_class = 'bg-purple-100 text-purple-800'; break;
+                                            case 'Wellbeing Alert': $category_class = 'bg-green-100 text-green-800'; break;
+                                            case 'Document Alert': $category_class = 'bg-gray-100 text-gray-800'; break;
+                                            default: $category_class = 'bg-blue-100 text-blue-800';
+                                        }
+                                        ?>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $category_class; ?>">
+                                            <?php echo htmlspecialchars($alert['alert_category']); ?>
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm text-gray-900 font-medium"><?php echo htmlspecialchars($alert['alert_type']); ?></div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm text-gray-900"><?php echo htmlspecialchars($alert['details']); ?></div>
+                                        <?php if (!empty($alert['additional_info'])): ?>
+                                            <div class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars(substr($alert['additional_info'], 0, 80)); ?><?php echo strlen($alert['additional_info']) > 80 ? '...' : ''; ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm text-gray-900"><?php echo date('M j, Y', strtotime($alert['alert_date'])); ?></div>
+                                        <div class="text-xs text-gray-500"><?php echo date('g:i A', strtotime($alert['alert_date'])); ?></div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <?php 
+                                        if ($alert['resolved_at']) {
+                                            $status_class = 'bg-green-100 text-green-800';
+                                            $icon = 'fa-check-circle';
+                                            $status_text = 'Resolved';
+                                        } elseif ($alert['severity'] === 'critical') {
+                                            $status_class = 'bg-red-100 text-red-800';
+                                            $icon = 'fa-exclamation-triangle';
+                                            $status_text = 'Critical';
+                                        } elseif ($alert['severity'] === 'warning') {
+                                            $status_class = 'bg-yellow-100 text-yellow-800';
+                                            $icon = 'fa-exclamation-circle';
+                                            $status_text = 'Warning';
+                                        } else {
+                                            $status_class = 'bg-blue-100 text-blue-800';
+                                            $icon = 'fa-info-circle';
+                                            $status_text = 'Info';
+                                        }
+                                        ?>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $status_class; ?>">
+                                            <i class="fas <?php echo $icon; ?> mr-1"></i>
+                                            <?php echo $status_text; ?>
+                                        </span>
+                                        
+                                        <?php if ($alert['resolved_at']): ?>
+                                            <div class="text-xs text-gray-500 mt-1">
+                                                <?php echo date('M j, Y', strtotime($alert['resolved_at'])); ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Alert Analysis Cards - Matching other reports style -->
+                <div class="mt-8 space-y-6">
+                    <!-- Resolution Rate Analysis -->
+                    <div class="bg-gray-50 rounded-lg p-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Alert Resolution Analysis</h3>
+
+                        
+                        
+                    </div>
+                    
+                    <!-- Category Breakdown -->
+                    <div class="bg-gray-50 rounded-lg p-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Alert Category Breakdown</h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                            <?php foreach ($report_data['stats']['by_category'] as $category => $count): ?>
+                                <?php if ($count > 0): ?>
+                                    <div class="bg-white p-4 rounded-lg border">
+                                        <div class="text-center">
+                                            <div class="text-xl font-bold text-gray-900"><?php echo $count; ?></div>
+                                            <div class="text-sm text-gray-600"><?php echo $category; ?></div>
+                                            <div class="text-xs text-gray-500 mt-1">
+                                                <?php echo round(($count / $report_data['stats']['total']) * 100, 1); ?>% of total
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    
+                    <!-- Pending Alerts Warning -->
+                    <?php if ($report_data['stats']['total'] - $report_data['stats']['resolved'] > 0): ?>
+                        <div class="bg-red-50 border-l-4 border-red-400 p-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <i class="fas fa-exclamation-triangle text-red-400"></i>
+                                </div>
+                                <div class="ml-3">
+                                    <h4 class="text-sm font-medium text-red-800">Pending Alerts Require Attention</h4>
+                                    <p class="mt-1 text-sm text-red-700">
+                                        <strong><?php echo $report_data['stats']['total'] - $report_data['stats']['resolved']; ?></strong> 
+                                        alerts are still pending action and require immediate follow-up.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <div class="bg-green-50 border-l-4 border-green-400 p-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <i class="fas fa-check-circle text-green-400"></i>
+                                </div>
+                                <div class="ml-3">
+                                    <h4 class="text-sm font-medium text-green-800">Excellent Alert Management</h4>
+                                    <p class="mt-1 text-sm text-green-700">
+                                        All alerts for the selected period have been successfully resolved!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+            <?php else: ?>
+                <div class="text-center py-8">
+                    <i class="fas fa-bell-slash text-gray-400 text-4xl mb-4"></i>
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">No Alerts Found</h3>
+                    <p class="text-gray-600">No administrative alerts found for the selected criteria and date range.</p>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+
+
+                
+                    
+
 
               <?php elseif ($report_data['type'] === 'student_complete_ojt'): ?>
     <div class="bg-white rounded-lg shadow-sm border border-gray-200">

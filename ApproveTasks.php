@@ -82,35 +82,124 @@ if (isset($_POST['action']) && isset($_POST['submission_id'])) {
     
     try {
         if ($action === 'approve') {
-            // Update submission status to approved
-            $update_stmt = $conn->prepare("UPDATE task_submissions SET status = 'Approved', feedback = ?, reviewed_at = NOW() WHERE submission_id = ?");
-            $update_stmt->bind_param("si", $feedback, $submission_id);
-            $update_stmt->execute();
+            // ✅ FIX: Update ALL collaborative submissions, not just one
+            // First, get the task info to find all related tasks
+            $get_task = $conn->prepare("
+                SELECT t.task_title, t.supervisor_id, t.due_date, t.created_at
+                FROM task_submissions ts
+                JOIN tasks t ON ts.task_id = t.task_id
+                WHERE ts.submission_id = ?
+            ");
+            $get_task->bind_param("i", $submission_id);
+            $get_task->execute();
+            $task_info = $get_task->get_result()->fetch_assoc();
+            $get_task->close();
             
-            // Update task status to completed
-            $task_stmt = $conn->prepare("UPDATE tasks t 
-                                      JOIN task_submissions ts ON t.task_id = ts.task_id 
-                                      SET t.status = 'Completed' 
-                                      WHERE ts.submission_id = ?");
-            $task_stmt->bind_param("i", $submission_id);
-            $task_stmt->execute();
+            if ($task_info) {
+                // Update ALL team members' submissions to Approved
+                $update_submissions = $conn->prepare("
+                    UPDATE task_submissions ts
+                    JOIN tasks t ON ts.task_id = t.task_id
+                    SET ts.status = 'Approved', 
+                        ts.feedback = ?, 
+                        ts.reviewed_at = NOW()
+                    WHERE t.task_title = ?
+                        AND t.supervisor_id = ?
+                        AND t.due_date = ?
+                        AND t.created_at = ?
+                ");
+                $update_submissions->bind_param("ssiss", 
+                    $feedback, 
+                    $task_info['task_title'], 
+                    $task_info['supervisor_id'], 
+                    $task_info['due_date'], 
+                    $task_info['created_at']
+                );
+                $update_submissions->execute();
+                $update_submissions->close();
+                
+                // Update ALL team members' tasks to Completed
+                $update_tasks = $conn->prepare("
+                    UPDATE tasks 
+                    SET status = 'Completed' 
+                    WHERE task_title = ?
+                        AND supervisor_id = ?
+                        AND due_date = ?
+                        AND created_at = ?
+                ");
+                $update_tasks->bind_param("siss", 
+                    $task_info['task_title'], 
+                    $task_info['supervisor_id'], 
+                    $task_info['due_date'], 
+                    $task_info['created_at']
+                );
+                $update_tasks->execute();
+                $update_tasks->close();
+                
+                $_SESSION['success_message'] = "Task approved for all team members successfully!";
+            } else {
+                throw new Exception("Task not found.");
+            }
             
-            $_SESSION['success_message'] = "Task submission approved successfully!";
         } elseif ($action === 'reject') {
-            // Update submission status to rejected
-            $update_stmt = $conn->prepare("UPDATE task_submissions SET status = 'Rejected', feedback = ?, reviewed_at = NOW() WHERE submission_id = ?");
-            $update_stmt->bind_param("si", $feedback, $submission_id);
-            $update_stmt->execute();
+            // ✅ FIX: Reject ALL collaborative submissions
+            // Get task info first
+            $get_task = $conn->prepare("
+                SELECT t.task_title, t.supervisor_id, t.due_date, t.created_at
+                FROM task_submissions ts
+                JOIN tasks t ON ts.task_id = t.task_id
+                WHERE ts.submission_id = ?
+            ");
+            $get_task->bind_param("i", $submission_id);
+            $get_task->execute();
+            $task_info = $get_task->get_result()->fetch_assoc();
+            $get_task->close();
             
-            // Update task status back to pending
-            $task_stmt = $conn->prepare("UPDATE tasks t 
-                                      JOIN task_submissions ts ON t.task_id = ts.task_id 
-                                      SET t.status = 'Pending' 
-                                      WHERE ts.submission_id = ?");
-            $task_stmt->bind_param("i", $submission_id);
-            $task_stmt->execute();
-            
-            $_SESSION['success_message'] = "Task submission rejected. Student can resubmit.";
+            if ($task_info) {
+                // Update ALL team members' submissions to Rejected
+                $update_submissions = $conn->prepare("
+                    UPDATE task_submissions ts
+                    JOIN tasks t ON ts.task_id = t.task_id
+                    SET ts.status = 'Rejected', 
+                        ts.feedback = ?, 
+                        ts.reviewed_at = NOW()
+                    WHERE t.task_title = ?
+                        AND t.supervisor_id = ?
+                        AND t.due_date = ?
+                        AND t.created_at = ?
+                ");
+                $update_submissions->bind_param("ssiss", 
+                    $feedback, 
+                    $task_info['task_title'], 
+                    $task_info['supervisor_id'], 
+                    $task_info['due_date'], 
+                    $task_info['created_at']
+                );
+                $update_submissions->execute();
+                $update_submissions->close();
+                
+                // Update ALL team members' tasks back to In Progress (so they can resubmit)
+                $update_tasks = $conn->prepare("
+                    UPDATE tasks 
+                    SET status = 'In Progress' 
+                    WHERE task_title = ?
+                        AND supervisor_id = ?
+                        AND due_date = ?
+                        AND created_at = ?
+                ");
+                $update_tasks->bind_param("siss", 
+                    $task_info['task_title'], 
+                    $task_info['supervisor_id'], 
+                    $task_info['due_date'], 
+                    $task_info['created_at']
+                );
+                $update_tasks->execute();
+                $update_tasks->close();
+                
+                $_SESSION['success_message'] = "Task rejected for all team members. They can resubmit.";
+            } else {
+                throw new Exception("Task not found.");
+            }
         }
     } catch (Exception $e) {
         $_SESSION['error_message'] = "Error processing action: " . $e->getMessage();
@@ -137,13 +226,11 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
 // Get task submissions for this supervisor
 try {
-    // Get total count first
+    // Get total count - GROUP BY task to avoid duplicates
     $count_query = "
-        SELECT COUNT(*) as total
+        SELECT COUNT(DISTINCT CONCAT(t.task_title, '-', t.supervisor_id, '-', t.due_date, '-', t.created_at)) as total
         FROM task_submissions ts
         JOIN tasks t ON ts.task_id = t.task_id
-        JOIN students s ON ts.student_id = s.id
-        LEFT JOIN student_deployments sd ON s.id = sd.student_id AND sd.status = 'Active'
         WHERE t.supervisor_id = ?" . $filter_condition;
 
     if ($filter_condition) {
@@ -159,35 +246,53 @@ try {
     $total_submissions = $count_result->fetch_assoc()['total'];
     $total_pages = ceil($total_submissions / $items_per_page);
     
-    // Get paginated submissions
+    // ✅ UPDATED QUERY - Group collaborative submissions into ONE entry
     $submissions_query = "
         SELECT 
-            ts.*,
+            MIN(ts.submission_id) as submission_id,
+            MIN(ts.task_id) as task_id,
             t.task_title,
             t.task_description,
             t.due_date,
             t.priority,
-            s.first_name,
-            s.middle_name,
-            s.last_name,
-            s.student_id,
-            s.email as student_email,
-            s.program,
-            s.department,
-            sd.position as deployment_position
-        FROM task_submissions ts
-        JOIN tasks t ON ts.task_id = t.task_id
+            t.task_category,
+            MIN(ts.submission_description) as submission_description,
+            MIN(ts.attachment) as attachment,
+            MIN(ts.status) as status,
+            MIN(ts.feedback) as feedback,
+            MIN(ts.submitted_at) as submitted_at,
+            MIN(ts.reviewed_at) as reviewed_at,
+            GROUP_CONCAT(DISTINCT CONCAT(s.first_name, ' ', IFNULL(CONCAT(s.middle_name, ' '), ''), s.last_name) ORDER BY s.first_name SEPARATOR ', ') as collaborators,
+            GROUP_CONCAT(DISTINCT s.student_id ORDER BY s.first_name SEPARATOR ', ') as student_ids,
+            GROUP_CONCAT(DISTINCT s.id ORDER BY s.first_name SEPARATOR ',') as student_db_ids,
+            COUNT(DISTINCT t2.student_id) as total_collaborators,
+            MIN(s.first_name) as first_name,
+            MIN(s.middle_name) as middle_name,
+            MIN(s.last_name) as last_name,
+            MIN(s.student_id) as student_id,
+            MIN(s.email) as student_email,
+            MIN(s.program) as program,
+            MIN(s.department) as department,
+            MIN(sd.position) as deployment_position
+        FROM tasks t
+        JOIN task_submissions ts ON t.task_id = ts.task_id
         JOIN students s ON ts.student_id = s.id
         LEFT JOIN student_deployments sd ON s.id = sd.student_id AND sd.status = 'Active'
+        LEFT JOIN tasks t2 ON t.task_title = t2.task_title 
+            AND t.supervisor_id = t2.supervisor_id 
+            AND t.due_date = t2.due_date
+            AND t.created_at = t2.created_at
         WHERE t.supervisor_id = ?" . $filter_condition . "
+        GROUP BY t.task_title, t.supervisor_id, t.due_date, t.created_at, 
+                 t.task_description, t.priority, t.task_category
         ORDER BY 
-            CASE ts.status 
+            CASE MIN(ts.status)
                 WHEN 'Submitted' THEN 1 
                 WHEN 'Reviewed' THEN 2 
                 WHEN 'Approved' THEN 3 
                 WHEN 'Rejected' THEN 4 
             END,
-            ts.submitted_at DESC
+            MIN(ts.submitted_at) DESC
         LIMIT ? OFFSET ?
     ";
     
@@ -203,10 +308,16 @@ try {
     // Get statistics for all submissions (not just current page)
     $stats_query = "
         SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN ts.status = 'Submitted' THEN 1 ELSE 0 END) as pending,
-            SUM(CASE WHEN ts.status = 'Approved' THEN 1 ELSE 0 END) as approved,
-            SUM(CASE WHEN ts.status = 'Rejected' THEN 1 ELSE 0 END) as rejected
+            COUNT(DISTINCT CONCAT(t.task_title, '-', t.supervisor_id, '-', t.due_date, '-', t.created_at)) as total,
+            COUNT(DISTINCT CASE WHEN ts.status = 'Submitted' 
+                THEN CONCAT(t.task_title, '-', t.supervisor_id, '-', t.due_date, '-', t.created_at) 
+                END) as pending,
+            COUNT(DISTINCT CASE WHEN ts.status = 'Approved' 
+                THEN CONCAT(t.task_title, '-', t.supervisor_id, '-', t.due_date, '-', t.created_at) 
+                END) as approved,
+            COUNT(DISTINCT CASE WHEN ts.status = 'Rejected' 
+                THEN CONCAT(t.task_title, '-', t.supervisor_id, '-', t.due_date, '-', t.created_at) 
+                END) as rejected
         FROM task_submissions ts
         JOIN tasks t ON ts.task_id = t.task_id
         WHERE t.supervisor_id = ?
@@ -218,20 +329,16 @@ try {
     $stats_result = $stats_stmt->get_result();
     $stats = $stats_result->fetch_assoc();
 
-    $total_all_submissions = $stats['total'];
-    $pending_submissions = $stats['pending'];
-    $approved_submissions = $stats['approved'];
-    $rejected_submissions = $stats['rejected'];
+    $total_all_submissions = (int)$stats['total'];
+    $pending_submissions = (int)$stats['pending'];
+    $approved_submissions = (int)$stats['approved'];
+    $rejected_submissions = (int)$stats['rejected'];
     
 } catch (Exception $e) {
     $error_message = "Error fetching submissions: " . $e->getMessage();
     $submissions = [];
     $total_submissions = 0;
     $total_pages = 0;
-    $total_all_submissions = 0;
-    $pending_submissions = 0;
-    $approved_submissions = 0;
-    $rejected_submissions = 0;
 }
 ?>
 
@@ -409,6 +516,10 @@ tailwind.config = {
                 <i class="fas fa-clock mr-3"></i>
                 Student Time Record
             </a>
+             <a href="CompanyScheduleManager.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Schedule Manager
+                </a>
             <a href="ApproveTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
                 <i class="fas fa-comment-dots mr-3 text-bulsu-gold"></i>
                 Task Approval Management
@@ -677,22 +788,23 @@ tailwind.config = {
                             </div>
                             
                             <!-- Student Info -->
-                            <div class="flex items-center justify-between bg-gray-50 rounded-lg p-4 mb-4">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                                        <?php echo $student_initials; ?>
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium text-gray-900"><?php echo htmlspecialchars($student_full_name); ?></h4>
-                                        <p class="text-sm text-gray-600"><?php echo htmlspecialchars($submission['student_id']); ?> • <?php echo htmlspecialchars($submission['program']); ?></p>
-                                        <p class="text-xs text-gray-500"><?php echo htmlspecialchars($submission['deployment_position'] ?? 'Position not assigned'); ?></p>
-                                    </div>
-                                </div>
-                                <div class="text-right text-sm">
-                                    <div class="text-gray-500">Due Date</div>
-                                    <div class="font-medium text-gray-900"><?php echo date('M j, Y', strtotime($submission['due_date'])); ?></div>
-                                </div>
-                            </div>
+                            <?php if ($submission['total_collaborators'] > 1): ?>
+    <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div class="flex items-center mb-2">
+            <i class="fas fa-users text-blue-600 mr-2"></i>
+            <span class="text-sm font-medium text-blue-800">
+                Collaborative Task - <?php echo $submission['total_collaborators']; ?> Students
+            </span>
+        </div>
+        <p class="text-xs text-blue-600">
+            Team Members: <?php echo htmlspecialchars($submission['collaborators']); ?>
+        </p>
+        <div class="mt-2 p-2 bg-blue-100 rounded text-xs text-blue-800">
+            <i class="fas fa-info-circle mr-1"></i>
+            This is a shared submission. All team members submitted the same work.
+        </div>
+    </div>
+<?php endif; ?>
                             
                             <!-- Compact summary for approved/rejected submissions -->
                             <div class="compact-summary bg-gray-50 border-l-4 border-l-blue-500 p-3 mb-4 rounded text-sm text-gray-600">
@@ -744,18 +856,25 @@ tailwind.config = {
                             </div>
                             
                             <!-- Action Buttons -->
-                            <div class="flex flex-col sm:flex-row gap-3">
-                                <?php if ($submission['status'] === 'Submitted'): ?>
-                                    <button onclick="showApproveModal(<?php echo $submission['submission_id']; ?>, '<?php echo htmlspecialchars($submission['task_title']); ?>', '<?php echo htmlspecialchars($student_full_name); ?>')" 
-                                            class="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors">
-                                        <i class="fas fa-check mr-2"></i>
-                                        Approve
-                                    </button>
-                                    <button onclick="showRejectModal(<?php echo $submission['submission_id']; ?>, '<?php echo htmlspecialchars($submission['task_title']); ?>', '<?php echo htmlspecialchars($student_full_name); ?>')" 
-                                            class="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors">
-                                        <i class="fas fa-times mr-2"></i>
-                                        Reject
-                                    </button>
+                            <!-- Action Buttons -->
+<div class="flex flex-col sm:flex-row gap-3">
+    <?php if ($submission['status'] === 'Submitted'): ?>
+        <?php 
+        // Use collaborators if multiple students, otherwise use single student name
+        $display_names = ($submission['total_collaborators'] > 1) 
+            ? htmlspecialchars($submission['collaborators']) 
+            : htmlspecialchars($student_full_name);
+        ?>
+        <button onclick="showApproveModal(<?php echo $submission['submission_id']; ?>, '<?php echo htmlspecialchars($submission['task_title']); ?>', '<?php echo $display_names; ?>', <?php echo $submission['total_collaborators']; ?>)" 
+                class="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors">
+            <i class="fas fa-check mr-2"></i>
+            Approve
+        </button>
+        <button onclick="showRejectModal(<?php echo $submission['submission_id']; ?>, '<?php echo htmlspecialchars($submission['task_title']); ?>', '<?php echo $display_names; ?>', <?php echo $submission['total_collaborators']; ?>)" 
+                class="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors">
+            <i class="fas fa-times mr-2"></i>
+            Reject
+        </button>
                                 <?php else: ?>
                                     <button onclick="viewSubmissionDetails(<?php echo $submission['submission_id']; ?>)" 
                                             class="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
@@ -900,9 +1019,11 @@ tailwind.config = {
                     <input type="hidden" id="approve_submission_id" name="submission_id" value="">
                     
                     <div class="bg-green-50 border-l-4 border-l-green-500 p-4 mb-6 rounded">
-                        <div class="font-medium text-green-800 mb-1">Task: <span id="approve_task_title"></span></div>
-                        <div class="text-green-700">Student: <span id="approve_student_name"></span></div>
-                    </div>
+    <div class="font-medium text-green-800 mb-1">Task: <span id="approve_task_title"></span></div>
+    <div class="text-green-700" id="approve_student_container">
+        <span id="approve_student_label">Student:</span> <span id="approve_student_name"></span>
+    </div>
+</div>
                     
                     <div class="mb-6">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -944,10 +1065,12 @@ tailwind.config = {
                     <input type="hidden" name="action" value="reject">
                     <input type="hidden" id="reject_submission_id" name="submission_id" value="">
                     
-                    <div class="bg-red-50 border-l-4 border-l-red-500 p-4 mb-6 rounded">
-                        <div class="font-medium text-red-800 mb-1">Task: <span id="reject_task_title"></span></div>
-                        <div class="text-red-700">Student: <span id="reject_student_name"></span></div>
-                    </div>
+             <div class="bg-red-50 border-l-4 border-l-red-500 p-4 mb-6 rounded">
+    <div class="font-medium text-red-800 mb-1">Task: <span id="reject_task_title"></span></div>
+    <div class="text-red-700" id="reject_student_container">
+        <span id="reject_student_label">Student:</span> <span id="reject_student_name"></span>
+    </div>
+</div>
                     
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -1086,12 +1209,21 @@ tailwind.config = {
         }
 
         // Show approve modal
-        function showApproveModal(submissionId, taskTitle, studentName) {
-            document.getElementById('approve_submission_id').value = submissionId;
-            document.getElementById('approve_task_title').textContent = taskTitle;
-            document.getElementById('approve_student_name').textContent = studentName;
-            document.getElementById('approveModal').classList.remove('hidden');
-        }
+        // Show approve modal
+function showApproveModal(submissionId, taskTitle, studentName, totalCollaborators) {
+    document.getElementById('approve_submission_id').value = submissionId;
+    document.getElementById('approve_task_title').textContent = taskTitle;
+    document.getElementById('approve_student_name').textContent = studentName;
+    
+    // Update label based on number of students
+    if (totalCollaborators > 1) {
+        document.getElementById('approve_student_label').textContent = 'Students:';
+    } else {
+        document.getElementById('approve_student_label').textContent = 'Student:';
+    }
+    
+    document.getElementById('approveModal').classList.remove('hidden');
+}
 
         // Close approve modal
         function closeApproveModal() {
@@ -1100,12 +1232,21 @@ tailwind.config = {
         }
 
         // Show reject modal
-        function showRejectModal(submissionId, taskTitle, studentName) {
-            document.getElementById('reject_submission_id').value = submissionId;
-            document.getElementById('reject_task_title').textContent = taskTitle;
-            document.getElementById('reject_student_name').textContent = studentName;
-            document.getElementById('rejectModal').classList.remove('hidden');
-        }
+        // Show reject modal
+function showRejectModal(submissionId, taskTitle, studentName, totalCollaborators) {
+    document.getElementById('reject_submission_id').value = submissionId;
+    document.getElementById('reject_task_title').textContent = taskTitle;
+    document.getElementById('reject_student_name').textContent = studentName;
+    
+    // Update label based on number of students
+    if (totalCollaborators > 1) {
+        document.getElementById('reject_student_label').textContent = 'Students:';
+    } else {
+        document.getElementById('reject_student_label').textContent = 'Student:';
+    }
+    
+    document.getElementById('rejectModal').classList.remove('hidden');
+}
 
         // Close reject modal
         function closeRejectModal() {

@@ -171,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="w-24 h-1 bg-bulsu-gold mx-auto rounded"></div>
                 </div>
                 <div class="text-5xl mb-4">🎓</div>
-                <h1 class="text-bulsu-maroon text-2xl md:text-3xl font-bold mb-2">Student Portal</h1>
+                <h1 class="text-bulsu-maroon text-2xl md:text-3xl font-bold mb-2">Internship Portal</h1>
                 <p class="text-gray-600">Welcome back! Access your OJT dashboard and track your internship progress</p>
             </div>
             

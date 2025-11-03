@@ -375,6 +375,10 @@ $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
                     <i class="fas fa-edit mr-3"></i>
                     Edit Document
                 </a>
+                <a href="AcademicStudentEvaluation.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-star mr-3"></i>
+                    Student Evaluation
+                </a>
                 <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
                     <i class="fas fa-user-tie mr-3 text-bulsu-gold"></i>
                     Academic Accounts

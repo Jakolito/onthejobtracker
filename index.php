@@ -257,7 +257,7 @@
                 <span class="hidden md:inline">•</span>
                 <p>AI-Powered OJT Performance Monitoring Platform</p>
             </div>
-            <p class="text-xs text-gray-400 mt-2">Developed in partnership with BULSU College of Engineering</p>
+            <p class="text-xs text-gray-400 mt-2">Developed in partnership with BULSU College of Information Technology</p>
         </div>
     </footer>
 

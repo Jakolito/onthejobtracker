@@ -44,6 +44,26 @@ try {
     echo "Error: " . $e->getMessage();
     exit();
 }
+// Check if today is a non-working day
+function checkNonWorkingDay($conn, $supervisor_id, $date) {
+    try {
+        $stmt = $conn->prepare("
+            SELECT schedule_id, schedule_type, label, description 
+            FROM company_schedules 
+            WHERE supervisor_id = ? AND schedule_date = ? AND is_active = 1
+        ");
+        $stmt->bind_param("is", $supervisor_id, $date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows > 0) {
+            return $result->fetch_assoc();
+        }
+        return false;
+    } catch (Exception $e) {
+        return false;
+    }
+}
 
 function checkDeploymentStatus($conn, $user_id) {
     try {
@@ -124,6 +144,17 @@ function checkDeploymentStatus($conn, $user_id) {
 $is_deployed = checkDeploymentStatus($conn, $user_id);
 $can_record_attendance = $is_deployed !== false && ($is_deployed['can_record_today'] ?? false);
 
+// ⭐ IMPORTANT: Define $today first before using it
+$today = date('Y-m-d');
+
+// ⭐ ENHANCED: Check if today is a non-working day with detailed info
+$non_working_day_info = null;
+if ($is_deployed) {
+    $non_working_day_info = checkNonWorkingDay($conn, $is_deployed['supervisor_id'], $today);
+}
+
+// Get today's attendance
+
 // Get today's attendance
 $today = date('Y-m-d');
 $today_attendance = null;
@@ -199,70 +230,99 @@ if ($is_deployed) {
         $date_string = $current_date->format('Y-m-d');
         
         // Check if this day is a working day according to company schedule
-        if (in_array($day_name, $work_days_array)) {
-            $attendance_stats['total_work_days']++;
+        // Check if this day is a working day according to company schedule
+if (in_array($day_name, $work_days_array)) {
+    // ⭐ NEW: Check if this is a non-working day (holiday, vacation, etc.)
+    $non_working_check = checkNonWorkingDay($conn, $is_deployed['supervisor_id'], $date_string);
+    
+    if ($non_working_check) {
+        // ⭐ NEW: This is a scheduled non-working day - don't count as work day or absent
+        $all_attendance[] = [
+            'attendance_id' => null,
+            'student_id' => $user_id,
+            'date' => $date_string,
+            'time_in' => null,
+            'time_out' => null,
+            'total_hours' => 0,
+            'status' => 'Non-Working Day',
+            'is_non_working' => true,
+            'non_working_type' => $non_working_check['schedule_type'],
+            'non_working_label' => $non_working_check['label'],
+            'non_working_description' => $non_working_check['description'],
+            'is_absent' => false,
+            'is_late' => false,
+            'minutes_late' => 0,
+            'day_name' => ucfirst($day_name),
+            'scheduled_start' => $work_schedule_start,
+            'scheduled_end' => $work_schedule_end
+        ];
+        // ⭐ Don't increment total_work_days or absent_days
+    } else {
+        // ⭐ Normal work day processing (existing code)
+        $attendance_stats['total_work_days']++;
+        
+        // Check if student has attendance record for this day
+        $attendance_stmt = $conn->prepare("SELECT * FROM student_attendance WHERE student_id = ? AND date = ?");
+        $attendance_stmt->bind_param("is", $user_id, $date_string);
+        $attendance_stmt->execute();
+        $attendance_result = $attendance_stmt->get_result();
+        
+        if ($attendance_result->num_rows > 0) {
+            // Student has record - check if late
+            $record = $attendance_result->fetch_assoc();
+            $attendance_stats['present_days']++;
             
-            // Check if student has attendance record for this day
-            $attendance_stmt = $conn->prepare("SELECT * FROM student_attendance WHERE student_id = ? AND date = ?");
-            $attendance_stmt->bind_param("is", $user_id, $date_string);
-            $attendance_stmt->execute();
-            $attendance_result = $attendance_stmt->get_result();
-            
-            if ($attendance_result->num_rows > 0) {
-                // Student has record - check if late
-                $record = $attendance_result->fetch_assoc();
-                $attendance_stats['present_days']++;
+            // Calculate if late based on company work schedule
+            if ($record['time_in'] && $work_schedule_start) {
+                $time_in = new DateTime($date_string . ' ' . $record['time_in']);
+                $scheduled_start = new DateTime($date_string . ' ' . $work_schedule_start);
                 
-                // Calculate if late based on company work schedule
-                if ($record['time_in'] && $work_schedule_start) {
-                    $time_in = new DateTime($date_string . ' ' . $record['time_in']);
-                    $scheduled_start = new DateTime($date_string . ' ' . $work_schedule_start);
-                    
-                    // Add 15-minute grace period
-                    $scheduled_start->modify('+15 minutes');
-                    
-                    if ($time_in > $scheduled_start) {
-                        $minutes_late = ($time_in->getTimestamp() - $scheduled_start->getTimestamp()) / 60;
-                        $record['is_late'] = true;
-                        $record['minutes_late'] = round($minutes_late);
-                        $attendance_stats['late_days']++;
-                    } else {
-                        $record['is_late'] = false;
-                        $record['minutes_late'] = 0;
-                    }
-                }
+                // Add 15-minute grace period
+                $scheduled_start->modify('+15 minutes');
                 
-                // Add to total hours
-                $attendance_stats['total_hours_completed'] += (float)($record['total_hours'] ?? 0);
-                
-                $all_attendance[] = $record;
-            } else {
-                // Student is absent - but only if the OJT is not completed yet
-                // If OJT is completed, don't count future dates as absent
-                if (!$is_deployed['is_ojt_completed'] || $current_date <= $today_dt) {
-                    $attendance_stats['absent_days']++;
-                    $all_attendance[] = [
-                        'attendance_id' => null,
-                        'student_id' => $user_id,
-                        'date' => $date_string,
-                        'time_in' => null,
-                        'time_out' => null,
-                        'total_hours' => 0,
-                        'status' => 'Absent',
-                        'is_absent' => true,
-                        'is_late' => false,
-                        'minutes_late' => 0,
-                        'day_name' => ucfirst($day_name),
-                        'scheduled_start' => $work_schedule_start,
-                        'scheduled_end' => $work_schedule_end
-                    ];
+                if ($time_in > $scheduled_start) {
+                    $minutes_late = ($time_in->getTimestamp() - $scheduled_start->getTimestamp()) / 60;
+                    $record['is_late'] = true;
+                    $record['minutes_late'] = round($minutes_late);
+                    $attendance_stats['late_days']++;
+                } else {
+                    $record['is_late'] = false;
+                    $record['minutes_late'] = 0;
                 }
             }
-            $attendance_stmt->close();
+            
+            // Add to total hours
+            $attendance_stats['total_hours_completed'] += (float)($record['total_hours'] ?? 0);
+            
+            $all_attendance[] = $record;
+        } else {
+            // Student is absent - but only if the OJT is not completed yet
+            // If OJT is completed, don't count future dates as absent
+            if (!$is_deployed['is_ojt_completed'] || $current_date <= $today_dt) {
+                $attendance_stats['absent_days']++;
+                $all_attendance[] = [
+                    'attendance_id' => null,
+                    'student_id' => $user_id,
+                    'date' => $date_string,
+                    'time_in' => null,
+                    'time_out' => null,
+                    'total_hours' => 0,
+                    'status' => 'Absent',
+                    'is_absent' => true,
+                    'is_late' => false,
+                    'minutes_late' => 0,
+                    'day_name' => ucfirst($day_name),
+                    'scheduled_start' => $work_schedule_start,
+                    'scheduled_end' => $work_schedule_end
+                ];
+            }
         }
-        
-        // Move to next day
-        $current_date->modify('+1 day');
+        $attendance_stmt->close();
+    }
+}
+
+// Move to next day
+$current_date->modify('+1 day');
     }
     
     // Calculate statistics
@@ -608,15 +668,40 @@ if ($action === 'print_attendance') {
     }
     
     // Attendance recording with date validation
-    if ($action === 'time_in' || $action === 'time_out') {
-        // First check if deployment is active
-        if (!$is_deployed) {
-            echo json_encode([
-                'success' => false,
-                'message' => 'No active deployment found. Please contact your coordinator.'
-            ]);
-            exit(); 
-        }
+   // Attendance recording with date validation
+   if ($action === 'time_in' || $action === 'time_out') {
+    // First check if deployment is active
+    if (!$is_deployed) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'No active deployment found. Please contact your coordinator.'
+        ]);
+        exit(); 
+    }
+
+    // Check for non-working day
+   // ⭐ PRIORITY CHECK: Check if today is a non-working day FIRST
+    $non_working_day = checkNonWorkingDay($conn, $is_deployed['supervisor_id'], $today);
+    if ($non_working_day) {
+        $type_label = match($non_working_day['schedule_type']) {
+            'holiday' => 'Holiday',
+            'vacation' => 'Company Vacation', 
+            'company_event' => 'Company Event',
+            'maintenance' => 'Maintenance Day',
+            'special_non_working' => 'Special Non-Working Day',
+            default => 'Non-Working Day'
+        };
+        
+        echo json_encode([
+            'success' => false,
+            'message' => "📅 Today is a {$type_label}: \"{$non_working_day['label']}\". No attendance required.",
+            'is_non_working_day' => true,
+            'schedule_type' => $non_working_day['schedule_type'],
+            'schedule_label' => $non_working_day['label'],
+            'schedule_description' => $non_working_day['description']
+        ]);
+        exit();
+    }
 
          if ($is_deployed['is_ojt_completed']) {
         $completion_reason = '';
@@ -1418,6 +1503,35 @@ tailwind.config = {
                                     </div>
                                 </div>
                             <?php endif; ?>
+                            <?php elseif ($non_working_day_info): ?>
+                        <!-- ⭐ NON-WORKING DAY NOTICE -->
+                        <div class="flex items-center text-blue-600 mb-2">
+                            <i class="fas fa-calendar-times mr-2"></i>
+                            <span class="font-medium">Non-Working Day</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mb-2">
+                            <strong><?php 
+                                echo match($non_working_day_info['schedule_type']) {
+                                    'holiday' => '🎉 Holiday',
+                                    'vacation' => '🏖️ Company Vacation',
+                                    'company_event' => '🎊 Company Event',
+                                    'maintenance' => '🔧 Maintenance Day',
+                                    'special_non_working' => '📅 Special Non-Working Day',
+                                    default => '📅 Non-Working Day'
+                                };
+                            ?>:</strong> <?php echo htmlspecialchars($non_working_day_info['label']); ?>
+                        </p>
+                        <?php if (!empty($non_working_day_info['description'])): ?>
+                        <p class="text-sm text-gray-500 mb-3">
+                            <?php echo htmlspecialchars($non_working_day_info['description']); ?>
+                        </p>
+                        <?php endif; ?>
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <div class="text-sm text-blue-700">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                No attendance required today. Enjoy your day off!
+                            </div>
+                        </div>
                         <?php elseif ($today_attendance['time_in']): ?>
                             <div class="flex items-center text-blue-600 mb-2">
                                 <i class="fas fa-clock mr-2"></i>
@@ -1441,14 +1555,14 @@ tailwind.config = {
                     </div>
                     <p class="text-sm text-gray-600">Please contact your coordinator to set up your internship deployment</p>
                 <?php endif; ?>
+                
             </div>
         </div>
     </div>
 </div>
 
 <!-- Conditional Facial Recognition Card - Only show if OJT is not complete -->
-<?php if ($has_face_enrolled && $can_record_attendance && (!$is_deployed || !isset($is_deployed['is_ojt_completed']) || !$is_deployed['is_ojt_completed'])): ?>
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+<?php if ($has_face_enrolled && $can_record_attendance && (!$is_deployed || !isset($is_deployed['is_ojt_completed']) || !$is_deployed['is_ojt_completed']) && !$non_working_day_info): ?><div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
     <div class="p-4 sm:p-6 border-b border-gray-200">
         <div class="flex items-center">
             <i class="fas fa-camera text-blue-600 mr-3"></i>
@@ -1634,24 +1748,30 @@ tailwind.config = {
                             <h4 class="text-lg font-medium text-gray-900 mb-2">No attendance records yet</h4>
                             <p class="text-gray-600">Your attendance history will appear here once you start recording</p>
                         </div>
+                        
                     <?php else: ?>
                         <div class="space-y-4">
-                            <?php foreach ($all_attendance as $record): ?>
-                            <div class="border border-gray-200 rounded-lg p-4 <?php 
-                                if (isset($record['is_absent']) && $record['is_absent']) {
-                                    echo 'bg-red-50 border-red-200';
-                                } elseif ($record['is_late']) {
-                                    echo 'bg-yellow-50 border-yellow-200';
-                                }
-                            ?>">
+                           <?php foreach ($all_attendance as $record): ?>
+<div class="border border-gray-200 rounded-lg p-4 <?php 
+    if (isset($record['is_non_working']) && $record['is_non_working']) {
+        echo 'bg-blue-50 border-blue-200';
+    } elseif (isset($record['is_absent']) && $record['is_absent']) {
+        echo 'bg-red-50 border-red-200';
+    } elseif (isset($record['is_late']) && $record['is_late']) {
+        echo 'bg-yellow-50 border-yellow-200';
+    }
+?>">
+
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3">
                                     <div class="flex items-center mb-2 sm:mb-0">
                                         <div class="w-3 h-3 rounded-full mr-3 <?php 
-                                            if (isset($record['is_absent']) && $record['is_absent']) {
+                                            if (isset($record['is_non_working']) && $record['is_non_working']) {
+                                                echo 'bg-blue-500'; // Non-working day
+                                            } elseif (isset($record['is_absent']) && $record['is_absent']) {
                                                 echo 'bg-red-500'; // Absent
-                                            } elseif ($record['time_in'] && $record['time_out']) {
-                                                echo ($record['is_late'] ? 'bg-yellow-500' : 'bg-green-500'); // Complete (late or on time)
-                                            } elseif ($record['time_in']) {
+                                            } elseif (isset($record['time_in']) && isset($record['time_out']) && $record['time_in'] && $record['time_out']) {
+                                                echo (isset($record['is_late']) && $record['is_late'] ? 'bg-yellow-500' : 'bg-green-500'); // Complete
+                                            } elseif (isset($record['time_in']) && $record['time_in']) {
                                                 echo 'bg-blue-500'; // In progress
                                             } else {
                                                 echo 'bg-gray-500'; // No record
@@ -1661,7 +1781,7 @@ tailwind.config = {
                                             <div class="font-medium text-gray-900"><?php echo date('M j, Y', strtotime($record['date'])); ?></div>
                                             <div class="text-sm text-gray-500">
                                                 <?php echo date('l', strtotime($record['date'])); ?>
-                                                <?php if (isset($record['is_late']) && $record['is_late'] && $record['minutes_late'] > 0): ?>
+                                                <?php if (isset($record['is_late']) && $record['is_late'] && isset($record['minutes_late']) && $record['minutes_late'] > 0): ?>
                                                     <span class="text-yellow-600 font-medium ml-2">
                                                         • Late by <?php echo $record['minutes_late']; ?> min
                                                     </span>
@@ -1669,26 +1789,41 @@ tailwind.config = {
                                                 <?php if (isset($record['is_absent']) && $record['is_absent']): ?>
                                                     <span class="text-red-600 font-medium ml-2">• ABSENT</span>
                                                 <?php endif; ?>
+                                                <?php if (isset($record['is_non_working']) && $record['is_non_working']): ?>
+                                                    <span class="text-blue-600 font-medium ml-2">• NON-WORKING DAY</span>
+                                                <?php endif; ?>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="text-sm font-medium <?php 
-                                        if (isset($record['is_absent']) && $record['is_absent']) {
+                                        if (isset($record['is_non_working']) && $record['is_non_working']) {
+                                            echo 'text-blue-600';
+                                        } elseif (isset($record['is_absent']) && $record['is_absent']) {
                                             echo 'text-red-600';
-                                        } elseif ($record['time_in'] && $record['time_out']) {
-                                            echo ($record['is_late'] ? 'text-yellow-600' : 'text-green-600');
-                                        } elseif ($record['time_in']) {
+                                        } elseif (isset($record['time_in']) && isset($record['time_out']) && $record['time_in'] && $record['time_out']) {
+                                            echo (isset($record['is_late']) && $record['is_late'] ? 'text-yellow-600' : 'text-green-600');
+                                        } elseif (isset($record['time_in']) && $record['time_in']) {
                                             echo 'text-blue-600';
                                         } else {
                                             echo 'text-gray-600';
                                         }
                                     ?>">
                                         <?php 
-                                        if (isset($record['is_absent']) && $record['is_absent']) {
+                                        if (isset($record['is_non_working']) && $record['is_non_working']) {
+                                            // Display non-working day type with emoji
+                                            echo match($record['non_working_type']) {
+                                                'holiday' => '🎉 HOLIDAY',
+                                                'vacation' => '🏖️ VACATION',
+                                                'company_event' => '🎊 COMPANY EVENT',
+                                                'maintenance' => '🔧 MAINTENANCE',
+                                                'special_non_working' => '📅 NON-WORKING',
+                                                default => '📅 NON-WORKING'
+                                            };
+                                        } elseif (isset($record['is_absent']) && $record['is_absent']) {
                                             echo 'ABSENT';
-                                        } elseif ($record['time_in'] && $record['time_out']) {
-                                            echo ($record['is_late'] ? 'LATE COMPLETE' : 'ON TIME');
-                                        } elseif ($record['time_in']) {
+                                        } elseif (isset($record['time_in']) && isset($record['time_out']) && $record['time_in'] && $record['time_out']) {
+                                            echo (isset($record['is_late']) && $record['is_late'] ? 'LATE COMPLETE' : 'ON TIME');
+                                        } elseif (isset($record['time_in']) && $record['time_in']) {
                                             echo 'IN PROGRESS';
                                         } else {
                                             echo 'NO RECORD';
@@ -1697,17 +1832,54 @@ tailwind.config = {
                                     </div>
                                 </div>
                                 
-                                <?php if (!isset($record['is_absent']) || !$record['is_absent']): ?>
-                                <!-- Time details for non-absent days -->
+                                <?php if (isset($record['is_non_working']) && $record['is_non_working']): ?>
+<!-- ⭐ NON-WORKING DAY DETAILS -->
+<div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4 mt-3 shadow-sm">
+    <!-- Badge/Label at the top -->
+    <div class="inline-block bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold mb-3 shadow">
+        <?php 
+        echo match($record['non_working_type']) {
+            'holiday' => '🎉 OFFICIAL HOLIDAY',
+            'vacation' => '🏖️ COMPANY VACATION',
+            'company_event' => '🎊 COMPANY EVENT',
+            'maintenance' => '🔧 MAINTENANCE DAY',
+            'special_non_working' => '📅 SPECIAL NON-WORKING DAY',
+            default => '📅 NON-WORKING DAY'
+        };
+        ?>
+    </div>
+    
+    <div class="flex items-start text-blue-900 mb-2">
+        <i class="fas fa-calendar-times mr-3 text-xl mt-1 text-blue-600"></i>
+        <div>
+            <span class="font-bold text-lg block mb-1"><?php echo htmlspecialchars($record['non_working_label']); ?></span>
+            <?php if (!empty($record['non_working_description'])): ?>
+            <p class="text-sm text-blue-800">
+                <?php echo htmlspecialchars($record['non_working_description']); ?>
+            </p>
+            <?php endif; ?>
+        </div>
+    </div>
+    
+    <div class="bg-white bg-opacity-70 border border-blue-200 rounded-lg p-3 mt-3">
+        <div class="flex items-center text-sm text-blue-800">
+            <i class="fas fa-check-circle mr-2 text-green-600"></i>
+            <span class="font-medium">No attendance required - Enjoy your day off!</span>
+        </div>
+    </div>
+</div>
+                                
+                                <?php elseif (!isset($record['is_absent']) || !$record['is_absent']): ?>
+                                <!-- Time details for working days with attendance -->
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div class="flex items-center">
                                         <i class="fas fa-sign-in-alt text-green-600 mr-2"></i>
                                         <div>
                                             <div class="text-xs text-gray-500">Time In</div>
                                             <div class="text-sm font-medium text-gray-900">
-                                                <?php echo $record['time_in'] ? date('g:i A', strtotime($record['time_in'])) : '--'; ?>
+                                                <?php echo (isset($record['time_in']) && $record['time_in']) ? date('g:i A', strtotime($record['time_in'])) : '--'; ?>
                                             </div>
-                                            <?php if ($record['is_late'] && isset($record['scheduled_start'])): ?>
+                                            <?php if (isset($record['is_late']) && $record['is_late'] && isset($record['scheduled_start'])): ?>
                                                 <div class="text-xs text-yellow-600">
                                                     (Due: <?php echo date('g:i A', strtotime($record['scheduled_start'])); ?>)
                                                 </div>
@@ -1720,7 +1892,7 @@ tailwind.config = {
                                         <div>
                                             <div class="text-xs text-gray-500">Time Out</div>
                                             <div class="text-sm font-medium text-gray-900">
-                                                <?php echo $record['time_out'] ? date('g:i A', strtotime($record['time_out'])) : '--'; ?>
+                                                <?php echo (isset($record['time_out']) && $record['time_out']) ? date('g:i A', strtotime($record['time_out'])) : '--'; ?>
                                             </div>
                                             <?php if (isset($record['scheduled_end'])): ?>
                                                 <div class="text-xs text-gray-500">
@@ -1735,11 +1907,12 @@ tailwind.config = {
                                         <div>
                                             <div class="text-xs text-gray-500">Hours</div>
                                             <div class="text-sm font-medium text-gray-900">
-                                                <?php echo $record['total_hours'] ? number_format($record['total_hours'], 1) . 'h' : '--'; ?>
+                                                <?php echo (isset($record['total_hours']) && $record['total_hours']) ? number_format($record['total_hours'], 1) . 'h' : '--'; ?>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
+                                
                                 <?php else: ?>
                                 <!-- Absent day information -->
                                 <div class="bg-red-50 border border-red-100 rounded-lg p-3 mt-3">
@@ -1755,8 +1928,8 @@ tailwind.config = {
                                 </div>
                                 <?php endif; ?>
 
-                                <?php if (!isset($record['is_absent']) && isset($record['attendance_method']) && $record['attendance_method'] === 'facial' && isset($record['facial_confidence'])): ?>
-                                <!-- Facial recognition info for non-absent records -->
+                                <?php if (isset($record['attendance_method']) && $record['attendance_method'] === 'facial' && isset($record['facial_confidence']) && !isset($record['is_non_working']) && !isset($record['is_absent'])): ?>
+                                <!-- Facial recognition info for actual attendance records -->
                                 <div class="mt-3 flex items-center text-xs text-gray-500 bg-blue-50 rounded px-2 py-1">
                                     <i class="fas fa-user-check mr-2"></i>
                                     Facial Recognition (<?php echo round($record['facial_confidence'] * 100); ?>% confidence)

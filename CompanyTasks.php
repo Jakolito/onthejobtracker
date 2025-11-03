@@ -101,10 +101,9 @@ $task_stats = array('total_tasks' => 0, 'pending_tasks' => 0, 'in_progress_tasks
 $error_message = '';
 $success_message = '';
 
-// Handle task creation
+// Handle task creation with MULTIPLE STUDENTS
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_task'])) {
-    $deployment_id = mysqli_real_escape_string($conn, $_POST['deployment_id']);
-    $student_id = mysqli_real_escape_string($conn, $_POST['student_id']);
+    $student_ids = isset($_POST['student_ids']) ? $_POST['student_ids'] : array();
     $task_title = mysqli_real_escape_string($conn, $_POST['task_title']);
     $task_description = mysqli_real_escape_string($conn, $_POST['task_description']);
     $due_date = mysqli_real_escape_string($conn, $_POST['due_date']);
@@ -114,62 +113,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_task'])) {
     $remarks = mysqli_real_escape_string($conn, $_POST['remarks']);
 
     // Validate required fields
-    if (empty($task_title) || empty($task_description) || empty($due_date) || empty($priority) || empty($task_category)) {
+    if (empty($student_ids) || count($student_ids) == 0) {
+        $error_message = "Please select at least one student.";
+    } elseif (empty($task_title) || empty($task_description) || empty($due_date) || empty($priority) || empty($task_category)) {
         $error_message = "Please fill in all required fields.";
     } else {
-        // Check if student's OJT status allows task creation
-        $status_check_query = "SELECT ojt_status FROM student_deployments WHERE deployment_id = ? AND student_id = ?";
-        $status_stmt = mysqli_prepare($conn, $status_check_query);
+        // Start transaction
+        mysqli_begin_transaction($conn);
         
-        if ($status_stmt) {
-            mysqli_stmt_bind_param($status_stmt, "ii", $deployment_id, $student_id);
-            mysqli_stmt_execute($status_stmt);
-            $status_result = mysqli_stmt_get_result($status_stmt);
+        try {
+            $completed_students = array();
+            $created_tasks = array();
+            $notification_count = 0;
             
-            if ($status_row = mysqli_fetch_assoc($status_result)) {
-                $ojt_status = $status_row['ojt_status'];
+            // Create a task for EACH selected student
+            foreach ($student_ids as $student_id) {
+                $student_id = intval($student_id);
                 
-                // Check if OJT is completed
-                if (strtolower($ojt_status) === 'completed') {
-                    $error_message = "Cannot create task. This student's OJT has already been completed.";
-                } else {
-                    // Proceed with task creation
+                // Get deployment info for this student
+                $deployment_query = "SELECT deployment_id, ojt_status 
+                                    FROM student_deployments 
+                                    WHERE student_id = ? 
+                                    AND supervisor_id = ? 
+                                    AND status = 'Active'
+                                    LIMIT 1";
+                
+                $deploy_stmt = mysqli_prepare($conn, $deployment_query);
+                if (!$deploy_stmt) {
+                    throw new Exception("Error preparing deployment query: " . mysqli_error($conn));
+                }
+                
+                mysqli_stmt_bind_param($deploy_stmt, "ii", $student_id, $supervisor_id);
+                mysqli_stmt_execute($deploy_stmt);
+                $deploy_result = mysqli_stmt_get_result($deploy_stmt);
+                
+                if ($deploy_row = mysqli_fetch_assoc($deploy_result)) {
+                    // Check if OJT is completed
+                    if (strtolower($deploy_row['ojt_status']) === 'completed') {
+                        $completed_students[] = $student_id;
+                        mysqli_stmt_close($deploy_stmt);
+                        continue;
+                    }
+                    
+                    $deployment_id = $deploy_row['deployment_id'];
+                    
+                    // Create task for this student
                     $create_task_query = "INSERT INTO tasks (deployment_id, student_id, supervisor_id, task_title, task_description, due_date, priority, task_category, instructions, remarks, status, created_at) 
                                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())";
                     
-                    $stmt = mysqli_prepare($conn, $create_task_query);
-                    if ($stmt) {
-                        mysqli_stmt_bind_param($stmt, "iiisssssss", $deployment_id, $student_id, $supervisor_id, $task_title, $task_description, $due_date, $priority, $task_category, $instructions, $remarks);
-                        
-                        if (mysqli_stmt_execute($stmt)) {
-                            $task_id = mysqli_insert_id($conn);
-                            error_log("Task created with ID: $task_id for student ID: $student_id");
-                            
-                            // Create notification for the student
-                            $notification_result = createTaskNotification($conn, $student_id, $task_id, $task_title, $supervisor_name);
-                            
-                            if ($notification_result) {
-                                $success_message = "Task created successfully and notification sent to student!";
-                                error_log("Notification sent successfully");
-                            } else {
-                                $success_message = "Task created successfully, but failed to send notification.";
-                                error_log("Failed to send notification");
-                            }
-                        } else {
-                            $error_message = "Error creating task: " . mysqli_error($conn);
-                            error_log("Error creating task: " . mysqli_error($conn));
-                        }
-                        mysqli_stmt_close($stmt);
-                    } else {
-                        $error_message = "Error preparing task creation statement: " . mysqli_error($conn);
+                    $task_stmt = mysqli_prepare($conn, $create_task_query);
+                    if (!$task_stmt) {
+                        throw new Exception("Error preparing task creation: " . mysqli_error($conn));
                     }
+                    
+                    mysqli_stmt_bind_param($task_stmt, "iiisssssss", 
+                        $deployment_id, $student_id, $supervisor_id, 
+                        $task_title, $task_description, $due_date, 
+                        $priority, $task_category, $instructions, $remarks
+                    );
+                    
+                    if (mysqli_stmt_execute($task_stmt)) {
+                        $task_id = mysqli_insert_id($conn);
+                        $created_tasks[] = $task_id;
+                        
+                        // Create notification for this student
+                        if (createTaskNotification($conn, $student_id, $task_id, $task_title, $supervisor_name)) {
+                            $notification_count++;
+                        }
+                        
+                        error_log("Task ID: $task_id created for student ID: $student_id");
+                    } else {
+                        error_log("Failed to create task for student ID: $student_id - " . mysqli_error($conn));
+                    }
+                    
+                    mysqli_stmt_close($task_stmt);
+                } else {
+                    error_log("No active deployment found for student ID: $student_id");
+                }
+                
+                mysqli_stmt_close($deploy_stmt);
+            }
+            
+            // Commit transaction
+            mysqli_commit($conn);
+            
+            $task_count = count($created_tasks);
+            
+            if ($task_count > 0) {
+                $student_word = ($task_count == 1) ? "student" : "students";
+                $success_message = "Task created successfully for {$task_count} {$student_word}! {$notification_count} notification(s) sent.";
+                
+                if (count($completed_students) > 0) {
+                    $success_message .= " Note: " . count($completed_students) . " student(s) were skipped (OJT completed).";
                 }
             } else {
-                $error_message = "Student deployment not found.";
+                $error_message = "No tasks were created. All selected students may have completed their OJT.";
             }
-            mysqli_stmt_close($status_stmt);
-        } else {
-            $error_message = "Error checking student status: " . mysqli_error($conn);
+            
+        } catch (Exception $e) {
+            mysqli_rollback($conn);
+            $error_message = "Error creating tasks: " . $e->getMessage();
+            error_log("Task creation failed: " . $e->getMessage());
         }
     }
 }
@@ -231,6 +275,26 @@ try {
     $error_message = "Error fetching data: " . $e->getMessage();
     $students_result = mysqli_query($conn, "SELECT * FROM student_deployments WHERE 1=0");
 }
+
+// Fetch all active students for dropdown
+$all_students_query = "SELECT d.student_id, 
+                              CONCAT(s.first_name, ' ', IFNULL(s.middle_name, ''), ' ', s.last_name) as student_name,
+                              s.student_id as student_id_number,
+                              d.position,
+                              d.ojt_status
+                       FROM student_deployments d
+                       JOIN students s ON d.student_id = s.id
+                       WHERE d.supervisor_id = ? AND d.status = 'Active' AND d.ojt_status != 'Completed'
+                       ORDER BY s.first_name ASC, s.last_name ASC";
+
+$all_students_result = null;
+$stmt3 = mysqli_prepare($conn, $all_students_query);
+if ($stmt3) {
+    mysqli_stmt_bind_param($stmt3, "i", $supervisor_id);
+    mysqli_stmt_execute($stmt3);
+    $all_students_result = mysqli_stmt_get_result($stmt3);
+    mysqli_stmt_close($stmt3);
+}
 ?>
 
 <!DOCTYPE html>
@@ -270,9 +334,47 @@ tailwind.config = {
             transition: opacity 0.3s ease-in-out;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        /* Multi-select checkbox styling */
+        .student-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .student-checkbox:checked {
+            accent-color: #2563eb;
+        }
+
+        .student-item {
+            transition: background-color 0.2s;
+        }
+
+        .student-item:hover {
+            background-color: #f3f4f6;
+        }
+
+        .student-item.selected {
+            background-color: #dbeafe;
+            border-color: #3b82f6;
+        }
+
+        .students-dropdown {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .badge-counter {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            background-color: #2563eb;
+            border-radius: 12px;
         }
     </style>
 </head>
@@ -316,6 +418,10 @@ tailwind.config = {
                 <i class="fas fa-clock mr-3"></i>
                 Student Time Record
             </a>
+             <a href="CompanyScheduleManager.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Schedule Manager
+                </a>
             <a href="ApproveTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-comment-dots mr-3"></i>
                 Task Approval Management
@@ -490,6 +596,15 @@ tailwind.config = {
                 </div>
             </div>
 
+            <!-- Create Task Button -->
+            <div class="mb-6">
+                <button onclick="openCreateTaskModal()" 
+                        class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium rounded-lg shadow-md transition-all duration-200 transform hover:scale-105">
+                    <i class="fas fa-plus mr-2"></i>
+                    Create New Task
+                </button>
+            </div>
+
             <!-- Students Table -->
             <div class="bg-white rounded-lg shadow-sm border border-bulsu-maroon overflow-hidden">
                 <div class="bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon px-6 py-4">
@@ -524,7 +639,6 @@ tailwind.config = {
                                 <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
                                 <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
                                 <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
@@ -623,25 +737,11 @@ tailwind.config = {
                                                 <?php echo ucfirst($student['ojt_status']); ?>
                                             </span>
                                         </td>
-                                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <?php if (strtolower($student['ojt_status']) === 'completed'): ?>
-                                                <span class="text-gray-400">
-                                                    <i class="fas fa-ban mr-1"></i>
-                                                    OJT Completed
-                                                </span>
-                                            <?php else: ?>
-                                                <button onclick="openCreateTaskModal(<?php echo $student['deployment_id']; ?>, <?php echo $student['student_id']; ?>, '<?php echo addslashes($student['student_name']); ?>')" 
-                                                        class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                                                    <i class="fas fa-plus mr-1"></i>
-                                                    Create Task
-                                                </button>
-                                            <?php endif; ?>
-                                        </td>
                                     </tr>
                                 <?php endwhile; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="8" class="px-4 sm:px-6 py-12 text-center">
+                                    <td colspan="7" class="px-4 sm:px-6 py-12 text-center">
                                         <div class="flex flex-col items-center justify-center">
                                             <i class="fas fa-users text-gray-300 text-4xl mb-4"></i>
                                             <h3 class="text-lg font-medium text-gray-900 mb-2">No Students Found</h3>
@@ -655,13 +755,13 @@ tailwind.config = {
                 </div>
             </div>
 
-            <!-- Create Task Modal -->
+            <!-- Create Task Modal with Multi-Student Selection -->
             <div id="createTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
                 <div class="flex items-center justify-center min-h-screen p-4">
-                    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-screen overflow-y-auto">
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-screen overflow-y-auto">
                         <div class="p-6 border-b border-gray-200">
                             <div class="flex items-center justify-between">
-                                <h3 class="text-lg font-medium text-gray-900">Create New Task</h3>
+                                <h3 class="text-lg font-medium text-gray-900">Create New Task (Multi-Student)</h3>
                                 <button onclick="closeCreateTaskModal()" class="text-gray-400 hover:text-gray-600">
                                     <i class="fas fa-times text-xl"></i>
                                 </button>
@@ -670,14 +770,57 @@ tailwind.config = {
 
                         <form method="POST" class="p-6">
                             <input type="hidden" name="create_task" value="1">
-                            <input type="hidden" id="modal_deployment_id" name="deployment_id" value="">
-                            <input type="hidden" id="modal_student_id" name="student_id" value="">
 
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Student</label>
-                                <div class="p-3 bg-gray-50 rounded-md">
-                                    <span id="modal_student_name" class="text-sm font-medium text-gray-900"></span>
+                            <!-- Multi-Student Selection -->
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Select Students * 
+                                    <span id="selectedCount" class="badge-counter ml-2">0</span>
+                                </label>
+                                <div class="border border-gray-300 rounded-lg overflow-hidden">
+                                    <div class="bg-gray-50 px-4 py-2 border-b border-gray-300 flex items-center justify-between">
+                                        <div class="flex items-center space-x-3">
+                                            <input type="checkbox" id="selectAll" class="student-checkbox" onchange="toggleSelectAll()">
+                                            <label for="selectAll" class="text-sm font-medium text-gray-700 cursor-pointer">Select All</label>
+                                        </div>
+                                        <button type="button" onclick="clearAllSelections()" class="text-sm text-red-600 hover:text-red-800">
+                                            <i class="fas fa-times mr-1"></i>Clear All
+                                        </button>
+                                    </div>
+                                    <div class="students-dropdown p-2">
+                                        <?php if ($all_students_result && mysqli_num_rows($all_students_result) > 0): ?>
+                                            <?php while ($student = mysqli_fetch_assoc($all_students_result)): ?>
+                                                <label class="student-item flex items-center p-3 rounded-md border border-transparent hover:border-gray-300 cursor-pointer">
+                                                    <input type="checkbox" 
+                                                           name="student_ids[]" 
+                                                           value="<?php echo $student['student_id']; ?>" 
+                                                           class="student-checkbox student-select" 
+                                                           onchange="updateSelectedCount()">
+                                                    <div class="ml-3 flex-1">
+                                                        <div class="flex items-center justify-between">
+                                                            <div>
+                                                                <p class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($student['student_name']); ?></p>
+                                                                <p class="text-xs text-gray-500"><?php echo htmlspecialchars($student['student_id_number']); ?> • <?php echo htmlspecialchars($student['position']); ?></p>
+                                                            </div>
+                                                            <span class="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
+                                                                <?php echo ucfirst($student['ojt_status']); ?>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            <?php endwhile; ?>
+                                        <?php else: ?>
+                                            <div class="p-4 text-center text-gray-500">
+                                                <i class="fas fa-info-circle mr-2"></i>
+                                                No active students available for task assignment.
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
+                                <p class="mt-1 text-xs text-gray-500">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    You can select one or multiple students for collaboration on this task.
+                                </p>
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -804,16 +947,16 @@ tailwind.config = {
         });
 
         // Task Modal Functions
-        function openCreateTaskModal(deploymentId, studentId, studentName) {
-            document.getElementById('modal_deployment_id').value = deploymentId;
-            document.getElementById('modal_student_id').value = studentId;
-            document.getElementById('modal_student_name').textContent = studentName;
+        function openCreateTaskModal() {
             document.getElementById('createTaskModal').classList.remove('hidden');
             document.body.style.overflow = 'hidden';
             
             // Set minimum due date to today
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('due_date').setAttribute('min', today);
+            
+            // Reset selections
+            updateSelectedCount();
         }
 
         function closeCreateTaskModal() {
@@ -823,6 +966,54 @@ tailwind.config = {
             // Reset form
             const form = document.querySelector('#createTaskModal form');
             form.reset();
+            updateSelectedCount();
+            
+            // Remove selected styling
+            document.querySelectorAll('.student-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+        }
+
+        // Multi-student selection functions
+        function updateSelectedCount() {
+            const checkboxes = document.querySelectorAll('.student-select:checked');
+            const count = checkboxes.length;
+            document.getElementById('selectedCount').textContent = count;
+            
+            // Update select all checkbox
+            const totalCheckboxes = document.querySelectorAll('.student-select').length;
+            const selectAllCheckbox = document.getElementById('selectAll');
+            selectAllCheckbox.checked = count === totalCheckboxes && count > 0;
+            
+            // Update visual styling for selected items
+            document.querySelectorAll('.student-item').forEach(item => {
+                const checkbox = item.querySelector('.student-select');
+                if (checkbox.checked) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.student-select');
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+            
+            updateSelectedCount();
+        }
+
+        function clearAllSelections() {
+            const checkboxes = document.querySelectorAll('.student-select');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            document.getElementById('selectAll').checked = false;
+            updateSelectedCount();
         }
 
         // Close modal with Escape key
@@ -879,11 +1070,18 @@ tailwind.config = {
 
         // Form Validation
         document.querySelector('#createTaskModal form').addEventListener('submit', function(e) {
+            const selectedStudents = document.querySelectorAll('.student-select:checked');
             const title = document.getElementById('task_title').value.trim();
             const description = document.getElementById('task_description').value.trim();
             const dueDate = document.getElementById('due_date').value;
             const priority = document.getElementById('priority').value;
             const category = document.getElementById('task_category').value;
+            
+            if (selectedStudents.length === 0) {
+                e.preventDefault();
+                alert('Please select at least one student for this task.');
+                return;
+            }
             
             if (!title || !description || !dueDate || !priority || !category) {
                 e.preventDefault();
@@ -900,6 +1098,15 @@ tailwind.config = {
                 e.preventDefault();
                 alert('Due date cannot be in the past.');
                 return;
+            }
+            
+            // Confirm multi-student assignment
+            if (selectedStudents.length > 1) {
+                const confirmMsg = `You are about to create a collaborative task for ${selectedStudents.length} students. Continue?`;
+                if (!confirm(confirmMsg)) {
+                    e.preventDefault();
+                    return;
+                }
             }
         });
     </script>

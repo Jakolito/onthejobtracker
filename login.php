@@ -93,7 +93,7 @@
                 <!-- Academic Adviser Login -->
                 <a href="adviser-login.php" class="bg-white border-4 border-bulsu-gold border-opacity-50 rounded-2xl p-6 md:p-8 shadow-lg transition hover:-translate-y-2 hover:scale-105 hover:border-bulsu-gold hover:bg-bulsu-light-gold hover:bg-opacity-30 flex flex-col items-center group">
                     <div class="text-5xl md:text-6xl mb-4 bg-gradient-to-br from-bulsu-light-gold to-bulsu-gold text-bulsu-maroon rounded-full w-20 h-20 flex items-center justify-center group-hover:scale-110 transition duration-300">👨‍🏫</div>
-                    <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">Academic Adviser</h3>
+                    <h3 class="text-xl md:text-2xl font-bold mb-3 text-bulsu-maroon">Faculty Handling Intership</h3>
                     <p class="text-gray-600 text-center">Monitor BULSU students, review progress, manage academic requirements, and access AI insights</p>
                     <div class="mt-4 text-sm text-bulsu-gold font-medium">Click to Login →</div>
                 </a>

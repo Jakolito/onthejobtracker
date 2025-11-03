@@ -673,6 +673,10 @@ function getStudentStatusBadge($student) {
                 <i class="fas fa-clock mr-3"></i>
                 Student Time Record
             </a>
+             <a href="CompanyScheduleManager.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Schedule Manager
+                </a>
             <a href="ApproveTasks.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
                 <i class="fas fa-comment-dots mr-3"></i>
                 Task Approval Management

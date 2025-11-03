@@ -1,550 +1,280 @@
-<?php
-include('connect.php');
-session_start();
 
-// Prevent caching
-header("Cache-Control: no-cache, no-store, must-revalidate");
-header("Pragma: no-cache");
-header("Expires: 0");
+    <?php
+    include('connect.php');
+    session_start();
 
-// Check if user is logged in and is an adviser
-if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
-    header("Location: login.php");
-    exit;
-}
+    // Prevent caching
+    header("Cache-Control: no-cache, no-store, must-revalidate");
+    header("Pragma: no-cache");
+    header("Expires: 0");
 
-// Get adviser information
-$adviser_id = $_SESSION['adviser_id'];
-$adviser_name = $_SESSION['name'];
-$adviser_email = $_SESSION['email'];
-
-// Get adviser role and assignment details from database
-$adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
-$adviser_stmt = mysqli_prepare($conn, $adviser_query);
-mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
-mysqli_stmt_execute($adviser_stmt);
-$adviser_result = mysqli_stmt_get_result($adviser_stmt);
-$adviser_data = mysqli_fetch_assoc($adviser_result);
-$adviser_role = $adviser_data['role'] ?? 'adviser';
-$adviser_department = $adviser_data['department'];
-$adviser_year_level = $adviser_data['year_level'];
-$adviser_section = $adviser_data['section'];
-$adviser_assigned_groups = $adviser_data['assigned_groups'];
-mysqli_stmt_close($adviser_stmt);
-
-$unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
-$unread_messages_result = mysqli_query($conn, $unread_messages_query);
-$unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
-
-// Initialize variables
-$search = '';
-$department_filter = '';
-$section_filter = '';
-$status_filter = '';
-$company_filter = '';
-$total_pages = 1; // Initialize to prevent undefined variable error
-
-// Initialize $where_clause early to prevent undefined variable error
-// BUILD WHERE CLAUSE BASED ON ROLE AND ASSIGNMENTS (SAME AS STUDENT RECORDS)
-$student_where_clause = "1=1"; // Base condition
-
-// Apply filters based on role and assignments (SAME AS STUDENT RECORDS)
-if ($adviser_role === 'coordinator') {
-    // Coordinators can see all OR filter by their assigned groups
-    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
-        // Coordinator has assigned groups - filter by them
-        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
-        $group_conditions = [];
-        
-        foreach ($groups as $group) {
-            if (!empty($group)) {
-                $group_escaped = mysqli_real_escape_string($conn, $group);
-                
-                // Try both formats (space and hyphen)
-                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
-                $group_with_space = str_replace('-G', ' G', $group_escaped);
-                
-                $group_conditions[] = "(
-                    TRIM(s.section) = TRIM('$group_escaped')
-                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
-                    OR TRIM(s.section) = TRIM('$group_with_space')
-                )";
-            }
-        }
-        
-        if (!empty($group_conditions)) {
-            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
-        }
+    // Check if user is logged in and is an adviser
+    if (!isset($_SESSION['adviser_id']) || $_SESSION['user_type'] !== 'adviser') {
+        header("Location: login.php");
+        exit;
     }
-    // If coordinator has no assigned groups, they see ALL students (no additional filter)
-    
-} elseif ($adviser_role === 'adviser') {
-    // Regular advisers MUST have assigned groups
-    if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
-        $groups = array_map('trim', explode(',', $adviser_assigned_groups));
-        $group_conditions = [];
-        
-        foreach ($groups as $group) {
-            if (!empty($group)) {
-                $group_escaped = mysqli_real_escape_string($conn, $group);
-                
-                // Try both formats (space and hyphen)
-                $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
-                $group_with_space = str_replace('-G', ' G', $group_escaped);
-                
-                $group_conditions[] = "(
-                    TRIM(s.section) = TRIM('$group_escaped')
-                    OR TRIM(s.section) = TRIM('$group_with_hyphen')
-                    OR TRIM(s.section) = TRIM('$group_with_space')
-                )";
+
+    // Get adviser information
+    $adviser_id = $_SESSION['adviser_id'];
+    $adviser_name = $_SESSION['name'];
+    $adviser_email = $_SESSION['email'];
+
+    // Get adviser role and assignment details from database
+    $adviser_query = "SELECT role, department, year_level, section, assigned_groups FROM academic_adviser WHERE id = ?";
+    $adviser_stmt = mysqli_prepare($conn, $adviser_query);
+    mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+    mysqli_stmt_execute($adviser_stmt);
+    $adviser_result = mysqli_stmt_get_result($adviser_stmt);
+    $adviser_data = mysqli_fetch_assoc($adviser_result);
+    $adviser_role = $adviser_data['role'] ?? 'adviser';
+    $adviser_department = $adviser_data['department'];
+    $adviser_year_level = $adviser_data['year_level'];
+    $adviser_section = $adviser_data['section'];
+    $adviser_assigned_groups = $adviser_data['assigned_groups'];
+    mysqli_stmt_close($adviser_stmt);
+
+    $unread_messages_query = "SELECT COUNT(*) as count FROM messages WHERE recipient_type = 'adviser' AND sender_type = 'student' AND is_read = 0 AND is_deleted_by_recipient = 0";
+    $unread_messages_result = mysqli_query($conn, $unread_messages_query);
+    $unread_messages_count = mysqli_fetch_assoc($unread_messages_result)['count'];
+
+    // Initialize variables
+    $search = '';
+    $department_filter = '';
+    $section_filter = '';
+    $status_filter = '';
+    $company_filter = '';
+    $total_pages = 1;
+
+    // BUILD WHERE CLAUSE BASED ON ROLE AND ASSIGNMENTS
+    $student_where_clause = "1=1";
+
+    if ($adviser_role === 'coordinator') {
+        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+            $group_conditions = [];
+            
+            foreach ($groups as $group) {
+                if (!empty($group)) {
+                    $group_escaped = mysqli_real_escape_string($conn, $group);
+                    $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                    $group_with_space = str_replace('-G', ' G', $group_escaped);
+                    
+                    $group_conditions[] = "(
+                        TRIM(s.section) = TRIM('$group_escaped')
+                        OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                        OR TRIM(s.section) = TRIM('$group_with_space')
+                    )";
+                }
+            }
+            
+            if (!empty($group_conditions)) {
+                $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
             }
         }
-        
-        if (!empty($group_conditions)) {
-            $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+    } elseif ($adviser_role === 'adviser') {
+        if (!empty($adviser_assigned_groups) && $adviser_assigned_groups !== NULL) {
+            $groups = array_map('trim', explode(',', $adviser_assigned_groups));
+            $group_conditions = [];
+            
+            foreach ($groups as $group) {
+                if (!empty($group)) {
+                    $group_escaped = mysqli_real_escape_string($conn, $group);
+                    $group_with_hyphen = str_replace(' G', '-G', $group_escaped);
+                    $group_with_space = str_replace('-G', ' G', $group_escaped);
+                    
+                    $group_conditions[] = "(
+                        TRIM(s.section) = TRIM('$group_escaped')
+                        OR TRIM(s.section) = TRIM('$group_with_hyphen')
+                        OR TRIM(s.section) = TRIM('$group_with_space')
+                    )";
+                }
+            }
+            
+            if (!empty($group_conditions)) {
+                $student_where_clause .= " AND (" . implode(" OR ", $group_conditions) . ")";
+            } else {
+                $student_where_clause .= " AND 1=0";
+            }
         } else {
-            // Adviser with no groups sees NO students
             $student_where_clause .= " AND 1=0";
         }
-    } else {
-        // Adviser with no assigned groups sees NO students
-        $student_where_clause .= " AND 1=0";
     }
-}
 
-// Only get filter values if we're not viewing a specific student
-$view_student = isset($_GET['view_student']) ? $_GET['view_student'] : null;
+    $view_student = isset($_GET['view_student']) ? $_GET['view_student'] : null;
 
-if (!$view_student) {
-    $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
-    // Department filter removed - using adviser's department only
-    $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : '';
-    $status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
-    $company_filter = isset($_GET['company']) ? mysqli_real_escape_string($conn, $_GET['company']) : '';
-}
+    if (!$view_student) {
+        $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
+        $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, $_GET['section']) : '';
+        $status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
+        $company_filter = isset($_GET['company']) ? mysqli_real_escape_string($conn, $_GET['company']) : '';
+    }
 
-// Use status_filter as risk_filter for backward compatibility
-$risk_filter = $status_filter;
+    $risk_filter = $status_filter;
 
-// PAGINATION SETTINGS
-$records_per_page = 10;
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$offset = ($page - 1) * $records_per_page;
+    $records_per_page = 10;
+    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+    $offset = ($page - 1) * $records_per_page;
 
-// Updated getStudentDataForPrediction function with proper completion date handling
-function getStudentDataForPrediction($student_id, $conn) {
-    $predictionData = [];
-    
-    try {
-        // Get basic student and deployment info
-        $student_query = "
-            SELECT s.*, 
-                  sd.deployment_id, sd.position, sd.start_date, sd.end_date, 
-                  sd.required_hours, sd.completed_hours, sd.status as deployment_status,
-                  sd.company_name, sd.supervisor_name, sd.supervisor_email, sd.ojt_status,
-                  cs.work_schedule_start, cs.work_schedule_end, cs.work_days
-            FROM students s
-            LEFT JOIN student_deployments sd ON s.id = sd.student_id
-            LEFT JOIN company_supervisors cs ON sd.supervisor_id = cs.supervisor_id
-            WHERE s.id = ? AND s.verified = 1
-        ";
-        $stmt = $conn->prepare($student_query);
-        $stmt->bind_param("i", $student_id);
-        $stmt->execute();
-        $student_basic = $stmt->get_result()->fetch_assoc();
+    /**
+     * Calculate Final OJT Grade (70% Supervisor + 30% Coordinator)
+     */
+    function calculateFinalOJTGrade($student_id, $conn) {
+        $grade_data = [
+            'has_supervisor_evaluation' => false,
+            'has_coordinator_evaluation' => false,
+            'supervisor_grade' => 0,
+            'coordinator_grade' => 0,
+            'final_grade' => 0,
+            'final_percentage' => 0,
+            'verbal_interpretation' => 'Not Yet Evaluated',
+            'risk_level' => 'unknown',
+            'is_complete' => false,
+            'missing_components' => [],
+            'supervisor_weight' => 70,
+            'coordinator_weight' => 30
+        ];
         
-        if (!$student_basic) {
-            return null;
-        }
-        
-        $predictionData = $student_basic;
-        
-        // Get attendance statistics with proper completion date handling
-        if ($student_basic['deployment_id']) {
-            $work_schedule_start = $student_basic['work_schedule_start'];
-            $work_schedule_end = $student_basic['work_schedule_end'];
-            $work_days_string = $student_basic['work_days'];
-            
-            // Parse work days
-            $work_days_array = array_map('trim', explode(',', strtolower($work_days_string)));
-            
-            // Calculate attendance statistics properly
-            $start_date = new DateTime($student_basic['start_date']);
-            $end_date = new DateTime($student_basic['end_date']);
-            $today_dt = new DateTime();
-            
-            // CRITICAL: Determine actual completion date
-            $limit_date = null;
-            $is_completed_by_hours = false;
-            
-            // Check if OJT is completed
-            if ($student_basic['ojt_status'] === 'Completed' || $student_basic['deployment_status'] === 'Completed') {
-                // Check if completed by hours
-                if ($student_basic['required_hours'] > 0 && $student_basic['completed_hours'] >= $student_basic['required_hours']) {
-                    // Find the exact date when required hours were completed
-                    $completion_stmt = $conn->prepare("
-                        SELECT date, 
-                               @running_total := @running_total + COALESCE(total_hours, 0) as running_total
-                        FROM student_attendance sa
-                        CROSS JOIN (SELECT @running_total := 0) r
-                        WHERE sa.student_id = ? AND sa.deployment_id = ?
-                        ORDER BY sa.date ASC
-                    ");
-                    $completion_stmt->bind_param("ii", $student_id, $student_basic['deployment_id']);
-                    $completion_stmt->execute();
-                    $completion_result = $completion_stmt->get_result();
-                    
-                    $completion_date = null;
-                    $required_hours = (float)$student_basic['required_hours'];
-                    
-                    while ($row = $completion_result->fetch_assoc()) {
-                        if ((float)$row['running_total'] >= $required_hours) {
-                            $completion_date = $row['date'];
-                            $is_completed_by_hours = true;
-                            break;
-                        }
-                    }
-                    $completion_stmt->close();
-                    
-                    if ($completion_date) {
-                        $limit_date = new DateTime($completion_date);
-                    } else {
-                        // Fallback: use last attendance date if no completion date found
-                        $last_stmt = $conn->prepare("SELECT MAX(date) as last_date FROM student_attendance WHERE student_id = ? AND deployment_id = ?");
-                        $last_stmt->bind_param("ii", $student_id, $student_basic['deployment_id']);
-                        $last_stmt->execute();
-                        $last_result = $last_stmt->get_result();
-                        $last_data = $last_result->fetch_assoc();
-                        $last_stmt->close();
-                        
-                        if ($last_data['last_date']) {
-                            $limit_date = new DateTime($last_data['last_date']);
-                        } else {
-                            $limit_date = ($end_date < $today_dt) ? $end_date : $today_dt;
-                        }
-                    }
-                } else {
-                    // Completed by end date
-                    $limit_date = $end_date;
-                }
-            } else {
-                // Still active - don't go beyond today
-                $limit_date = ($end_date < $today_dt) ? $end_date : $today_dt;
-            }
-            
-            $attendance_stats = [
-                'total_days' => 0,
-                'present_days' => 0,
-                'absent_days' => 0,
-                'late_days' => 0,
-                'avg_daily_hours' => 0
-            ];
-            
-            $total_hours = 0;
-            $records_count = 0;
-            
-            // Get all attendance records
-            $attendance_query = "
-                SELECT date, time_in, time_out, total_hours, status
-                FROM student_attendance 
-                WHERE student_id = ? AND deployment_id = ?
-                ORDER BY date ASC
-            ";
-            $stmt = $conn->prepare($attendance_query);
-            $stmt->bind_param("ii", $student_id, $student_basic['deployment_id']);
-            $stmt->execute();
-            $attendance_records = $stmt->get_result();
-            
-            // Index attendance records by date
-            $attendance_by_date = [];
-            while ($record = $attendance_records->fetch_assoc()) {
-                $attendance_by_date[$record['date']] = $record;
-                $total_hours += (float)$record['total_hours'];
-                $records_count++;
-            }
-            
-            // Calculate work days and attendance up to completion date
-            $current_date = clone $start_date;
-            while ($current_date <= $limit_date) {
-                $day_name = strtolower($current_date->format('l'));
-                $date_string = $current_date->format('Y-m-d');
-                
-                // Check if this day is a working day
-                if (in_array($day_name, $work_days_array)) {
-                    $attendance_stats['total_days']++;
-                    
-                    if (isset($attendance_by_date[$date_string])) {
-                        $record = $attendance_by_date[$date_string];
-                        $attendance_stats['present_days']++;
-                        
-                        // Check if late
-                        if ($record['time_in'] && $work_schedule_start) {
-                            $time_in = new DateTime($date_string . ' ' . $record['time_in']);
-                            $scheduled_start = new DateTime($date_string . ' ' . $work_schedule_start);
-                            $scheduled_start->modify('+15 minutes'); // Grace period
-                            
-                            if ($time_in > $scheduled_start) {
-                                $attendance_stats['late_days']++;
-                            }
-                        }
-                    } else {
-                        // Only count as absent if the date is in the past and not after completion
-                        if ($current_date <= new DateTime()) {
-                            $attendance_stats['absent_days']++;
-                        }
-                    }
-                }
-                
-                $current_date->modify('+1 day');
-            }
-            
-            $attendance_stats['avg_daily_hours'] = $records_count > 0 ? $total_hours / $records_count : 0;
-            $predictionData['attendance_stats'] = $attendance_stats;
-            $predictionData['attendance_calculation_end_date'] = $limit_date->format('Y-m-d');
-            $predictionData['completed_by_hours'] = $is_completed_by_hours;
-        }
-        
-        // Keep other parts (task stats, evaluation, self-assessment) as they are
-        $task_query = "
+        // Get Company Supervisor's Evaluation (70%)
+        $supervisor_query = "
             SELECT 
-                COUNT(*) as total_tasks,
-                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_tasks,
-                SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress_tasks,
-                SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_tasks,
-                SUM(CASE WHEN status = 'Overdue' THEN 1 ELSE 0 END) as overdue_tasks
-            FROM tasks
-            WHERE student_id = ?
-        ";
-        $stmt = $conn->prepare($task_query);
-        $stmt->bind_param("i", $student_id);
-        $stmt->execute();
-        $task_stats = $stmt->get_result()->fetch_assoc();
-        $predictionData['task_stats'] = $task_stats;
-        
-        $evaluation_query = "
-            SELECT evaluation_id, student_id, supervisor_id, deployment_id,
-                  equivalent_rating, total_score, verbal_interpretation,
-                  remarks_comments_suggestions,
-                  evaluation_period_start, evaluation_period_end, created_at, updated_at
-            FROM student_evaluations 
-            WHERE student_id = ?
-            ORDER BY created_at DESC 
+                se.equivalent_rating,
+                se.verbal_interpretation,
+                se.total_score,
+                se.created_at,
+                cs.full_name as supervisor_name,
+                cs.company_name
+            FROM student_evaluations se
+            JOIN company_supervisors cs ON se.supervisor_id = cs.supervisor_id
+            WHERE se.student_id = ?
+            ORDER BY se.created_at DESC
             LIMIT 1
         ";
-        $stmt = $conn->prepare($evaluation_query);
+        
+        $stmt = $conn->prepare($supervisor_query);
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
-        $evaluation_result = $stmt->get_result();
-        $predictionData['evaluation_data'] = $evaluation_result->num_rows > 0 ? $evaluation_result->fetch_assoc() : null;
+        $supervisor_result = $stmt->get_result();
         
-        $self_assessment_query = "
-            SELECT academic_performance, stress_level, workplace_satisfaction, 
-                  learning_progress, time_management, skill_development, 
-                  mentor_support, work_life_balance, confidence_level,
-                  challenges_faced, support_needed, additional_comments, created_at
-            FROM student_self_assessments 
-            WHERE student_id = ?
-            ORDER BY created_at DESC 
+        if ($supervisor_result && $supervisor_result->num_rows > 0) {
+            $supervisor_data = $supervisor_result->fetch_assoc();
+            $grade_data['has_supervisor_evaluation'] = true;
+            $grade_data['supervisor_grade'] = floatval($supervisor_data['equivalent_rating']);
+            $grade_data['supervisor_score'] = intval($supervisor_data['total_score']);
+            $grade_data['supervisor_interpretation'] = $supervisor_data['verbal_interpretation'];
+            $grade_data['supervisor_name'] = $supervisor_data['supervisor_name'];
+            $grade_data['company_name'] = $supervisor_data['company_name'];
+            $grade_data['supervisor_date'] = $supervisor_data['created_at'];
+        } else {
+            $grade_data['missing_components'][] = 'Company Supervisor Evaluation (70%)';
+        }
+        $stmt->close();
+        
+        // Get Coordinator's Evaluation (30%)
+        $coordinator_query = "
+            SELECT 
+                ae.coordinator_grade,
+                ae.quality_of_work,
+                ae.completeness_of_work,
+                ae.urgency_of_output,
+                ae.attendance_promptness,
+                ae.evaluated_at,
+                aa.name as coordinator_name
+            FROM academicstudentevaluation ae
+            JOIN academic_adviser aa ON ae.evaluated_by = aa.id
+            WHERE ae.student_id = ?
+            ORDER BY ae.evaluated_at DESC
             LIMIT 1
         ";
-        $stmt = $conn->prepare($self_assessment_query);
+
+        $stmt = $conn->prepare($coordinator_query);
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
-        $self_assessment_result = $stmt->get_result();
-        $predictionData['self_assessment'] = $self_assessment_result->num_rows > 0 ? $self_assessment_result->fetch_assoc() : null;
-        
-        return $predictionData;
-        
-    } catch (Exception $e) {
-        error_log("Error getting student data for prediction: " . $e->getMessage());
-        return null;
-    }
-}
+        $coordinator_result = $stmt->get_result();
 
-// OJT Pass Prediction Function - CONSISTENT VERSION
-
-function predictOJTSuccess($studentData, $conn) {
-    $prediction = [
-        'pass_probability' => 0,
-        'risk_level' => 'unknown',
-        'key_factors' => [],
-        'recommendations' => [],
-        'score' => 0
-    ];
-    
-    $score = 0;
-    $maxScore = 100;
-    $factors = [];
-    $recommendations = [];
-    
-    // 1. Attendance Analysis (Weight: 35 points)
-    $attendanceScore = 0;
-    if (!empty($studentData['attendance_stats'])) {
-        $attendanceRate = $studentData['attendance_stats']['total_days'] > 0 ? 
-            ($studentData['attendance_stats']['present_days'] / $studentData['attendance_stats']['total_days']) * 100 : 0;
-        
-        // More realistic scoring - directly proportional to attendance rate
-        $baseAttendanceScore = ($attendanceRate / 100) * 35;
-        
-        // Penalty for late arrivals (up to -5 points)
-        $lateRate = $studentData['attendance_stats']['total_days'] > 0 ? 
-            ($studentData['attendance_stats']['late_days'] / $studentData['attendance_stats']['total_days']) * 100 : 0;
-        $latePenalty = min(5, ($lateRate / 20) * 5); // Max 5 point penalty if 20%+ late rate
-        
-        $attendanceScore = max(0, $baseAttendanceScore - $latePenalty);
-        
-        // Add factors based on actual performance
-        if ($attendanceRate >= 95) {
-            $factors[] = "Excellent attendance rate (" . round($attendanceRate, 1) . "%)";
-        } elseif ($attendanceRate >= 85) {
-            $factors[] = "Good attendance rate (" . round($attendanceRate, 1) . "%)";
-        } elseif ($attendanceRate >= 75) {
-            $factors[] = "Moderate attendance rate (" . round($attendanceRate, 1) . "%)";
-            $recommendations[] = "Improve attendance consistency";
+        if ($coordinator_result && $coordinator_result->num_rows > 0) {
+            $coordinator_data = $coordinator_result->fetch_assoc();
+            $grade_data['has_coordinator_evaluation'] = true;
+            
+            // Calculate raw average from individual components (out of 100)
+            $raw_average = (
+                (floatval($coordinator_data['quality_of_work']) * 0.40) +
+                (floatval($coordinator_data['completeness_of_work']) * 0.40) +
+                (floatval($coordinator_data['urgency_of_output']) * 0.10) +
+                (floatval($coordinator_data['attendance_promptness']) * 0.10)
+            );
+            
+            // Store the raw score (this will be 81%)
+            $grade_data['coordinator_raw_score'] = $raw_average;
+            
+            // Calculate contribution as 30% of total grade (81/100 * 30 = 24.3%)
+            $grade_data['coordinator_grade'] = ($raw_average / 100) * 30;
+            
+            $grade_data['coordinator_quality'] = floatval($coordinator_data['quality_of_work']);
+            $grade_data['coordinator_completeness'] = floatval($coordinator_data['completeness_of_work']);
+            $grade_data['coordinator_urgency'] = floatval($coordinator_data['urgency_of_output']);
+            $grade_data['coordinator_attendance'] = floatval($coordinator_data['attendance_promptness']);
+            $grade_data['coordinator_name'] = $coordinator_data['coordinator_name'];
+            $grade_data['coordinator_date'] = $coordinator_data['evaluated_at'];
         } else {
-            $factors[] = "Low attendance rate (" . round($attendanceRate, 1) . "%)";
-            $recommendations[] = "Critical: Address attendance issues immediately";
+            $grade_data['missing_components'][] = 'Coordinator Evaluation (30%)';
+        }
+        $stmt->close();
+        
+        // Calculate current score and risk level (works for both complete and incomplete)
+        $supervisor_contribution = 0;
+        $coordinator_contribution = 0;
+        
+        if ($grade_data['has_supervisor_evaluation']) {
+            $supervisor_contribution = ($grade_data['supervisor_grade'] / 100) * 70;
         }
         
-        if ($lateRate > 15) {
-            $recommendations[] = "Address punctuality issues";
+        if ($grade_data['has_coordinator_evaluation']) {
+            $coordinator_contribution = $grade_data['coordinator_grade'];
         }
-    } 
-    $score += $attendanceScore;
-    
-    // 2. Task Performance Analysis (Weight: 25 points)
-    $taskScore = 0;
-    if (!empty($studentData['task_stats']) && $studentData['task_stats']['total_tasks'] > 0) {
-        $completionRate = ($studentData['task_stats']['completed_tasks'] / $studentData['task_stats']['total_tasks']) * 100;
         
-        // Base score directly proportional to completion rate
-        $baseTaskScore = ($completionRate / 100) * 25;
+        // Calculate current total (even if incomplete)
+        $current_total = $supervisor_contribution + $coordinator_contribution;
         
-        // Penalty for overdue tasks (up to -5 points)
-        $overdueTasksCount = isset($studentData['task_stats']['overdue_tasks']) ? $studentData['task_stats']['overdue_tasks'] : 0;
-        $overduePenalty = min(5, $overdueTasksCount * 1.25); // 1.25 points per overdue task, max 5
+        // If both evaluations exist, mark as complete
+        if ($grade_data['has_supervisor_evaluation'] && $grade_data['has_coordinator_evaluation']) {
+            $grade_data['final_grade'] = $current_total;
+            $grade_data['final_percentage'] = round($grade_data['final_grade'], 2);
+            $grade_data['is_complete'] = true;
+            
+            // Determine verbal interpretation based on final grade
+            if ($grade_data['final_percentage'] >= 85) {
+                $grade_data['verbal_interpretation'] = 'Excellent';
+            } elseif ($grade_data['final_percentage'] >= 82) {
+                $grade_data['verbal_interpretation'] = 'Very Good';
+            } elseif ($grade_data['final_percentage'] >= 79) {
+                $grade_data['verbal_interpretation'] = 'Good';
+            } elseif ($grade_data['final_percentage'] >= 76) {
+                $grade_data['verbal_interpretation'] = 'Fair';
+            } elseif ($grade_data['final_percentage'] >= 75) {
+                $grade_data['verbal_interpretation'] = 'Passed';
+            } else {
+                $grade_data['verbal_interpretation'] = 'Conditional Passed / Failed';
+            }
+        }
         
-        $taskScore = max(0, $baseTaskScore - $overduePenalty);
-        
-        // Add factors
-        if ($completionRate >= 90) {
-            $factors[] = "Excellent task completion (" . round($completionRate, 1) . "%)";
-        } elseif ($completionRate >= 75) {
-            $factors[] = "Good task completion (" . round($completionRate, 1) . "%)";
-        } elseif ($completionRate >= 60) {
-            $factors[] = "Moderate task completion (" . round($completionRate, 1) . "%)";
-            $recommendations[] = "Focus on completing assigned tasks";
+        // ALWAYS determine risk level based on current score (complete or incomplete)
+        // Updated to match dropdown ranges: Low (82-100), Medium (75-81), Very High (<75)
+        if ($current_total >= 82) {
+            $grade_data['risk_level'] = 'low';
+        } elseif ($current_total >= 75) {
+            $grade_data['risk_level'] = 'medium';
         } else {
-            $factors[] = "Low task completion (" . round($completionRate, 1) . "%)";
-            $recommendations[] = "Critical: Improve task completion rate";
-        }
+            $grade_data['risk_level'] = 'very_high';
+        } 
         
-        if ($overdueTasksCount > 3) {
-            $recommendations[] = "Address overdue tasks immediately";
-        }
-    } 
-    $score += $taskScore;
-    
-    // 3. Supervisor Evaluation Analysis (Weight: 35 points)
-    $evaluationScore = 0;
-    if (!empty($studentData['evaluation_data']) && isset($studentData['evaluation_data']['equivalent_rating'])) {
-        $rating = $studentData['evaluation_data']['equivalent_rating'];
-        
-        // Direct conversion from rating (0-100) to score (0-35)
-        $evaluationScore = ($rating / 100) * 35;
-        
-        // Add factors
-        if ($rating >= 90) {
-            $factors[] = "Outstanding supervisor rating (" . round($rating, 1) . "/100)";
-        } elseif ($rating >= 80) {
-            $factors[] = "Excellent supervisor rating (" . round($rating, 1) . "/100)";
-        } elseif ($rating >= 70) {
-            $factors[] = "Good supervisor rating (" . round($rating, 1) . "/100)";
-        } elseif ($rating >= 60) {
-            $factors[] = "Average supervisor rating (" . round($rating, 1) . "/100)";
-            $recommendations[] = "Focus on improving work quality";
-        } else {
-            $factors[] = "Below average supervisor rating (" . round($rating, 1) . "/100)";
-            $recommendations[] = "Critical: Address performance issues with supervisor";
-        }
+        return $grade_data;
     }
-    $score += $evaluationScore;
-    
-    // 4. Self-Assessment and Wellness (Weight: 5 points)
-    $wellnessScore = 0;
-    if (!empty($studentData['self_assessment'])) {
-        $stressLevel = $studentData['self_assessment']['stress_level'];
-        $satisfaction = $studentData['self_assessment']['workplace_satisfaction'];
-        $confidence = $studentData['self_assessment']['confidence_level'];
-        
-        // Calculate wellness score based on normalized values (1-5 scale)
-        $stressScore = (6 - $stressLevel) / 5; // Invert stress (lower is better)
-        $satisfactionScore = $satisfaction / 5;
-        $confidenceScore = $confidence / 5;
-        
-        $wellnessScore = (($stressScore + $satisfactionScore + $confidenceScore) / 3) * 5;
-        
-        if ($stressLevel >= 4) {
-            $recommendations[] = "Monitor and address high stress levels";
-        }
-        if ($satisfaction <= 2) {
-            $recommendations[] = "Investigate workplace satisfaction concerns";
-        }
-        if ($confidence <= 2) {
-            $recommendations[] = "Provide additional mentoring support";
-        }
-    }
-    $score += $wellnessScore;
-    
-    // Calculate final probability - direct conversion
-    $probability = round($score, 1);
-    
-if ($probability >= 80) {
-    $riskLevel = 'low';        // 80-100%: Low Risk
-} elseif ($probability >= 60) {
-    $riskLevel = 'medium';     // 60-79%: Medium Risk  
-} elseif ($probability >= 40) {
-    $riskLevel = 'high';       // 40-59%: High Risk
-} else {
-    $riskLevel = 'very_high';  // 0-39%: Very High Risk (Critical)
-}
-    
-    // Add general recommendations based on risk level
-    if ($riskLevel == 'very_high' || $riskLevel == 'high') {
-        $recommendations[] = "Schedule immediate intervention meeting";
-        $recommendations[] = "Consider additional support resources";
-    } elseif ($riskLevel == 'medium') {
-        $recommendations[] = "Increase monitoring frequency";
-        $recommendations[] = "Provide additional guidance and support";
-    }
-    
-    return [
-        'pass_probability' => $probability,
-        'risk_level' => $riskLevel,
-        'key_factors' => $factors,
-        'recommendations' => array_unique($recommendations),
-        'score' => round($score, 1),
-        'max_score' => $maxScore,
-        'component_scores' => [
-            'attendance' => round($attendanceScore, 1),
-            'tasks' => round($taskScore, 1),
-            'evaluation' => round($evaluationScore, 1),
-            'wellness' => round($wellnessScore, 1)
-        ]
-    ];
-}
 
-// Enhanced data fetching with prediction and filtering
-$view_student = isset($_GET['view_student']) ? $_GET['view_student'] : null;
-
-// Only fetch filter dropdown data if not viewing specific student
+    // Fetch filter dropdown data
+    // Only fetch filter dropdown data if not viewing specific student
 if (!$view_student) {
-    // GET FILTER DROPDOWN DATA
-   // GET FILTER DROPDOWN DATA (with role-based filtering)
+    // GET FILTER DROPDOWN DATA (with role-based filtering)
     try {
-        // Get unique departments for filter dropdown (from visible students only)
-
-
         // Get unique sections for filter dropdown (from visible students only)
         $sections_query = "SELECT DISTINCT s.section FROM students s 
                   INNER JOIN student_deployments sd ON s.id = sd.student_id 
@@ -568,80 +298,44 @@ if (!$view_student) {
     }
 }
 
-if ($view_student) {
-    // Get comprehensive student data for prediction (detailed view)
-    try {
-        $studentPredictionData = getStudentDataForPrediction($view_student, $conn);
-        
-        if ($studentPredictionData) {
-            $student_details = $studentPredictionData;
-            $attendance_stats = $studentPredictionData['attendance_stats'];
-            $task_stats = $studentPredictionData['task_stats'];
-            $evaluation_data = $studentPredictionData['evaluation_data'];
-            $self_assessment = $studentPredictionData['self_assessment'];
-            
-            // Generate prediction
-            $prediction = predictOJTSuccess($studentPredictionData, $conn);
-            
-            // Calculate progress percentage
-            if ($student_details['required_hours'] > 0) {
-                $progress_percentage = ($student_details['completed_hours'] / $student_details['required_hours']) * 100;
-                $progress_percentage = min(100, round($progress_percentage, 1));
-            } else {
-                $progress_percentage = 0;
-            }
-
-            // Get recent attendance data
-            $attendance_query = "
-                SELECT date, time_in, time_out, total_hours, status, notes
-                FROM student_attendance 
-                WHERE student_id = ? AND deployment_id = ?
-                ORDER BY date DESC 
-                LIMIT 10
+    if ($view_student) {
+        try {
+            // Get basic student info
+            $student_query = "
+                SELECT s.*, 
+                    sd.deployment_id, sd.position, sd.start_date, sd.end_date, 
+                    sd.required_hours, sd.completed_hours, sd.status as deployment_status,
+                    sd.company_name, sd.supervisor_name, sd.supervisor_email, sd.ojt_status
+                FROM students s
+                LEFT JOIN student_deployments sd ON s.id = sd.student_id
+                WHERE s.id = ? AND s.verified = 1
             ";
-            $stmt = $conn->prepare($attendance_query);
-            $stmt->bind_param("ii", $view_student, $student_details['deployment_id']);
-            $stmt->execute();
-            $attendance_result = $stmt->get_result();
-            $attendance_data = [];
-            while ($row = $attendance_result->fetch_assoc()) {
-                $attendance_data[] = $row;
-            }
-
-            // Get recent tasks
-            $task_query = "
-                SELECT t.task_id, t.task_title, t.task_description, t.due_date, t.priority, 
-                      t.task_category, t.status, t.created_at,
-                      ts.status as submission_status, ts.submitted_at, ts.feedback
-                FROM tasks t
-                LEFT JOIN task_submissions ts ON t.task_id = ts.task_id
-                WHERE t.student_id = ?
-                ORDER BY t.created_at DESC
-                LIMIT 10
-            ";
-            $stmt = $conn->prepare($task_query);
+            $stmt = $conn->prepare($student_query);
             $stmt->bind_param("i", $view_student);
             $stmt->execute();
-            $task_result = $stmt->get_result();
-            $task_data = [];
-            while ($row = $task_result->fetch_assoc()) {
-                $task_data[] = $row;
+            $student_details = $stmt->get_result()->fetch_assoc();
+            
+            if ($student_details) {
+                $grade_data = calculateFinalOJTGrade($view_student, $conn);
+                
+                if ($student_details['required_hours'] > 0) {
+                    $progress_percentage = ($student_details['completed_hours'] / $student_details['required_hours']) * 100;
+                    $progress_percentage = min(100, round($progress_percentage, 1));
+                } else {
+                    $progress_percentage = 0;
+                }
             }
+        } catch (Exception $e) {
+            $error_message = "Error fetching student details: " . $e->getMessage();
         }
-    } catch (Exception $e) {
-        $error_message = "Error fetching student details: " . $e->getMessage();
-    }
-} else {
-    // MAIN FILTERED QUERY with real data for predictions
+    } else {
     try {
         // BUILD WHERE CONDITIONS FOR FILTERING
-       // BUILD WHERE CONDITIONS FOR FILTERING
         $where_conditions = array();
         
         if (!empty($search)) {
             $where_conditions[] = "(s.first_name LIKE '%$search%' OR s.last_name LIKE '%$search%' OR s.student_id LIKE '%$search%' OR s.email LIKE '%$search%' OR sd.company_name LIKE '%$search%')";
         }
-
 
         if (!empty($section_filter)) {
             $where_conditions[] = "s.section = '$section_filter'";
@@ -660,717 +354,594 @@ if ($view_student) {
         
         // Add deployment status filter
         $where_clause .= " AND sd.status IN ('Active', 'Completed') AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))";
-        // Combine conditions
-       // Combine base condition with filter conditions
-if (count($where_conditions) > 0) {
-    $where_clause = $student_where_clause . " AND (" . implode(' AND ', $where_conditions) . ")";
-} else {
-    $where_clause = $student_where_clause;
-}
+            // Main query - Get ALL students first
+            $students_query = "
+                SELECT DISTINCT s.id, s.student_id, s.first_name, s.middle_name, s.last_name, 
+                    s.program, s.year_level, s.profile_picture, s.department, s.section,
+                    s.contact_number, s.email,
+                    
+                    sd.deployment_id, sd.position, sd.start_date, sd.end_date, 
+                    sd.required_hours, sd.completed_hours, sd.status as deployment_status,
+                    sd.company_name, sd.supervisor_name, sd.ojt_status
+                    
+                FROM students s
+                INNER JOIN student_deployments sd ON s.id = sd.student_id 
+                    AND sd.status IN ('Active', 'Completed') 
+                    AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))
+                
+                WHERE $where_clause AND sd.deployment_id IS NOT NULL
+                ORDER BY s.last_name, s.first_name
+            ";
 
-        // Count total records for pagination (before risk filter)
-        $count_query = "SELECT COUNT(DISTINCT s.id) as total 
-                       FROM students s
-                       INNER JOIN student_deployments sd ON s.id = sd.student_id
-                       WHERE $where_clause";
-        $count_result = mysqli_query($conn, $count_query);
-        $total_records = mysqli_fetch_assoc($count_result)['total'];
-
-        // MAIN QUERY with real data for predictions
-       $students_query = "
-    SELECT DISTINCT s.id, s.student_id, s.first_name, s.middle_name, s.last_name, 
-          s.program, s.year_level, s.profile_picture, s.department, s.section,
-          s.contact_number, s.email,
-          
-          sd.deployment_id, sd.position, sd.start_date, sd.end_date, 
-          sd.required_hours, sd.completed_hours, sd.status as deployment_status,
-          sd.company_name, sd.supervisor_name, sd.ojt_status,
-          
-          cs.work_schedule_start, cs.work_schedule_end, cs.work_days
-          
-    FROM students s
-    INNER JOIN student_deployments sd ON s.id = sd.student_id 
-        AND sd.status IN ('Active', 'Completed') 
-        AND (sd.ojt_status IS NULL OR sd.ojt_status IN ('Active', 'Completed'))
-    LEFT JOIN company_supervisors cs ON sd.supervisor_id = cs.supervisor_id
-    
-    WHERE $where_clause AND sd.deployment_id IS NOT NULL
-    ORDER BY s.last_name, s.first_name
-";
-
-        $stmt = $conn->prepare($students_query);
-        $stmt->execute();
-        $students_result = $stmt->get_result();
-        $students_data = [];
-        $students_with_predictions = [];
-        
-        while ($row = $students_result->fetch_assoc()) {
-            // Get complete data for accurate prediction
-            $studentPredictionData = getStudentDataForPrediction($row['id'], $conn);
+            $students_result = mysqli_query($conn, $students_query);
             
-            if ($studentPredictionData) {
-                $prediction = predictOJTSuccess($studentPredictionData, $conn);
-                $row['prediction'] = $prediction;
-                $students_with_predictions[] = $row;
+            if (!$students_result) {
+                throw new Exception("Query failed: " . mysqli_error($conn));
             }
-        }
-        
-        if (isset($student_details) && $student_details['deployment_id']) {
-    $work_schedule_start = $student_details['work_schedule_start'];
-    $work_schedule_end = $student_details['work_schedule_end'];  
-    $work_days_string = $student_details['work_days'];
-    
-    // Parse work days
-    $work_days_array = array_map('trim', explode(',', strtolower($work_days_string)));
-    
-    // Get attendance data with work day context
-    $attendance_query = "
-        SELECT date, time_in, time_out, total_hours, status, notes
-        FROM student_attendance 
-        WHERE student_id = ? AND deployment_id = ?
-        ORDER BY date DESC 
-        LIMIT 10
-    ";
-    $stmt = $conn->prepare($attendance_query);
-    $stmt->bind_param("ii", $view_student, $student_details['deployment_id']);
-    $stmt->execute();
-    $attendance_result = $stmt->get_result();
-    $attendance_data = [];
-    
-    while ($row = $attendance_result->fetch_assoc()) {
-        // Add work day context and late calculation
-        $date = $row['date'];
-        $day_name = strtolower(date('l', strtotime($date)));
-        $is_work_day = in_array($day_name, $work_days_array);
-        
-        // Calculate if late
-        $is_late = false;
-        $minutes_late = 0;
-        if ($row['time_in'] && $work_schedule_start && $is_work_day) {
-            $time_in = new DateTime($date . ' ' . $row['time_in']);
-            $scheduled_start = new DateTime($date . ' ' . $work_schedule_start);
-            $scheduled_start->modify('+15 minutes'); // Grace period
             
-            if ($time_in > $scheduled_start) {
-                $is_late = true;
-                $minutes_late = round(($time_in->getTimestamp() - $scheduled_start->getTimestamp()) / 60);
+            $students_with_grades = [];
+            
+            // Calculate grades for ALL students first
+            while ($row = mysqli_fetch_assoc($students_result)) {
+                $grade_data = calculateFinalOJTGrade($row['id'], $conn);
+                $row['grade_data'] = $grade_data;
+                $students_with_grades[] = $row;
             }
-        }
-        
-        $row['is_work_day'] = $is_work_day;
-        $row['is_late'] = $is_late;
-        $row['minutes_late'] = $minutes_late;
-        $row['day_name'] = ucfirst($day_name);
-        
-        $attendance_data[] = $row;
-    }
-}
-        // Apply risk level filter if specified
-        if (!empty($risk_filter)) {
-            $students_with_predictions = array_filter($students_with_predictions, function($student) use ($risk_filter) {
-                return $student['prediction']['risk_level'] === $risk_filter;
-            });
             
-            // Recalculate pagination for risk filter
-            $total_records = count($students_with_predictions);
+            // Filter by risk level if selected
+            if (!empty($risk_filter)) {
+                $students_with_grades = array_filter($students_with_grades, function($student) use ($risk_filter) {
+                    return isset($student['grade_data']['risk_level']) && 
+                        $student['grade_data']['risk_level'] === $risk_filter;
+                });
+                
+                // Re-index array after filtering
+                $students_with_grades = array_values($students_with_grades);
+            }
+            
+            // Update total records based on filtered results
+            $total_records = count($students_with_grades);
             $total_pages = ceil($total_records / $records_per_page);
             
-            // Apply pagination to filtered results
-            $students_with_predictions = array_slice($students_with_predictions, $offset, $records_per_page);
+            // Apply pagination AFTER filtering
+            $students_data = array_slice($students_with_grades, $offset, $records_per_page);
+            
+        } catch (Exception $e) {
+            $error_message = "Error fetching students data: " . $e->getMessage();
+            $students_data = [];
+            $total_records = 0;
+        }
+    }
+
+    function getRiskBadgeClass($riskLevel) {
+        switch($riskLevel) {
+            case 'low': return 'bg-green-100 text-green-800';
+            case 'medium': return 'bg-yellow-100 text-yellow-800';
+            case 'very_high': return 'bg-red-100 text-red-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    }
+
+    function getRiskLabel($riskLevel) {
+        switch($riskLevel) {
+            case 'low': return 'Low Risk (82-100%)';
+            case 'medium': return 'Medium Risk (75-81%)';
+            case 'very_high': return 'Very High Risk (<75%)';
+            default: return 'Unknown';
+        }
+    }
+
+    $adviser_initials = strtoupper(substr($adviser_name, 0, 2));
+
+    try {
+        $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
+        $adviser_stmt = mysqli_prepare($conn, $adviser_query);
+        mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
+        mysqli_stmt_execute($adviser_stmt);
+        $adviser_result = mysqli_stmt_get_result($adviser_stmt);
+        
+        if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
+            $adviser_data = mysqli_fetch_assoc($adviser_result);
+            $profile_picture = $adviser_data['profile_picture'] ?? '';
         } else {
-            // Calculate pagination normally if no risk filter
-            $total_pages = ceil($total_records / $records_per_page);
-            
-            // Apply pagination to all results
-            $students_with_predictions = array_slice($students_with_predictions, $offset, $records_per_page);
+            $profile_picture = '';
         }
-        
-        $students_data = $students_with_predictions;
-        
     } catch (Exception $e) {
-        $error_message = "Error fetching students data: " . $e->getMessage();
-    }
-}
-
-function getRiskBadgeClass($riskLevel) {
-    switch($riskLevel) {
-        case 'low': return 'bg-green-100 text-green-800';
-        case 'medium': return 'bg-yellow-100 text-yellow-800';
-        case 'high': return 'bg-orange-100 text-orange-800';
-        case 'very_high': return 'bg-red-100 text-red-800';
-        default: return 'bg-gray-100 text-gray-800';
-    }
-}
-
-function getRiskLabel($riskLevel) {
-    switch($riskLevel) {
-        case 'low': return 'Low Risk (80-100%)';
-        case 'medium': return 'Medium Risk (60-79%)';
-        case 'high': return 'High Risk (40-59%)';
-        case 'very_high': return 'Very High Risk (0-39%)';
-        default: return 'Unknown';
-    }
-}
-
-// Create adviser initials
-$adviser_initials = strtoupper(substr($adviser_name, 0, 2));
-
-// Fetch adviser profile picture
-try {
-    $adviser_query = "SELECT profile_picture FROM Academic_Adviser WHERE id = ?";
-    $adviser_stmt = mysqli_prepare($conn, $adviser_query);
-    mysqli_stmt_bind_param($adviser_stmt, "i", $adviser_id);
-    mysqli_stmt_execute($adviser_stmt);
-    $adviser_result = mysqli_stmt_get_result($adviser_stmt);
-    
-    if ($adviser_result && mysqli_num_rows($adviser_result) > 0) {
-        $adviser_data = mysqli_fetch_assoc($adviser_result);
-        $profile_picture = $adviser_data['profile_picture'] ?? '';
-    } else {
         $profile_picture = '';
     }
-} catch (Exception $e) {
-    $profile_picture = '';
-}
-?>
+    ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OnTheJob Tracker - Student Performance</title>
-    <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
-    <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-     <script>
-tailwind.config = {
-    theme: {        
-        extend: {
-            colors: {
-                'bulsu-maroon': '#800000',     // Primary Maroon
-                'bulsu-dark-maroon': '#6B1028',// Dark shade ng maroon
-                'bulsu-gold': '#DAA520',       // Official Gold
-                'bulsu-light-gold': '#F4E4BC', // Accent light gold
-                'bulsu-white': '#FFFFFF'       // Supporting White
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OnTheJob Tracker - Student Performance</title>
+        <link rel="icon" type="image/png" href="reqsample/bulsu12.png">
+        <link rel="shortcut icon" type="image/png" href="reqsample/bulsu12.png">
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta http-equiv="Expires" content="0">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+    tailwind.config = {
+        theme: {        
+            extend: {
+                colors: {
+                    'bulsu-maroon': '#800000',
+                    'bulsu-dark-maroon': '#6B1028',
+                    'bulsu-gold': '#DAA520',
+                    'bulsu-light-gold': '#F4E4BC',
+                    'bulsu-white': '#FFFFFF'
+                }
             }
         }
     }
-}
-</script>
-    <style>
-         .activity-item:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
+    </script>
+        <style>
+            .notification-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 20px;
+                height: 20px;
+                padding: 0 6px;
+                margin-left: 8px;
+                background: #EF4444;
+                color: white;
+                font-size: 11px;
+                font-weight: 600;
+                border-radius: 10px;
+                animation: pulse 2s infinite;
+            }
+            
+            .sidebar {
+                transition: transform 0.3s ease-in-out;
+            }
 
-        .notification-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 20px;
-            height: 20px;
-            padding: 0 6px;
-            margin-left: 8px;
-            background: #EF4444;
-            color: white;
-            font-size: 11px;
-            font-weight: 600;
-            border-radius: 10px;
-            animation: pulse 2s infinite;
-        }
-        /* Custom CSS for features not easily achievable with Tailwind */
-        .sidebar {
-            transition: transform 0.3s ease-in-out;
-        }
+            .sidebar-overlay {
+                transition: opacity 0.3s ease-in-out;
+            }
 
-        .sidebar-overlay {
-            transition: opacity 0.3s ease-in-out;
-        }
+            .progress-fill {
+                transition: width 2s ease-in-out;
+            }
+            
+            .grade-breakdown-card {
+                border-left: 4px solid;
+                transition: all 0.3s ease;
+            }
+            
+            .grade-breakdown-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+        </style>
+    </head>
+    <body class="bg-gray-50">
+        <!-- Mobile Sidebar Overlay -->
+        <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden hidden sidebar-overlay"></div>
 
-        .progress-fill {
-            transition: width 2s ease-in-out;
-        }
+        <!-- Sidebar -->
+        <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
+        <div class="flex justify-end p-4 lg:hidden">
+            <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .chart-container {
-            position: relative;
-            height: 400px;
-        }
-
-        .prediction-circle {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: white;
-        }
-
-        .circle-success {
-            background: linear-gradient(135deg, #4CAF50, #45a049);
-        }
-
-        .circle-warning {
-            background: linear-gradient(135deg, #FF9800, #F57C00);
-        }
-
-        .circle-danger {
-            background: linear-gradient(135deg, #F44336, #D32F2F);
-        }
-
-        .prediction-mini {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .prediction-mini .prediction-circle {
-            width: 60px;
-            height: 60px;
-            font-size: 1rem;
-        }
-    </style>
-</head>
-<body class="bg-gray-50">
-    <!-- Mobile Sidebar Overlay -->
-    <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden hidden sidebar-overlay"></div>
-
-    <!-- Sidebar -->
-    <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-bulsu-maroon to-bulsu-dark-maroon shadow-lg z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out sidebar">
-    <!-- Close button for mobile -->
-    <div class="flex justify-end p-4 lg:hidden">
-        <button id="closeSidebar" class="text-bulsu-light-gold hover:text-bulsu-gold">
-            <i class="fas fa-times text-xl"></i>
-        </button>
-    </div>
-
-    <!-- Logo Section with BULSU Branding -->
-    <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
-        <div class="flex items-center">
-            <!-- BULSU Logos -->
-            <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
-            <!-- Brand Name -->
-            <div class="flex items-center font-bold text-lg text-white">
-                <span>OnTheJob</span>
-                <span class="ml-1">Tracker</span>
+        <div class="px-6 py-4 border-b border-bulsu-gold border-opacity-30">
+            <div class="flex items-center">
+                <img src="reqsample/bulsu12.png" alt="BULSU Logo 2" class="w-14 h-14 mr-2">
+                <div class="flex items-center font-bold text-lg text-white">
+                    <span>OnTheJob</span>
+                    <span class="ml-1">Tracker</span>
+                </div>
             </div>
         </div>
-    </div>
-    
-    <!-- Navigation -->
-    <div class="px-4 py-6">
-        <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
-        <nav class="space-y-2">
-            <a href="AdviserDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-th-large mr-3"></i>
-                Dashboard
-            </a>
-            <a href="ViewOJTCoordinators.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-users-cog mr-3"></i>
-                View OJT Company Supervisor
-            </a>
-            <a href="StudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-user-graduate mr-3"></i>
-                Student Accounts
-            </a>
-            <a href="StudentDeployment.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-paper-plane mr-3"></i>
-                Student Deployment
-            </a>
-            <a href="StudentPerformance.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
-                <i class="fas fa-chart-line mr-3 text-bulsu-gold"></i>
-                Student Performance
-            </a>
-            <a href="StudentRecords.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-folder-open mr-3"></i>
-                Student Records
-            </a>
-            <a href="GenerateReports.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-file-alt mr-3"></i>
-                Generate Reports
-            </a>
-            <a href="AdminAlerts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-bell mr-3"></i>
-                Administrative Alerts
-            </a>
-            <a href="academicAdviserMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-envelope mr-3"></i>
-                Messages
-                <?php if ($unread_messages_count > 0): ?>
-                    <span class="notification-badge" id="sidebar-notification-badge">
-                        <?php echo $unread_messages_count; ?>
-                    </span>
+        
+        <div class="px-4 py-6">
+            <h2 class="text-xs font-semibold text-bulsu-light-gold uppercase tracking-wide mb-4">Navigation</h2>
+            <nav class="space-y-2">
+                <a href="AdviserDashboard.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-th-large mr-3"></i>
+                    Dashboard
+                </a>
+                <a href="ViewOJTCoordinators.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-users-cog mr-3"></i>
+                    View OJT Company Supervisor
+                </a>
+                <a href="StudentAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-user-graduate mr-3"></i>
+                    Student Accounts
+                </a>
+                <a href="StudentDeployment.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-paper-plane mr-3"></i>
+                    Student Deployment
+                </a>
+                <a href="StudentPerformance.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-white bg-bulsu-gold bg-opacity-20 border border-bulsu-gold border-opacity-30 rounded-md">
+                    <i class="fas fa-chart-line mr-3 text-bulsu-gold"></i>
+                    Student Performance
+                </a>
+                <a href="StudentRecords.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-folder-open mr-3"></i>
+                    Student Records
+                </a>
+                <a href="GenerateReports.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-file-alt mr-3"></i>
+                    Generate Reports
+                </a>
+                <a href="AdminAlerts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-bell mr-3"></i>
+                    Administrative Alerts
+                </a>
+                <a href="academicAdviserMessage.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-envelope mr-3"></i>
+                    Messages
+                    <?php if ($unread_messages_count > 0): ?>
+                        <span class="notification-badge" id="sidebar-notification-badge">
+                            <?php echo $unread_messages_count; ?>
+                        </span>
+                    <?php endif; ?>
+                </a>
+                <a href="academicAdviserEdit.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-edit mr-3"></i>
+                    Edit Document
+                </a>
+                <a href="AcademicStudentEvaluation.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-star mr-3"></i>
+                    Student Evaluation
+                </a>
+                <?php if ($adviser_role === 'coordinator'): ?>
+                <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-user-tie mr-3"></i>
+                    Academic Accounts
+                </a>
                 <?php endif; ?>
-            </a>
-            <a href="academicAdviserEdit.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-edit mr-3"></i>
-                Edit Document
-            </a>
-            <?php if ($adviser_role === 'coordinator'): ?>
-            <a href="AcademicAccounts.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
-                <i class="fas fa-user-tie mr-3"></i>
-                Academic Accounts
-            </a>
-            <?php endif; ?>
-        </nav>
-    </div>
-    
-    <!-- User Profile -->
-    <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
-        <div class="flex items-center space-x-3">
-            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
-             <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
-                <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
-            </div>
+            </nav>
         </div>
-    </div>
-</div>
-    
-    
-    <!-- Main Content -->
-    <div class="lg:ml-64 min-h-screen">
-        <!-- Header -->
-        <div class="bg-white shadow-sm border-b border-gray-200">
-            <div class="flex items-center justify-between px-4 sm:px-6 py-4">
-                <!-- Mobile Menu Button -->
-                <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100">
-                    <i class="fas fa-bars text-xl"></i>
-                </button>
-
-                <!-- Header Title -->
-                <div class="flex-1 lg:ml-0 ml-4">
-                    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">
-                        <?php if (!$view_student): ?>
-                              Student Performance 
-                              <?php else: ?>
-                            <?php echo htmlspecialchars($student_details['first_name'] . ' ' . $student_details['last_name']); ?>
-                        <?php endif; ?>
-                    </h1>
-                    <?php if ($view_student && isset($student_details)): ?>
-                        <p class="text-sm text-gray-600 mt-1">
-                            <?php echo htmlspecialchars($student_details['program']); ?> - 
-                            <?php echo htmlspecialchars($student_details['year_level']); ?> Year
-                        </p>
+        
+        <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-bulsu-gold border-opacity-30 bg-gradient-to-t from-black to-transparent">
+            <div class="flex items-center space-x-3">
+                <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-bulsu-gold to-yellow-400 rounded-full flex items-center justify-center text-bulsu-maroon font-semibold text-sm overflow-hidden">
+                    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                    <?php else: ?>
+                        <?php echo $adviser_initials; ?>
                     <?php endif; ?>
                 </div>
-
-                 <!-- Profile Dropdown -->
-                <div class="relative">
-                    <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
-                        <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
-                    </button>
-                    <div id="profileDropdown" class="hidden absolute right-0 mt-2 w-48 sm:w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                        <div class="p-4 border-b border-gray-200">
-                            <div class="flex items-center space-x-3">
-                                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
-    <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
-        <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
-    <?php else: ?>
-        <?php echo $adviser_initials; ?>
-    <?php endif; ?>
-</div>
-                                <div>
-                                    <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
-                                    <p class="text-sm text-gray-500">Academic Adviser</p>
-                                </div>
-                            </div>
-                        </div>
-                        <a href="AdviserAccountSettings.php" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                            <i class="fas fa-cog mr-3"></i>
-                            Account Settings
-                        </a>
-                        <div class="border-t border-gray-200"></div>
-                        <a href="logout.php" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick="return confirmLogout()">
-                            <i class="fas fa-sign-out-alt mr-3"></i>
-                            Logout
-                        </a>
-                    </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-white truncate"><?php echo htmlspecialchars($adviser_name); ?></p>
+                    <p class="text-xs text-bulsu-light-gold"><?php echo ucfirst($adviser_role); ?></p>
                 </div>
             </div>
         </div>
-        <!-- Filters Section -->
-            <!-- Filters Section - Only show when viewing students list -->
-        <?php if (!$view_student): ?>
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-    <div class="p-4 sm:p-6">
-        <!-- Filter Form -->
-        <form method="GET" action="" id="filterForm">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <!-- Search Input -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Search Students</label>
-                    <div class="relative">
-                        <input type="text" name="search" id="searchInput" 
-                               class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
-                               placeholder="Search by name, email, or ID..." 
-                               value="<?php echo htmlspecialchars($search); ?>">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <i class="fas fa-search text-gray-400"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Department Filter -->
-                <!-- Department (Read-Only) -->
-<div>
-    <label class="block text-sm font-medium text-gray-700 mb-2">Department</label>
-    <input type="text" 
-           class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" 
-           value="<?php echo htmlspecialchars($adviser_department ?? 'Not Assigned'); ?>" 
-           readonly 
-           title="Your assigned department">
-</div>
-                
-                <!-- Section Filter -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Section</label>
-                    <select name="section" id="sectionFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">All Sections</option>
-                        <?php 
-                        if (isset($sections_result)) {
-                            mysqli_data_seek($sections_result, 0);
-                            while ($sect = mysqli_fetch_assoc($sections_result)): ?>
-                                <option value="<?php echo htmlspecialchars($sect['section']); ?>" 
-                                        <?php echo $section_filter === $sect['section'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($sect['section']); ?>
-                                </option>
-                            <?php endwhile;
-                        } ?>
-                    </select>
-                </div>
-
-                <!-- Risk Level Filter -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Risk Level</label>
-                    <select name="status" id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-    <option value="">All Risk Levels</option>
-    <option value="low" <?php echo $status_filter === 'low' ? 'selected' : ''; ?>>Low Risk (80-100%)</option>
-    <option value="medium" <?php echo $status_filter === 'medium' ? 'selected' : ''; ?>>Medium Risk (60-79%)</option>
-    <option value="high" <?php echo $status_filter === 'high' ? 'selected' : ''; ?>>High Risk (40-59%)</option>
-    <option value="very_high" <?php echo $status_filter === 'very_high' ? 'selected' : ''; ?>>Very High Risk (0-39%)</option>
-</select>
-                </div>
-
-                <!-- Company Filter -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Company</label>
-                    <select name="company" id="companyFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">All Companies</option>
-                        <?php 
-                        if (isset($companies_result)) {
-                            mysqli_data_seek($companies_result, 0);
-                            while ($company = mysqli_fetch_assoc($companies_result)): ?>
-                                <option value="<?php echo htmlspecialchars($company['company_name']); ?>" 
-                                        <?php echo $company_filter === $company['company_name'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($company['company_name']); ?>
-                                </option>
-                            <?php endwhile;
-                        } ?>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Filter Buttons -->
-            <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
-                <div class="flex space-x-3">
-                    <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                        <i class="fas fa-filter mr-2"></i>
-                        Apply Filters
-                    </button>
-                    <button type="button" id="clearFilters" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                        <i class="fas fa-times mr-2"></i>
-                        Clear All
-                    </button>
-                </div>
-                
-                <!-- Results Count -->
-                <?php if (isset($total_records)): ?>
-                <div class="text-sm text-gray-600">
-                    Showing <?php echo count($students_data); ?> of <?php echo $total_records; ?> students
-                </div>
-                <?php endif; ?>
-            </div>
-        </form>
     </div>
-</div>
+        
+        <!-- Main Content -->
+        <div class="lg:ml-64 min-h-screen">
+            <!-- Header -->
+            <div class="bg-white shadow-sm border-b border-gray-200">
+                <div class="flex items-center justify-between px-4 sm:px-6 py-4">
+                    <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
 
-        <?php else: ?>
-            <!-- Back button when viewing student details -->
-            <div class="mb-6">
-                <a href="StudentPerformance.php" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                    <i class="fas fa-arrow-left mr-2"></i>
-                    Back to Students List
-                </a>
-            </div>
-        <?php endif; ?>
-        <!-- Main Content Area -->
-        <div class="p-4 sm:p-6">
-            <?php if (isset($error_message)): ?>
-                <div class="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
-                    <div class="flex">
-                        <div class="flex-shrink-0">
-                            <i class="fas fa-exclamation-circle text-red-400"></i>
-                        </div>
-                        <div class="ml-3">
-                            <p class="text-sm font-medium text-red-800"><?php echo htmlspecialchars($error_message); ?></p>
+                    <div class="flex-1 lg:ml-0 ml-4">
+                        <h1 class="text-xl sm:text-2xl font-bold text-gray-900">
+                            <?php if (!$view_student): ?>
+                                Student Performance 
+                            <?php else: ?>
+                                <?php echo htmlspecialchars($student_details['first_name'] . ' ' . $student_details['last_name']); ?>
+                            <?php endif; ?>
+                        </h1>
+                        <?php if ($view_student && isset($student_details)): ?>
+                            <p class="text-sm text-gray-600 mt-1">
+                                <?php echo htmlspecialchars($student_details['program']); ?> - 
+                                <?php echo htmlspecialchars($student_details['year_level']); ?> Year
+                            </p>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="relative">
+                        <button id="profileBtn" class="flex items-center p-1 rounded-full hover:bg-gray-100">
+                            <div class="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm overflow-hidden">
+                                <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                                    <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                                <?php else: ?>
+                                    <?php echo $adviser_initials; ?>
+                                <?php endif; ?>
+                            </div>
+                        </button>
+                        <div id="profileDropdown" class="hidden absolute right-0 mt-2 w-48 sm:w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                            <div class="p-4 border-b border-gray-200">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold overflow-hidden">
+                                        <?php if (!empty($profile_picture) && file_exists($profile_picture)): ?>
+                                            <img src="<?php echo htmlspecialchars($profile_picture); ?>" alt="Profile Picture" class="w-full h-full object-cover">
+                                        <?php else: ?>
+                                            <?php echo $adviser_initials; ?>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-gray-900"><?php echo htmlspecialchars($adviser_name); ?></p>
+                                        <p class="text-sm text-gray-500">Academic Adviser</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="AdviserAccountSettings.php" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-cog mr-3"></i>
+                                Account Settings
+                            </a>
+                            <div class="border-t border-gray-200"></div>
+                            <a href="logout.php" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick="return confirmLogout()">
+                                <i class="fas fa-sign-out-alt mr-3"></i>
+                                Logout
+                            </a>
                         </div>
                     </div>
+                </div>
+            </div>
+            
+            <?php if (!$view_student): ?>
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+                    <div class="p-4 sm:p-6">
+                        <form method="GET" action="" id="filterForm">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Search Students</label>
+                                    <div class="relative">
+                                        <input type="text" name="search" id="searchInput" 
+                                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                                            placeholder="Search by name, email, or ID..." 
+                                            value="<?php echo htmlspecialchars($search); ?>">
+                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <i class="fas fa-search text-gray-400"></i>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Department</label>
+                                    <input type="text" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed" 
+                                        value="<?php echo htmlspecialchars($adviser_department ?? 'Not Assigned'); ?>" 
+                                        readonly 
+                                        title="Your assigned department">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Section</label>
+                                    <select name="section" id="sectionFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">All Sections</option>
+                                        <?php 
+                                        if (isset($sections_result)) {
+                                            mysqli_data_seek($sections_result, 0);
+                                            while ($sect = mysqli_fetch_assoc($sections_result)): ?>
+                                                <option value="<?php echo htmlspecialchars($sect['section']); ?>" 
+                                                        <?php echo $section_filter === $sect['section'] ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($sect['section']); ?>
+                                                </option>
+                                            <?php endwhile;
+                                        } ?>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Risk Level</label>
+                                    <select name="status" id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">All Risk Levels</option>
+                                        <option value="low" <?php echo $status_filter === 'low' ? 'selected' : ''; ?>>Low Risk (82-100%)</option>
+                                        <option value="medium" <?php echo $status_filter === 'medium' ? 'selected' : ''; ?>>Medium Risk (75-81%)</option>
+                                        <option value="very_high" <?php echo $status_filter === 'very_high' ? 'selected' : ''; ?>>Very High Risk (&lt;75%)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Company</label>
+                                    <select name="company" id="companyFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">All Companies</option>
+                                        <?php 
+                                        if (isset($companies_result)) {
+                                            mysqli_data_seek($companies_result, 0);
+                                            while ($company = mysqli_fetch_assoc($companies_result)): ?>
+                                                <option value="<?php echo htmlspecialchars($company['company_name']); ?>" 
+                                                        <?php echo $company_filter === $company['company_name'] ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($company['company_name']); ?>
+                                                </option>
+                                            <?php endwhile;
+                                        } ?>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+                                <div class="flex space-x-3">
+                                    <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                        <i class="fas fa-filter mr-2"></i>
+                                        Apply Filters
+                                    </button>
+                            
+                                </div>
+                                
+                                <?php if (isset($total_records)): ?>
+                                <div class="text-sm text-gray-600">
+                                    Showing <?php echo count($students_data); ?> of <?php echo $total_records; ?> students
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+            <?php else: ?>
+                <div class="p-4 sm:p-6">
+                    <a href="StudentPerformance.php" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 mb-6">
+                        <i class="fas fa-arrow-left mr-2"></i>
+                        Back to Students List
+                    </a>
                 </div>
             <?php endif; ?>
-
-            <?php if (!$view_student): ?>
-                <!-- Students Overview with Predictions -->
-              <!-- Students Overview with Predictions -->
-                <div class="bg-white shadow-sm rounded-lg overflow-hidden">
-                    <!-- Header -->
-                    <div class="px-4 py-5 sm:px-6 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon">
-                        <h3 class="text-lg leading-6 font-medium text-white flex items-center">
-                            <i class="fas fa-chart-line text-bulsu-gold mr-2"></i>
-                            Students Performance Dashboard
-                        </h3>
-                        <p class="mt-1 max-w-2xl text-sm text-bulsu-light-gold">
-                            AI-powered predictions for OJT success with detailed performance metrics
-                        </p>
+            
+            <div class="p-4 sm:p-6">
+                <?php if (isset($error_message)): ?>
+                    <div class="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-exclamation-circle text-red-400"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-red-800"><?php echo htmlspecialchars($error_message); ?></p>
+                            </div>
+                        </div>
                     </div>
+                <?php endif; ?>
 
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Program</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AI Prediction</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <?php if (!empty($students_data)): ?>
-                                    <?php foreach ($students_data as $student): ?>
-                                        <?php
-                                        $prediction = $student['prediction'];
-                                        $quick_probability = $prediction['pass_probability'];
-                                        $quick_risk = $prediction['risk_level'];
-                                        
-                                        // Set prediction class based on risk level
-                                        if ($quick_risk == 'very_low' || $quick_risk == 'low') {
-                                            $prediction_class = 'circle-success';
-                                        } elseif ($quick_risk == 'medium') {
-                                            $prediction_class = 'circle-warning';
-                                        } else {
-                                            $prediction_class = 'circle-danger';
-                                        }
-                                        
-                                        $progress_percentage = $student['required_hours'] > 0 ? 
-                                            min(100, ($student['completed_hours'] / $student['required_hours']) * 100) : 0;
-                                        ?>
-                                        <tr>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="flex items-center">
-                                                    <div class="flex-shrink-0 h-10 w-10">
-                                                        <?php if (!empty($student['profile_picture'])): ?>
-                                                            <img class="h-10 w-10 rounded-full object-cover" 
-                                                                src="<?php echo htmlspecialchars($student['profile_picture']); ?>" 
-                                                                alt="Profile">
+                <?php if (!$view_student): ?>
+                    <!-- Students Overview Table -->
+                    <div class="bg-white shadow-sm rounded-lg overflow-hidden">
+                        <div class="px-4 py-5 sm:px-6 border-b border-gray-200 bg-gradient-to-r from-bulsu-maroon to-bulsu-dark-maroon">
+                            <h3 class="text-lg leading-6 font-medium text-white flex items-center">
+                                <i class="fas fa-chart-line text-bulsu-gold mr-2"></i>
+                                Students Performance Dashboard
+                            </h3>
+                            <p class="mt-1 max-w-2xl text-sm text-bulsu-light-gold">
+                                Final grades calculated: 70% Supervisor + 30% Coordinator
+                            </p>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Program</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk Level</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <?php if (!empty($students_data)): ?>
+                                        <?php foreach ($students_data as $student): ?>
+                                            <?php
+                                            $grade_data = $student['grade_data'];
+                                            $risk_level = $grade_data['risk_level'];
+                                            
+                                            $progress_percentage = $student['required_hours'] > 0 ? 
+                                                min(100, ($student['completed_hours'] / $student['required_hours']) * 100) : 0;
+                                            ?>
+                                            <tr>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="flex items-center">
+                                                        <div class="flex-shrink-0 h-10 w-10">
+                                                            <?php if (!empty($student['profile_picture'])): ?>
+                                                                <img class="h-10 w-10 rounded-full object-cover" 
+                                                                    src="<?php echo htmlspecialchars($student['profile_picture']); ?>" 
+                                                                    alt="Profile">
+                                                            <?php else: ?>
+                                                                <div class="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                                                    <span class="text-sm font-medium text-gray-600">
+                                                                        <?php echo strtoupper(substr($student['first_name'], 0, 1) . substr($student['last_name'], 0, 1)); ?>
+                                                                    </span>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                        <div class="ml-4">
+                                                            <div class="text-sm font-medium text-gray-900">
+                                                                <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>
+                                                            </div>
+                                                            <div class="text-sm text-gray-500">
+                                                                <?php echo htmlspecialchars($student['student_id']); ?>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['program']); ?></div>
+                                                    <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['year_level']); ?> Year</div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['company_name'] ?? 'Not Assigned'); ?></div>
+                                                    <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['position'] ?? ''); ?></div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm text-gray-900"><?php echo round($progress_percentage, 1); ?>%</div>
+                                                    <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                                        <div class="bg-blue-600 h-2 rounded-full progress-fill" style="width: <?php echo $progress_percentage; ?>%"></div>
+                                                    </div>
+                                                    <div class="text-xs text-gray-500 mt-1">
+                                                        <?php echo $student['completed_hours']; ?>/<?php echo $student['required_hours']; ?> hours
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-center">
+                                                        <?php
+                                                        // Calculate current score from available evaluations
+                                                        $current_score = 0;
+                                                        
+                                                        if ($grade_data['has_supervisor_evaluation']) {
+                                                            $supervisor_contribution = ($grade_data['supervisor_grade'] / 100) * 70;
+                                                            $current_score += $supervisor_contribution;
+                                                        }
+                                                        
+                                                        if ($grade_data['has_coordinator_evaluation']) {
+                                                            $coordinator_contribution = $grade_data['coordinator_grade'];
+                                                            $current_score += $coordinator_contribution;
+                                                        }
+                                                        
+                                                        // Determine display color based on risk level
+                                                        $display_color = $risk_level === 'low' ? '#10B981' : 
+                                                                        ($risk_level === 'medium' ? '#F59E0B' : 
+                                                                        ($risk_level === 'high' ? '#F97316' : '#EF4444'));
+                                                        
+                                                        // If incomplete but has score, use orange color
+                                                        if (!$grade_data['is_complete'] && $current_score > 0) {
+                                                            $display_color = '#F59E0B'; // Orange for partial scores
+                                                        }
+                                                        ?>
+                                                        
+                                                        <div class="text-lg font-bold mb-1" style="color: <?php echo $display_color; ?>;">
+                                                            <?php echo number_format($grade_data['is_complete'] ? $grade_data['final_percentage'] : $current_score, 2); ?>%
+                                                        </div>
+                                                        
+                                                        <?php if ($grade_data['is_complete']): ?>
+                                                            <div class="text-xs text-gray-600 mb-2">
+                                                                <?php echo $grade_data['verbal_interpretation']; ?>
+                                                            </div>
                                                         <?php else: ?>
-                                                            <div class="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                                                                <span class="text-sm font-medium text-gray-600">
-                                                                    <?php echo strtoupper(substr($student['first_name'], 0, 1) . substr($student['last_name'], 0, 1)); ?>
-                                                                </span>
+                                                            <div class="text-xs text-gray-500 mb-2">
+                                                                Incomplete - <?php echo $current_score > 0 ? 'Partial Score' : 'No Evaluation'; ?>
                                                             </div>
                                                         <?php endif; ?>
+                                                        
+                                                        <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo getRiskBadgeClass($risk_level); ?>">
+                                                            <?php echo getRiskLabel($risk_level); ?>
+                                                        </span>
                                                     </div>
-                                                    <div class="ml-4">
-                                                        <div class="text-sm font-medium text-gray-900">
-                                                            <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?>
-                                                        </div>
-                                                        <div class="text-sm text-gray-500">
-                                                            <?php echo htmlspecialchars($student['student_id']); ?>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['program']); ?></div>
-                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['year_level']); ?> Year</div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($student['company_name'] ?? 'Not Assigned'); ?></div>
-                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($student['position'] ?? ''); ?></div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900"><?php echo round($progress_percentage, 1); ?>%</div>
-                                                <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                                                    <div class="bg-blue-600 h-2 rounded-full progress-fill" style="width: <?php echo $progress_percentage; ?>%"></div>
-                                                </div>
-                                                <div class="text-xs text-gray-500 mt-1">
-                                                    <?php echo $student['completed_hours']; ?>/<?php echo $student['required_hours']; ?> hours
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="prediction-mini">
-                                                    <div class="prediction-circle <?php echo $prediction_class; ?>">
-    <?php echo $prediction['pass_probability']; ?>%
-</div>
-                                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo getRiskBadgeClass($quick_risk); ?>">
-                                                        <?php echo getRiskLabel($quick_risk); ?>
-                                                    </span>
-                                                    <!-- Debug info (remove in production) -->
-                                                    <div class="text-xs text-gray-400 mt-1">
-                                                        Score: <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <a href="?view_student=<?php echo $student['id']; ?>" 
-                                                  class="text-indigo-600 hover:text-indigo-900">
-                                                    View Details
-                                                </a>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    <a href="?view_student=<?php echo $student['id']; ?>" 
+                                                    class="text-indigo-600 hover:text-indigo-900">
+                                                        View Details
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500">
+                                                No students found matching your filters.
                                             </td>
                                         </tr>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <tr>
-                                        <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500">
-                                            No students found.
-                                        </td>
-                                    </tr>
-                                <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <!-- Pagination - Now positioned at the bottom of the table -->
-                    <!-- Pagination - Now positioned at the bottom of the table -->
-                   <?php if (isset($total_pages) && $total_pages > 1): ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <?php if (isset($total_pages) && $total_pages > 1): ?>
     <div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
         <!-- Mobile pagination -->
         <div class="flex-1 flex justify-between sm:hidden">
@@ -1441,504 +1012,336 @@ tailwind.config = {
         </div>
     </div>
 <?php endif; ?>
-                </div>
-            <?php else: ?>
-                <!-- Individual Student Detailed View -->
-                <?php if (isset($student_details) && isset($prediction)): ?>
-                    <!-- Student Header -->
-                   <!-- AI Prediction Summary -->
-                    <div class="bg-white shadow-sm rounded-lg p-6 mb-6">
-                        <h3 class="text-lg font-medium text-gray-900 mb-4">
-                            <i class="fas fa-brain text-blue-600 mr-2"></i>
-                            AI Prediction Analysis
-                        </h3>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            <!-- Risk Level -->
-                            <div class="text-center">
-                                <div class="mb-3">
-                                    <span class="px-4 py-2 rounded-full text-sm font-semibold <?php echo getRiskBadgeClass($prediction['risk_level']); ?>">
-                                        <?php echo getRiskLabel($prediction['risk_level']); ?>
-                                    </span>
-                                </div>
-                                <p class="text-sm text-gray-600">Risk Assessment</p>
-                            </div>
-                            
-                            <!-- Score -->
-                           <div class="text-center">
-        <div class="text-2xl font-bold text-gray-900 mb-1">
-            <?php echo $prediction['score']; ?>/<?php echo $prediction['max_score']; ?>
-        </div>
-        <p class="text-sm text-gray-600">Performance Score</p>
-    </div>
-                            
-                            <!-- Progress -->
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-gray-900 mb-1">
-                                    <?php echo $progress_percentage; ?>%
-                                </div>
-                                <p class="text-sm text-gray-600">Hours Completed</p>
-                            </div>
-                        </div>
-
-                        <!-- Success Probability Breakdown -->
-                        <!-- Success Probability Breakdown -->
-<div class="mt-8 bg-gray-50 rounded-lg p-6">
-    <h4 class="text-lg font-medium text-gray-900 mb-4">
-        <i class="fas fa-chart-pie text-purple-600 mr-2"></i>
-        Success Probability Computation
-    </h4>
-    
-    <div class="mb-4">
-        <div class="flex justify-between items-center mb-2">
-    <span class="text-lg font-semibold text-gray-900">Final Success Probability</span>
-    <span class="text-2xl font-bold text-blue-600"><?php echo $prediction['pass_probability']; ?>%</span>
-</div>
-<div class="w-full bg-gray-200 rounded-full h-3">
-    <div class="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-1000" style="width: <?php echo $prediction['pass_probability']; ?>%"></div>
-</div>
-    </div>
-
-    <!-- Computation Breakdown -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <?php
-        // Calculate individual component scores for display
-        $attendanceScore = 0;
-        $taskScore = 0;
-        $evaluationScore = 0;
-        $wellnessScore = 0;
-        
-        // Attendance Analysis (Weight: 35%)
-        if (!empty($attendance_stats)) {
-            $attendanceRate = $attendance_stats['total_days'] > 0 ? 
-                ($attendance_stats['present_days'] / $attendance_stats['total_days']) * 100 : 0;
-            
-            if ($attendanceRate >= 95) {
-                $attendanceScore = 35;
-            } elseif ($attendanceRate >= 85) {
-                $attendanceScore = 28;
-            } elseif ($attendanceRate >= 75) {
-                $attendanceScore = 21;
-            } else {
-                $attendanceScore = 7;
-            }
-            
-            // Penalty for excessive late arrivals
-            $lateRate = $attendance_stats['total_days'] > 0 ? 
-                ($attendance_stats['late_days'] / $attendance_stats['total_days']) * 100 : 0;
-            if ($lateRate > 20) {
-                $attendanceScore = max(0, $attendanceScore - 7);
-            }
-        }
-        
-        // Task Performance Analysis (Weight: 25%)
-        if (!empty($task_stats)) {
-            $completionRate = $task_stats['total_tasks'] > 0 ? 
-                ($task_stats['completed_tasks'] / $task_stats['total_tasks']) * 100 : 0;
-            
-            if ($completionRate >= 90) {
-                $taskScore = 25;
-            } elseif ($completionRate >= 75) {
-                $taskScore = 21;
-            } elseif ($completionRate >= 60) {
-                $taskScore = 15;
-            } else {
-                $taskScore = 7;
-            }
-            
-            // Bonus/Penalty for task management
-            if ($task_stats['overdue_tasks'] == 0) {
-                $taskScore = min(25, $taskScore + 4);
-            } elseif ($task_stats['overdue_tasks'] > 3) {
-                $taskScore = max(0, $taskScore - 4);
-            }
-        }
-        
-        // Supervisor Evaluation Analysis (Weight: 35%)
-        if (!empty($evaluation_data)) {
-            $rating = $evaluation_data['equivalent_rating'];
-            
-            if ($rating >= 85) {
-                $evaluationScore = 35;
-            } elseif ($rating >= 75) {
-                $evaluationScore = 28;
-            } elseif ($rating >= 65) {
-                $evaluationScore = 21;
-            } else {
-                $evaluationScore = 7;
-            }
-        }
-        
-        // Self-Assessment and Stress Factors (Weight: 5%)
-        if (!empty($self_assessment)) {
-            $stressLevel = $self_assessment['stress_level'];
-            $satisfaction = $self_assessment['workplace_satisfaction'];
-            $confidence = $self_assessment['confidence_level'];
-            
-            if ($stressLevel <= 2 && $satisfaction >= 4 && $confidence >= 4) {
-                $wellnessScore = 5;
-            } elseif ($stressLevel <= 3 && $satisfaction >= 3 && $confidence >= 3) {
-                $wellnessScore = 3;
-            } else {
-                $wellnessScore = 1;
-            }
-        }
-        
-        // Calculate percentages for display
-        $attendancePercent = ($attendanceScore / 35) * 100;
-        $taskPercent = ($taskScore / 25) * 100;
-        $evaluationPercent = ($evaluationScore / 35) * 100;
-        $wellnessPercent = ($wellnessScore / 5) * 100;
-        ?>
-        
-        <!-- Attendance Component -->
-        <div class="text-center">
-            <div class="text-sm font-medium text-gray-600 mb-2">Attendance</div>
-            <div class="text-lg font-bold text-green-600 mb-2"><?php echo round($attendancePercent, 1); ?>%</div>
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-green-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $attendancePercent; ?>%"></div>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">
-                <?php echo $attendanceScore; ?>/35 points (35%)
-            </div>
-        </div>
-        
-        <!-- Task Performance Component -->
-        <div class="text-center">
-            <div class="text-sm font-medium text-gray-600 mb-2">Task Performance</div>
-            <div class="text-lg font-bold text-blue-600 mb-2"><?php echo round($taskPercent, 1); ?>%</div>
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-blue-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $taskPercent; ?>%"></div>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">
-                <?php echo $taskScore; ?>/25 points (25%)
-            </div>
-        </div>
-        
-        <!-- Supervisor Evaluation Component -->
-        <div class="text-center">
-            <div class="text-sm font-medium text-gray-600 mb-2">Supervisor Rating</div>
-            <div class="text-lg font-bold text-purple-600 mb-2"><?php echo round($evaluationPercent, 1); ?>%</div>
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-purple-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $evaluationPercent; ?>%"></div>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">
-                <?php echo $evaluationScore; ?>/35 points (35%)
-            </div>
-        </div>
-        
-        <!-- Wellness Component -->
-        <div class="text-center">
-            <div class="text-sm font-medium text-gray-600 mb-2">Wellness</div>
-            <div class="text-lg font-bold text-teal-600 mb-2"><?php echo round($wellnessPercent, 1); ?>%</div>
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-teal-500 h-2 rounded-full transition-all duration-1000" style="width: <?php echo $wellnessPercent; ?>%"></div>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">
-                <?php echo $wellnessScore; ?>/5 points (5%)
-            </div>
-        </div>
-    </div>
-    
-    <!-- Algorithm Explanation -->
-    <div class="mt-6 p-4 bg-blue-50 rounded-lg">
-        <h5 class="text-sm font-medium text-blue-900 mb-2">
-            <i class="fas fa-info-circle mr-1"></i>
-            How the AI Calculates Success Probability
-        </h5>
-        <div class="text-sm text-blue-800 space-y-1">
-            <p><strong>Attendance (35%):</strong> Based on presence rate, punctuality, and consistency - the foundation of OJT success</p>
-            <p><strong>Supervisor Rating (35%):</strong> Holistic evaluation of work quality, professionalism, attitude, and overall performance</p>
-            <p><strong>Task Performance (25%):</strong> Completion rate, quality, and timeliness of assigned tasks</p>
-            <p><strong>Wellness Factors (5%):</strong> Self-reported stress, satisfaction, and confidence levels</p>
-        </div>
-        <div class="mt-3 p-3 bg-white rounded border-l-4 border-blue-500">
-            <p class="text-xs text-gray-600">
-                <strong>Note:</strong> The AI algorithm uses weighted scoring with performance thresholds to ensure 
-                accurate predictions. Scores are capped at maximum values and risk levels are determined 
-                based on statistical analysis of successful OJT completions.
-            </p>
-        </div>
-    </div>
-</div>
-                            
-
-                        <!-- Key Factors -->
-                        <?php if (!empty($prediction['key_factors'])): ?>
-                            <div class="mt-6">
-                                <h4 class="text-sm font-medium text-gray-900 mb-3">Key Performance Factors</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <?php foreach ($prediction['key_factors'] as $factor): ?>
-                                        <div class="flex items-center p-3 bg-green-50 rounded-md">
-                                            <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                                            <span class="text-sm text-green-800"><?php echo htmlspecialchars($factor); ?></span>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-
-                        <!-- Recommendations -->
-                        <?php if (!empty($prediction['recommendations'])): ?>
-                            <div class="mt-6">
-                                <h4 class="text-sm font-medium text-gray-900 mb-3">AI Recommendations</h4>
-                                <div class="space-y-3">
-                                    <?php foreach ($prediction['recommendations'] as $recommendation): ?>
-                                        <div class="flex items-start p-3 bg-yellow-50 rounded-md">
-                                            <i class="fas fa-lightbulb text-yellow-500 mr-2 mt-0.5"></i>
-                                            <span class="text-sm text-yellow-800"><?php echo htmlspecialchars($recommendation); ?></span>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endif; ?>
                     </div>
-                    <!-- Performance Metrics Grid -->
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                        <!-- Attendance Overview -->
-                        <div class="bg-white shadow-sm rounded-lg p-6">
-                            <h3 class="text-lg font-medium text-gray-900 mb-4">
-                                <i class="fas fa-calendar-check text-green-600 mr-2"></i>
-                                Attendance Overview
-                            </h3>
-                            <?php if (!empty($attendance_stats)): ?>
-                                <div class="space-y-4">
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div class="text-center p-3 bg-green-50 rounded-md">
-                                            <div class="text-2xl font-bold text-green-600">
-                                                <?php echo $attendance_stats['present_days']; ?>
-                                            </div>
-                                            <p class="text-sm text-green-800">Present</p>
-                                        </div>
-                                        <div class="text-center p-3 bg-red-50 rounded-md">
-                                            <div class="text-2xl font-bold text-red-600">
-                                                <?php echo $attendance_stats['absent_days']; ?>
-                                            </div>
-                                            <p class="text-sm text-red-800">Absent</p>
-                                        </div>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div class="text-center p-3 bg-yellow-50 rounded-md">
-                                            <div class="text-2xl font-bold text-yellow-600">
-                                                <?php echo $attendance_stats['late_days']; ?>
-                                            </div>
-                                            <p class="text-sm text-yellow-800">Late</p>
-                                        </div>
-                                        <div class="text-center p-3 bg-blue-50 rounded-md">
-                                            <div class="text-2xl font-bold text-blue-600">
-                                                <?php echo round($attendance_stats['avg_daily_hours'], 1); ?>h
-                                            </div>
-                                            <p class="text-sm text-blue-800">Avg Daily Hours</p>
-                                        </div>
-                                    </div>
-                                    
-                                    <?php 
-                                    $attendance_rate = $attendance_stats['total_days'] > 0 ? 
-                                        ($attendance_stats['present_days'] / $attendance_stats['total_days']) * 100 : 0;
-                                    ?>
-                                    <div class="mt-4">
-                                        <div class="flex justify-between text-sm text-gray-600 mb-1">
-                                            <span>Attendance Rate</span>
-                                            <span><?php echo round($attendance_rate, 1); ?>%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-green-600 h-2 rounded-full" style="width: <?php echo $attendance_rate; ?>%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            <?php else: ?>
-                                <p class="text-sm text-gray-500">No attendance data available.</p>
-                            <?php endif; ?>
-                        </div>
-
-                        <!-- Task Performance -->
-                        <div class="bg-white shadow-sm rounded-lg p-6">
-                            <h3 class="text-lg font-medium text-gray-900 mb-4">
-                                <i class="fas fa-tasks text-blue-600 mr-2"></i>
-                                Task Performance
-                            </h3>
-                            <?php if (!empty($task_stats)): ?>
-                                <div class="space-y-4">
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div class="text-center p-3 bg-green-50 rounded-md">
-                                            <div class="text-2xl font-bold text-green-600">
-                                                <?php echo $task_stats['completed_tasks']; ?>
-                                            </div>
-                                            <p class="text-sm text-green-800">Completed</p>
-                                        </div>
-                                        <div class="text-center p-3 bg-yellow-50 rounded-md">
-                                            <div class="text-2xl font-bold text-yellow-600">
-                                                <?php echo $task_stats['in_progress_tasks']; ?>
-                                            </div>
-                                            <p class="text-sm text-yellow-800">In Progress</p>
-                                        </div>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div class="text-center p-3 bg-gray-50 rounded-md">
-                                            <div class="text-2xl font-bold text-gray-600">
-                                                <?php echo $task_stats['pending_tasks']; ?>
-                                            </div>
-                                            <p class="text-sm text-gray-800">Pending</p>
-                                        </div>
-                                        <div class="text-center p-3 bg-red-50 rounded-md">
-                                            <div class="text-2xl font-bold text-red-600">
-                                                <?php echo $task_stats['overdue_tasks']; ?>
-                                            </div>
-                                            <p class="text-sm text-red-800">Overdue</p>
-                                        </div>
-                                    </div>
-                                    
-                                    <?php 
-                                    $completion_rate = $task_stats['total_tasks'] > 0 ? 
-                                        ($task_stats['completed_tasks'] / $task_stats['total_tasks']) * 100 : 0;
-                                    ?>
-                                    <div class="mt-4">
-                                        <div class="flex justify-between text-sm text-gray-600 mb-1">
-                                            <span>Completion Rate</span>
-                                            <span><?php echo round($completion_rate, 1); ?>%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-2">
-                                            <div class="bg-blue-600 h-2 rounded-full" style="width: <?php echo $completion_rate; ?>%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            <?php else: ?>
-                                <p class="text-sm text-gray-500">No task data available.</p>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
                 <?php else: ?>
-                    <div class="bg-red-50 border border-red-200 rounded-md p-4">
-                        <div class="flex">
-                            <div class="flex-shrink-0">
-                                <i class="fas fa-exclamation-circle text-red-400"></i>
+                    <!-- Individual Student Detailed View -->
+                    <?php if (isset($student_details) && isset($grade_data)): ?>
+                        
+                        <!-- Final Grade Breakdown Section -->
+                        <div class="bg-white shadow-sm rounded-lg p-6 mb-6">
+                            <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                                <i class="fas fa-graduation-cap text-green-600 mr-2"></i>
+                                Final OJT Grade Breakdown
+                            </h3>
+                            
+                            <?php
+                            $current_score = 0;
+                            $supervisor_contribution = 0;
+                            $coordinator_contribution = 0;
+                            
+                            if ($grade_data['has_supervisor_evaluation']) {
+                                $supervisor_contribution = ($grade_data['supervisor_grade'] / 100) * 70;
+                                $current_score += $supervisor_contribution;
+                            }
+                            
+                            if ($grade_data['has_coordinator_evaluation']) {
+                                $coordinator_contribution = $grade_data['coordinator_grade'];
+                                $current_score += $coordinator_contribution;
+                            }
+                            ?>
+                            
+                            <div class="<?php echo $grade_data['is_complete'] ? 'bg-gradient-to-r from-green-50 to-blue-50' : 'bg-gradient-to-r from-yellow-50 to-orange-50'; ?> rounded-lg p-6 mb-6">
+                                <div class="text-center">
+                                    <?php if ($grade_data['is_complete']): ?>
+                                        <div class="text-5xl font-bold mb-2" style="color: <?php 
+                                            echo $grade_data['risk_level'] === 'low' ? '#10B981' : 
+                                                ($grade_data['risk_level'] === 'medium' ? '#F59E0B' : 
+                                                ($grade_data['risk_level'] === 'high' ? '#F97316' : '#EF4444')); 
+                                        ?>;">
+                                            <?php echo number_format($grade_data['final_percentage'], 2); ?>%
+                                        </div>
+                                        <div class="text-xl font-semibold text-gray-700">
+                                            <?php echo $grade_data['verbal_interpretation']; ?>
+                                        </div>
+                                        <div class="text-sm text-gray-600 mt-2">
+                                            Final OJT Grade (70% Supervisor + 30% Coordinator)
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="px-4 py-2 inline-flex text-sm font-semibold rounded-full <?php echo getRiskBadgeClass($grade_data['risk_level']); ?>">
+                                                <?php echo getRiskLabel($grade_data['risk_level']); ?>
+                                            </span>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="mb-3">
+                                            <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl"></i>
+                                        </div>
+                                        <div class="text-3xl font-bold text-gray-700 mb-2">
+                                            <?php echo number_format($current_score, 2); ?>/100
+                                        </div>
+                                        <div class="text-lg font-semibold text-gray-600">
+                                            Final Grade Not Yet Available
+                                        </div>
+                                        <div class="text-sm text-gray-600 mt-2">
+                                            <?php if (!$grade_data['has_supervisor_evaluation']): ?>
+                                                <div class="text-red-600">• Missing: Company Supervisor Evaluation (70%)</div>
+                                            <?php endif; ?>
+                                            <?php if (!$grade_data['has_coordinator_evaluation']): ?>
+                                                <div class="text-red-600">• Missing: Coordinator Evaluation (30%)</div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                            <div class="ml-3">
-                                <p class="text-sm font-medium text-red-800">
-                                    Student not found or no data available.
-                                </p>
+                            
+                            <!-- Component Breakdown -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Supervisor Evaluation (70%) -->
+                                <div class="grade-breakdown-card <?php echo $grade_data['has_supervisor_evaluation'] ? 'border-green-500' : 'border-red-500'; ?> bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h4 class="text-sm font-semibold text-gray-700">
+                                            <i class="fas fa-building <?php echo $grade_data['has_supervisor_evaluation'] ? 'text-green-600' : 'text-red-600'; ?> mr-2"></i>
+                                            Company Supervisor Evaluation
+                                        </h4>
+                                        <span class="text-xs font-medium text-green-600 bg-green-100 px-2 py-1 rounded">70%</span>
+                                    </div>
+                                    
+                                    <?php if ($grade_data['has_supervisor_evaluation']): ?>
+                                        <div class="space-y-2">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-sm text-gray-600">Rating:</span>
+                                                <span class="text-lg font-bold text-green-600">
+                                                    <?php echo number_format($grade_data['supervisor_grade'], 2); ?>%
+                                                </span>
+                                            </div>
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-sm text-gray-600">Interpretation:</span>
+                                                <span class="text-sm font-medium text-gray-900">
+                                                    <?php echo $grade_data['supervisor_interpretation']; ?>
+                                                </span>
+                                            </div>
+                                            <div class="flex justify-between items-center pt-2 border-t border-gray-200">
+                                                <span class="text-sm text-gray-600">Contribution:</span>
+                                                <span class="text-lg font-bold text-blue-600">
+                                                    <?php echo number_format($supervisor_contribution, 2); ?>%
+                                                </span>
+                                            </div>
+                                            <div class="pt-2 border-t border-gray-200">
+                                                <div class="text-xs text-gray-500">
+                                                    <div><strong>Evaluator:</strong> <?php echo htmlspecialchars($grade_data['supervisor_name']); ?></div>
+                                                    <div><strong>Company:</strong> <?php echo htmlspecialchars($grade_data['company_name']); ?></div>
+                                                    <div><strong>Date:</strong> <?php echo date('M j, Y', strtotime($grade_data['supervisor_date'])); ?></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="text-center py-6">
+                                            <i class="fas fa-times-circle text-red-400 text-4xl mb-3"></i>
+                                            <div class="text-sm font-medium text-red-600 mb-2">Not Yet Evaluated</div>
+                                            <div class="text-xs text-gray-500">Waiting for company supervisor evaluation</div>
+                                            <div class="mt-3 pt-3 border-t border-red-200">
+                                                <div class="text-sm text-red-600 font-semibold">
+                                                    0.00% contribution
+                                                </div>
+                                                <div class="text-xs text-gray-500">(0% out of 70%)</div>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <!-- Coordinator Evaluation (30%) -->
+                                <div class="grade-breakdown-card <?php echo $grade_data['has_coordinator_evaluation'] ? 'border-blue-500' : 'border-red-500'; ?> bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h4 class="text-sm font-semibold text-gray-700">
+                                            <i class="fas fa-user-tie <?php echo $grade_data['has_coordinator_evaluation'] ? 'text-blue-600' : 'text-red-600'; ?> mr-2"></i>
+                                            Academic Coordinator Evaluation
+                                        </h4>
+                                        <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">30%</span>
+                                    </div>
+                                    
+                                    <?php if ($grade_data['has_coordinator_evaluation']): ?>
+                                        <div class="space-y-2">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-sm text-gray-600">Grade:</span>
+                                                <span class="text-lg font-bold text-blue-600">
+                                                    <?php echo number_format($grade_data['coordinator_grade'], 2); ?>%
+                                                </span>
+                                            </div>
+                                            <div class="text-xs text-gray-600 space-y-1 p-2 bg-gray-50 rounded">
+                                                <div class="flex justify-between">
+                                                    <span>• Quality of Work (40%):</span>
+                                                    <span class="font-medium"><?php echo number_format($grade_data['coordinator_quality'], 1); ?></span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span>• Completeness (40%):</span>
+                                                    <span class="font-medium"><?php echo number_format($grade_data['coordinator_completeness'], 1); ?></span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span>• Urgency (10%):</span>
+                                                    <span class="font-medium"><?php echo number_format($grade_data['coordinator_urgency'], 1); ?></span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span>• Attendance (10%):</span>
+                                                    <span class="font-medium"><?php echo number_format($grade_data['coordinator_attendance'], 1); ?></span>
+                                                </div>
+                                            </div>
+                                            <div class="flex justify-between items-center pt-2 border-t border-gray-200">
+                                                <span class="text-sm text-gray-600">Contribution:</span>
+                                                <span class="text-lg font-bold text-blue-600">
+                                                    <?php echo number_format($coordinator_contribution, 2); ?>%
+                                                </span>
+                                            </div>
+                                            <div class="pt-2 border-t border-gray-200">
+                                                <div class="text-xs text-gray-500">
+                                                    <div><strong>Evaluator:</strong> <?php echo htmlspecialchars($grade_data['coordinator_name']); ?></div>
+                                                    <div><strong>Date:</strong> <?php echo date('M j, Y', strtotime($grade_data['coordinator_date'])); ?></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="text-center py-6">
+                                            <i class="fas fa-times-circle text-red-400 text-4xl mb-3"></i>
+                                            <div class="text-sm font-medium text-red-600 mb-2">Not Yet Evaluated</div>
+                                            <div class="text-xs text-gray-500">Waiting for coordinator evaluation</div>
+                                            <div class="mt-3 pt-3 border-t border-red-200">
+                                                <div class="text-sm text-red-600 font-semibold">
+                                                    0.00% contribution
+                                                </div>
+                                                <div class="text-xs text-gray-500">(0% out of 30%)</div>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            
+                            <!-- Calculation Formula -->
+                            <div class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h5 class="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                                    <i class="fas fa-calculator mr-2"></i>
+                                    Calculation Formula
+                                </h5>
+                                <div class="text-sm text-gray-600 space-y-1">
+                                    <div class="mb-2">Final Grade = (Supervisor Rating × 0.70) + Coordinator Grade</div>
+                                    
+                                    <?php if ($grade_data['is_complete']): ?>
+                                        <div class="font-mono bg-white p-2 rounded border text-xs">
+                                            = (<?php echo number_format($grade_data['supervisor_grade'], 2); ?>% × 0.70) + <?php echo number_format($grade_data['coordinator_grade'], 2); ?>%
+                                        </div>
+                                        <div class="font-mono bg-white p-2 rounded border text-xs">
+                                            = <?php echo number_format($supervisor_contribution, 2); ?>% + <?php echo number_format($coordinator_contribution, 2); ?>%
+                                        </div>
+                                        <div class="font-mono bg-green-50 p-2 rounded border border-green-300 font-bold text-xs">
+                                            = <?php echo number_format($grade_data['final_percentage'], 2); ?>%
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="font-mono bg-white p-2 rounded border text-xs">
+                                            = (<?php echo $grade_data['has_supervisor_evaluation'] ? number_format($grade_data['supervisor_grade'], 2) : '0.00'; ?>% × 0.70) + <?php echo $grade_data['has_coordinator_evaluation'] ? number_format($grade_data['coordinator_grade'], 2) : '0.00'; ?>%
+                                        </div>
+                                        <div class="font-mono bg-white p-2 rounded border text-xs">
+                                            = <?php echo number_format($supervisor_contribution, 2); ?>% + <?php echo number_format($coordinator_contribution, 2); ?>%
+                                        </div>
+                                        <div class="font-mono bg-yellow-50 p-2 rounded border border-yellow-300 font-bold text-xs">
+                                            = <?php echo number_format($current_score, 2); ?>% (Incomplete)
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
-                    </div>
+
+                    <?php else: ?>
+                        <div class="bg-red-50 border border-red-200 rounded-md p-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <i class="fas fa-exclamation-circle text-red-400"></i>
+                                </div>
+                                <div class="ml-3">
+                                    <p class="text-sm font-medium text-red-800">
+                                        Student not found or no data available.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 <?php endif; ?>
-            <?php endif; ?>
+            </div>
         </div>
-    </div>
 
-     
-    <!-- Mobile Menu Script -->
-    
-
-<!-- Replace ALL your script tags with this single, clean version -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // ===========================================
-    // INITIALIZE ALL VARIABLES
-    // ===========================================
-    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebarOverlay');
-    const closeSidebarBtn = document.getElementById('closeSidebar');
-    const profileBtn = document.getElementById('profileBtn');
-    const profileDropdown = document.getElementById('profileDropdown');
-    const searchInput = document.getElementById('searchInput');
-    const clearFiltersBtn = document.getElementById('clearFilters');
-    const filterForm = document.getElementById('filterForm');
-    
-    // Global variables
-    let currentStudentId = null;
-    let currentDocumentId = null;
-    let currentAction = null;
-
-    // ===========================================
-    // MOBILE SIDEBAR FUNCTIONALITY
-    // ===========================================
-    
-    function openSidebar() {
-        if (sidebar && sidebarOverlay) {
-            sidebar.classList.remove('-translate-x-full');
-            sidebarOverlay.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
-    }
-
-    function closeSidebar() {
-        if (sidebar && sidebarOverlay) {
-            sidebar.classList.add('-translate-x-full');
-            sidebarOverlay.classList.add('hidden');
-            document.body.style.overflow = 'auto';
-        }
-    }
-
-    // Mobile menu button
-    if (mobileMenuBtn) {
-        mobileMenuBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            openSidebar();
-        });
-    }
-
-    // Close button
-    if (closeSidebarBtn) {
-        closeSidebarBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            closeSidebar();
-        });
-    }
-
-    // Overlay click
-    if (sidebarOverlay) {
-        sidebarOverlay.addEventListener('click', function(e) {
-            e.preventDefault();
-            closeSidebar();
-        });
-    }
-
-    // Window resize handling
-    window.addEventListener('resize', function() {
-        if (window.innerWidth >= 1024) {
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Mobile sidebar
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        const closeSidebarBtn = document.getElementById('closeSidebar');
+        
+        function openSidebar() {
             if (sidebar && sidebarOverlay) {
                 sidebar.classList.remove('-translate-x-full');
+                sidebarOverlay.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+
+        function closeSidebar() {
+            if (sidebar && sidebarOverlay) {
+                sidebar.classList.add('-translate-x-full');
                 sidebarOverlay.classList.add('hidden');
                 document.body.style.overflow = 'auto';
             }
         }
-    });
 
-    // Escape key handling
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
-            closeSidebar();
+        if (mobileMenuBtn) {
+            mobileMenuBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openSidebar();
+            });
         }
-    });
 
-    // ===========================================
-    // PROFILE DROPDOWN FUNCTIONALITY
-    // ===========================================
-    
-    if (profileBtn && profileDropdown) {
-        profileBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            profileDropdown.classList.toggle('hidden');
-        });
+        if (closeSidebarBtn) {
+            closeSidebarBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeSidebar();
+            });
+        }
 
-        // Close dropdown when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!profileBtn.contains(e.target) && !profileDropdown.classList.contains('hidden')) {
-                profileDropdown.classList.add('hidden');
+        if (sidebarOverlay) {
+            sidebarOverlay.addEventListener('click', function(e) {
+                e.preventDefault();
+                closeSidebar();
+            });
+        }
+
+        window.addEventListener('resize', function() {
+            if (window.innerWidth >= 1024) {
+                if (sidebar && sidebarOverlay) {
+                    sidebar.classList.remove('-translate-x-full');
+                    sidebarOverlay.classList.add('hidden');
+                    document.body.style.overflow = 'auto';
+                }
             }
         });
-    }
 
-    // ===========================================
-    // FILTER FUNCTIONALITY
-    // ===========================================
-    
-    function applyFilters() {
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
+                closeSidebar();
+            }
+        });
+
+        // Profile dropdown
+        const profileBtn = document.getElementById('profileBtn');
+        const profileDropdown = document.getElementById('profileDropdown');
+        
+        if (profileBtn && profileDropdown) {
+            profileBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                profileDropdown.classList.toggle('hidden');
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!profileBtn.contains(e.target) && !profileDropdown.classList.contains('hidden')) {
+                    profileDropdown.classList.add('hidden');
+                }
+            });
+        }
+
+        // Filter functionality
+        // ===========================================
+// FILTER FUNCTIONALITY
+// ===========================================
+
+function applyFilters() {
     const search = searchInput?.value || '';
     const section = document.getElementById('sectionFilter')?.value || '';
     const status = document.getElementById('statusFilter')?.value || '';
@@ -1953,122 +1356,65 @@ document.addEventListener('DOMContentLoaded', function() {
     window.location.href = `${window.location.pathname}?${params.toString()}`;
 }
 
-    // Search input Enter key
-    if (searchInput) {
-        searchInput.addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                applyFilters();
-            }
-        });
-    }
-
-    // Filter dropdowns
-const filters = ['sectionFilter', 'statusFilter', 'companyFilter'];
-    filters.forEach(filterId => {
-        const filterElement = document.getElementById(filterId);
-        if (filterElement) {
-            filterElement.addEventListener('change', applyFilters);
+// Search input Enter key
+if (searchInput) {
+    searchInput.addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') {
+            applyFilters();
         }
     });
-
-    // Clear filters
-    if (clearFiltersBtn) {
-        clearFiltersBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (searchInput) searchInput.value = '';
-            filters.forEach(filterId => {
-                const element = document.getElementById(filterId);
-                if (element) element.value = '';
-            });
-            if (filterForm) {
-                filterForm.submit();
-            }
-        });
-    }
-
-    // ===========================================
-    // LOADING STATES - FIXED TO AVOID CONFLICTS
-    // ===========================================
-    
-    // Add loading states only for navigation links, not controls
-    document.querySelectorAll('a[href]:not([href^="#"]):not(.no-loading)').forEach(element => {
-        // Skip sidebar controls, profile dropdown, and filter controls
-        if (element.id === 'profileBtn' || 
-            element.id === 'mobileMenuBtn' || 
-            element.id === 'closeSidebar' ||
-            element.closest('.sidebar') ||
-            element.closest('#profileDropdown') ||
-            element.classList.contains('no-loading')) {
-            return;
-        }
-
-        element.addEventListener('click', function(e) {
-            const originalText = this.innerHTML;
-            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Loading...';
-            this.style.pointerEvents = 'none';
-            
-            // Reset after 3 seconds if page doesn't navigate
-            setTimeout(() => {
-                this.innerHTML = originalText;
-                this.style.pointerEvents = 'auto';
-            }, 3000);
-        });
-    });
-
-    // ===========================================
-    // PROGRESS BAR ANIMATIONS
-    // ===========================================
-    
-    setTimeout(function() {
-        const progressBars = document.querySelectorAll('.progress-fill');
-        progressBars.forEach(function(bar) {
-            const width = bar.style.width;
-            if (width) {
-                bar.style.width = '0%';
-                setTimeout(function() {
-                    bar.style.width = width;
-                }, 100);
-            }
-        });
-    }, 500);
-
-    // ===========================================
-    // SMOOTH SCROLLING FOR ANCHOR LINKS
-    // ===========================================
-    
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-        anchor.addEventListener('click', function (e) {
-            e.preventDefault();
-            const target = document.querySelector(this.getAttribute('href'));
-            if (target) {
-                target.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            }
-        });
-    });
-});
-
-// ===========================================
-// GLOBAL FUNCTIONS
-// ===========================================
-
-function confirmLogout() {
-    return confirm('Are you sure you want to logout?');
 }
 
-// ===========================================
-// AUTO-REFRESH (Optional)
-// ===========================================
-
-setInterval(function() {
-    if (window.location.search.includes('view_student=') && document.hasFocus()) {
-        // Uncomment next line if you want auto-refresh
-        // window.location.reload();
+// Filter dropdowns
+const filters = ['sectionFilter', 'statusFilter', 'companyFilter'];
+filters.forEach(filterId => {
+    const filterElement = document.getElementById(filterId);
+    if (filterElement) {
+        filterElement.addEventListener('change', applyFilters);
     }
-}, 300000); // 5 minutes
+});
 
-</script>
-</body>
-</html>
+// Clear filters
+if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (searchInput) searchInput.value = '';
+        filters.forEach(filterId => {
+            const element = document.getElementById(filterId);
+            if (element) element.value = '';
+        });
+        if (filterForm) {
+            filterForm.submit();
+        }
+    });
+}
+
+        const clearFiltersBtn = document.getElementById('clearFilters');
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = 'StudentPerformance.php';
+            });
+        }
+
+        // Progress bar animations
+        setTimeout(function() {
+            const progressBars = document.querySelectorAll('.progress-fill');
+            progressBars.forEach(function(bar) {
+                const width = bar.style.width;
+                if (width) {
+                    bar.style.width = '0%';
+                    setTimeout(function() {
+                        bar.style.width = width;
+                    }, 100);
+                }
+            });
+        }, 500);
+    });
+
+    function confirmLogout() {
+        return confirm('Are you sure you want to logout?');
+    }
+    </script>
+    </body>
+    </html>

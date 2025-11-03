@@ -65,7 +65,7 @@ $tasks = [];
 $task_submissions = [];
 
 try {
-    // Get tasks assigned to this student with submission status
+    // Get tasks assigned to this student with submission status AND collaboration info
     $task_stmt = $conn->prepare("
         SELECT 
             t.task_id,
@@ -88,18 +88,58 @@ try {
             ts.status as submission_status,
             ts.feedback,
             ts.submitted_at,
-            ts.reviewed_at
+            ts.reviewed_at,
+            GROUP_CONCAT(DISTINCT CONCAT(s.first_name, ' ', s.last_name) ORDER BY s.first_name SEPARATOR ', ') as collaborators,
+            COUNT(DISTINCT t2.student_id) as total_collaborators,
+            SUM(CASE WHEN ts2.status = 'Approved' THEN 1 ELSE 0 END) as approved_submissions,
+            SUM(CASE WHEN ts2.submission_id IS NOT NULL THEN 1 ELSE 0 END) as total_submissions,
+            MAX(CASE WHEN ts2.status = 'Rejected' THEN 1 ELSE 0 END) as team_has_rejection,
+            (SELECT feedback FROM task_submissions 
+             WHERE task_id IN (
+                SELECT task_id FROM tasks 
+                WHERE task_title = t.task_title 
+                AND supervisor_id = t.supervisor_id 
+                AND due_date = t.due_date
+                AND created_at = t.created_at
+             ) AND status = 'Rejected' LIMIT 1) as rejection_feedback,
+            -- ✅ NEW: Get the actual submission status (Submitted, not Completed)
+            (SELECT status FROM task_submissions 
+             WHERE task_id IN (
+                SELECT task_id FROM tasks 
+                WHERE task_title = t.task_title 
+                AND supervisor_id = t.supervisor_id 
+                AND due_date = t.due_date
+                AND created_at = t.created_at
+             ) AND status != 'Rejected' LIMIT 1) as actual_submission_status
         FROM tasks t
         LEFT JOIN company_supervisors cs ON t.supervisor_id = cs.supervisor_id
-        LEFT JOIN task_submissions ts ON t.task_id = ts.task_id AND ts.student_id = t.student_id
+        LEFT JOIN task_submissions ts ON t.task_id = ts.task_id AND ts.student_id = ?
+        LEFT JOIN tasks t2 ON t.task_title = t2.task_title 
+            AND t.supervisor_id = t2.supervisor_id 
+            AND t.due_date = t2.due_date
+            AND t.created_at = t2.created_at
+        LEFT JOIN students s ON t2.student_id = s.id
+        LEFT JOIN task_submissions ts2 ON t2.task_id = ts2.task_id AND t2.student_id = ts2.student_id
         WHERE t.student_id = ?
+        GROUP BY t.task_id, t.task_title, t.task_description, t.due_date, t.priority, 
+                 t.task_category, t.instructions, t.remarks, t.status, t.created_at, 
+                 t.updated_at, cs.full_name, cs.company_name, cs.position,
+                 ts.submission_id, ts.submission_description, ts.attachment, 
+                 ts.status, ts.feedback, ts.submitted_at, ts.reviewed_at
         ORDER BY t.created_at DESC, t.updated_at DESC, t.due_date ASC, t.priority DESC
     ");
-    $task_stmt->bind_param("i", $user_id);
+    $task_stmt->bind_param("ii", $user_id, $user_id);
     $task_stmt->execute();
     $task_result = $task_stmt->get_result();
     
     while ($row = $task_result->fetch_assoc()) {
+        // ✅ FIX: Override task status based on actual submission status
+        if ($row['total_collaborators'] > 1 && $row['actual_submission_status']) {
+            // For collaborative tasks, use actual submission status
+            $row['display_status'] = $row['actual_submission_status'];
+        } else {
+            $row['display_status'] = $row['status'];
+        }
         $tasks[] = $row;
     }
     $task_stmt->close();
@@ -107,6 +147,67 @@ try {
 } catch (Exception $e) {
     echo "Error fetching tasks: " . $e->getMessage();
     error_log("Task fetch error: " . $e->getMessage());
+}
+
+// ✅ UPDATE: Calculate statistics using display_status
+$total_tasks = count($tasks);
+$completed_tasks = count(array_filter($tasks, function($task) { 
+    return $task['display_status'] === 'Completed' || $task['submission_status'] === 'Approved'; 
+}));
+$in_progress_tasks = count(array_filter($tasks, function($task) { 
+    return $task['display_status'] === 'In Progress'; 
+}));
+$pending_tasks = count(array_filter($tasks, function($task) { 
+    return $task['display_status'] === 'Pending'; 
+}));
+$submitted_tasks = count(array_filter($tasks, function($task) { 
+    return $task['submission_status'] === 'Submitted' && $task['submission_status'] !== 'Approved'; 
+}));
+$submitted_tasks = count(array_filter($tasks, function($task) { 
+    return $task['submission_status'] === 'Submitted' && $task['submission_status'] !== 'Approved'; 
+}));
+$rejected_tasks = count(array_filter($tasks, function($task) { 
+    return isset($task['submission_status']) && $task['submission_status'] === 'Rejected'; 
+}));
+$overdue_tasks = count(array_filter($tasks, function($task) { 
+    return $task['display_status'] !== 'Completed' && strtotime($task['due_date']) < time(); 
+}));
+
+
+$collaborative_submissions = [];
+if (!empty($tasks)) {
+    foreach ($tasks as $task) {
+        if ($task['total_collaborators'] > 1) {
+            $collab_stmt = $conn->prepare("
+                SELECT 
+                    ts.submission_id,
+                    ts.student_id,
+                    ts.submission_description,
+                    ts.attachment,
+                    ts.status,
+                    ts.submitted_at,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    s.student_id as student_id_number
+                FROM task_submissions ts
+                JOIN tasks t ON ts.task_id = t.task_id
+                JOIN students s ON ts.student_id = s.id
+                WHERE t.task_title = (SELECT task_title FROM tasks WHERE task_id = ?)
+                    AND t.supervisor_id = (SELECT supervisor_id FROM tasks WHERE task_id = ?)
+                    AND t.due_date = (SELECT due_date FROM tasks WHERE task_id = ?)
+                    AND t.created_at = (SELECT created_at FROM tasks WHERE task_id = ?)
+                ORDER BY ts.submitted_at DESC
+            ");
+            $collab_stmt->bind_param("iiii", $task['task_id'], $task['task_id'], $task['task_id'], $task['task_id']);
+            $collab_stmt->execute();
+            $collab_result = $collab_stmt->get_result();
+            
+            $collaborative_submissions[$task['task_id']] = [];
+            while ($submission = $collab_result->fetch_assoc()) {
+                $collaborative_submissions[$task['task_id']][] = $submission;
+            }
+            $collab_stmt->close();
+        }
+    }
 }
 
 // Calculate statistics
@@ -679,6 +780,19 @@ $status_classes = [
                                     </span>
                                 </div>
                             </div>
+                            <?php if ($task['total_collaborators'] > 1): ?>
+                                <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-users text-blue-600 mr-2"></i>
+                                        <span class="text-sm font-medium text-blue-800">
+                                            Collaborative Task - <?php echo $task['total_collaborators']; ?> Students
+                                        </span>
+                                    </div>
+                                    <p class="text-xs text-blue-600 mt-1">
+                                        Working with: <?php echo htmlspecialchars($task['collaborators']); ?>
+                                    </p>
+                                </div>
+                            <?php endif; ?>
                             
                             <!-- Task Meta -->
                             <div class="mb-4 space-y-2">
@@ -739,95 +853,229 @@ $status_classes = [
                             </div>
                             
                             <!-- Submission Status -->
-                            <?php if ($has_submission): ?>
-                                <div class="submission-info border-t border-gray-200 pt-4">
-                                    <div class="flex items-center justify-between mb-2">
-                                        <h4 class="text-sm font-medium text-gray-900">
-                                            <?php echo $is_rejected ? 'Rejected Submission' : 'Your Submission'; ?>
-                                        </h4>
-                                        <button class="submission-toggle text-sm text-blue-600 hover:text-blue-800" 
-                                                onclick="toggleSubmissionDetails(this)">
-                                            <i class="fas fa-chevron-right mr-1"></i>
-                                            View Details
-                                        </button>
-                                    </div>
-                                    
-                                    <div class="submission-content space-y-3">
-                                        <div class="flex items-center justify-between">
-    <div>
-        <span class="text-sm font-medium text-gray-600">Status:</span>
-        <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo isset($status_classes[$task['submission_status']]) ? $status_classes[$task['submission_status']] : 'bg-gray-100 text-gray-800'; ?>">
-            <?php echo htmlspecialchars($task['submission_status']); ?>
-        </span>
-    </div>
-                                            <div>
-                                                <span class="text-sm font-medium text-gray-600">Submitted:</span>
-                                                <span class="text-sm text-gray-900 ml-2">
-                                                    <?php echo date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])); ?>
-                                                </span>
-                                            </div>
-                                        </div>
+    
 
-                                        <?php if (!empty($task['submission_description'])): ?>
-                                            <div>
-                                                <span class="text-sm font-medium text-gray-600">Your Submission:</span>
-                                                <div class="mt-1 p-3 bg-gray-50 rounded-lg">
-                                                    <p class="text-sm text-gray-900">
-                                                        <?php echo nl2br(htmlspecialchars($task['submission_description'])); ?>
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        <?php endif; ?>
-
-                                        <?php if (!empty($task['attachment'])): ?>
-    <div>
-        <span class="text-sm font-medium text-gray-600">Attachment:</span>
-        <?php
-        $file_extension = strtolower(pathinfo($task['attachment'], PATHINFO_EXTENSION));
-        $file_name = basename($task['attachment']);
-        $icon_class = 'fa-file';
-        $icon_color = 'text-gray-500';
+<?php if ($has_submission || !empty($collaborative_submissions[$task['task_id']])): ?>
+    <div class="submission-info border-t border-gray-200 pt-4">
+        <div class="flex items-center justify-between mb-2">
+            <h4 class="text-sm font-medium text-gray-900">
+                <?php 
+                if ($task['total_collaborators'] > 1) {
+                    // For collaborative tasks, show team submission (not individual count)
+                    echo 'Team Submission';
+                } else {
+                    echo $is_rejected ? 'Rejected Submission' : 'Your Submission';
+                }
+                ?>
+            </h4>
+            <button class="submission-toggle text-sm text-blue-600 hover:text-blue-800" 
+                    onclick="toggleSubmissionDetails(this)">
+                <i class="fas fa-chevron-right mr-1"></i>
+                View Details
+            </button>
+        </div>
         
-        if (in_array($file_extension, ['pdf'])) {
-            $icon_class = 'fa-file-pdf';
-            $icon_color = 'text-red-500';
-        } elseif (in_array($file_extension, ['doc', 'docx'])) {
-            $icon_class = 'fa-file-word';
-            $icon_color = 'text-blue-500';
-        } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png', 'gif'])) {
-            $icon_class = 'fa-file-image';
-            $icon_color = 'text-green-500';
-        }
-        ?>
-        <button onclick="viewTaskDocument('<?php echo htmlspecialchars($task['attachment']); ?>', '<?php echo htmlspecialchars($file_name); ?>')"
-                class="inline-flex items-center ml-2 px-3 py-1 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
-            <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
-            View File
-        </button>
+        <div class="submission-content space-y-3">
+            <?php if ($task['total_collaborators'] > 1): ?>
+                <!-- Collaborative Task - Show SINGLE shared submission -->
+                <?php 
+                // Get any ONE submission (they're all the same for collaborative tasks)
+                $team_submission = !empty($collaborative_submissions[$task['task_id']]) 
+                    ? $collaborative_submissions[$task['task_id']][0] 
+                    : null;
+                
+                if ($team_submission): 
+                    $sub_status_class = [
+                        'Submitted' => 'bg-blue-100 text-blue-800',
+                        'Reviewed' => 'bg-purple-100 text-purple-800',
+                        'Approved' => 'bg-green-100 text-green-800',
+                        'Rejected' => 'bg-red-100 text-red-800'
+                    ];
+                ?>
+                    <div class="p-4 bg-blue-50 border-2 border-blue-500 rounded-lg">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-2">
+                                <i class="fas fa-users text-blue-600"></i>
+                                <span class="font-medium text-blue-900">Team Submission</span>
+                            </div>
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium <?php echo $sub_status_class[$team_submission['status']] ?? 'bg-gray-100 text-gray-800'; ?>">
+                                <?php echo htmlspecialchars($team_submission['status']); ?>
+                            </span>
+                        </div>
+                        
+                        <!-- Show team members -->
+                        <div class="mb-3 p-2 bg-white rounded border border-blue-200">
+                            <div class="flex items-center text-xs text-blue-700">
+                                <i class="fas fa-user-friends mr-2"></i>
+                                <span class="font-medium">Team Members:</span>
+                            </div>
+                            <p class="text-sm text-gray-700 mt-1 ml-5">
+                                <?php echo htmlspecialchars($task['collaborators']); ?>
+                            </p>
+                        </div>
+                        
+                        <div class="text-xs text-gray-600 mb-3">
+                            <i class="fas fa-clock mr-1"></i>
+                            Submitted: <?php echo date('M j, Y \a\t g:i A', strtotime($team_submission['submitted_at'])); ?>
+                        </div>
+                        
+                        <?php if (!empty($team_submission['submission_description'])): ?>
+                            <div class="mt-3">
+                                <span class="text-xs font-medium text-gray-600">Description:</span>
+                                <p class="text-sm text-gray-900 mt-1 p-3 bg-white rounded border border-gray-200">
+                                    <?php echo nl2br(htmlspecialchars($team_submission['submission_description'])); ?>
+                                </p>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($team_submission['attachment'])): ?>
+                            <div class="mt-3">
+                                <?php
+                                $file_extension = strtolower(pathinfo($team_submission['attachment'], PATHINFO_EXTENSION));
+                                $file_name = basename($team_submission['attachment']);
+                                $icon_class = 'fa-file';
+                                $icon_color = 'text-gray-500';
+                                
+                                if ($file_extension === 'pdf') {
+                                    $icon_class = 'fa-file-pdf';
+                                    $icon_color = 'text-red-500';
+                                } elseif (in_array($file_extension, ['doc', 'docx'])) {
+                                    $icon_class = 'fa-file-word';
+                                    $icon_color = 'text-blue-500';
+                                } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png', 'gif'])) {
+                                    $icon_class = 'fa-file-image';
+                                    $icon_color = 'text-green-500';
+                                }
+                                ?>
+                                <button onclick="viewTaskDocument('<?php echo htmlspecialchars($team_submission['attachment']); ?>', '<?php echo htmlspecialchars($file_name); ?>')"
+                                        class="inline-flex items-center px-3 py-2 border border-blue-500 text-sm font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 transition-colors">
+                                    <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
+                                    View Team Submission File
+                                </button>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <!-- Show feedback if any -->
+                        <?php if (!empty($team_submission['feedback']) || !empty($task['feedback'])): ?>
+                            <div class="mt-3 pt-3 border-t border-blue-200">
+                                <span class="text-xs font-medium text-gray-600">
+                                    <i class="fas fa-comment mr-1"></i>
+                                    Supervisor Feedback:
+                                </span>
+                                <div class="mt-1 p-3 <?php echo ($team_submission['status'] === 'Rejected') ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'; ?> rounded">
+                                    <p class="text-sm <?php echo ($team_submission['status'] === 'Rejected') ? 'text-red-800' : 'text-gray-800'; ?>">
+                                        <?php echo nl2br(htmlspecialchars($team_submission['feedback'] ?? $task['feedback'] ?? 'No feedback yet')); ?>
+                                    </p>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <!-- Info message -->
+                        <div class="mt-3 p-2 bg-blue-100 rounded text-xs text-blue-800">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            This is a shared submission. All team members have access to this work.
+                        </div>
+                    </div>
+                    
+                <?php else: ?>
+                    <!-- No submission yet for collaborative task -->
+                    <div class="p-4 bg-yellow-50 border-2 border-yellow-400 border-dashed rounded-lg text-center">
+                        <i class="fas fa-users text-yellow-600 text-2xl mb-2"></i>
+                        <p class="text-yellow-900 font-medium">No Team Submission Yet</p>
+                        <p class="text-yellow-700 text-sm mt-1">
+                            Any team member can submit on behalf of the group.
+                        </p>
+                        <p class="text-xs text-yellow-600 mt-2">
+                            Team: <?php echo htmlspecialchars($task['collaborators']); ?>
+                        </p>
+                        <?php if ($task['status'] === 'In Progress'): ?>
+                            <button onclick="openSubmissionModal(<?php echo $task['task_id']; ?>, '<?php echo htmlspecialchars($task['task_title']); ?>', false)"
+                                    class="mt-3 inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors">
+                                <i class="fas fa-upload mr-2"></i>
+                                Submit for Team
+                            </button>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+                
+            <?php elseif ($has_submission): ?>
+                <!-- Individual Submission (keep original code) -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-medium text-gray-600">Status:</span>
+                        <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo isset($status_classes[$task['submission_status']]) ? $status_classes[$task['submission_status']] : 'bg-gray-100 text-gray-800'; ?>">
+                            <?php echo htmlspecialchars($task['submission_status']); ?>
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-sm font-medium text-gray-600">Submitted:</span>
+                        <span class="text-sm text-gray-900 ml-2">
+                            <?php echo date('M j, Y \a\t g:i A', strtotime($task['submitted_at'])); ?>
+                        </span>
+                    </div>
+                </div>
+
+                <?php if (!empty($task['submission_description'])): ?>
+                    <div>
+                        <span class="text-sm font-medium text-gray-600">Your Submission:</span>
+                        <div class="mt-1 p-3 bg-gray-50 rounded-lg">
+                            <p class="text-sm text-gray-900">
+                                <?php echo nl2br(htmlspecialchars($task['submission_description'])); ?>
+                            </p>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <?php if (!empty($task['attachment'])): ?>
+                    <div>
+                        <span class="text-sm font-medium text-gray-600">Attachment:</span>
+                        <?php
+                        $file_extension = strtolower(pathinfo($task['attachment'], PATHINFO_EXTENSION));
+                        $file_name = basename($task['attachment']);
+                        $icon_class = 'fa-file';
+                        $icon_color = 'text-gray-500';
+                        
+                        if (in_array($file_extension, ['pdf'])) {
+                            $icon_class = 'fa-file-pdf';
+                            $icon_color = 'text-red-500';
+                        } elseif (in_array($file_extension, ['doc', 'docx'])) {
+                            $icon_class = 'fa-file-word';
+                            $icon_color = 'text-blue-500';
+                        } elseif (in_array($file_extension, ['jpg', 'jpeg', 'png', 'gif'])) {
+                            $icon_class = 'fa-file-image';
+                            $icon_color = 'text-green-500';
+                        }
+                        ?>
+                        <button onclick="viewTaskDocument('<?php echo htmlspecialchars($task['attachment']); ?>', '<?php echo htmlspecialchars($file_name); ?>')"
+                                class="inline-flex items-center ml-2 px-3 py-1 border border-bulsu-gold text-sm font-medium rounded-md text-bulsu-maroon bg-white hover:bg-bulsu-light-gold hover:bg-opacity-30 transition-colors">
+                            <i class="fas <?php echo $icon_class; ?> <?php echo $icon_color; ?> mr-2"></i>
+                            View File
+                        </button>
+                    </div>
+                <?php endif; ?>
+                    
+                <?php if (!empty($task['feedback'])): ?>
+                    <div class="border-t border-gray-200 pt-3">
+                        <span class="text-sm font-medium <?php echo $is_rejected ? 'text-red-600' : 'text-gray-600'; ?>">
+                            <i class="fas fa-comment mr-1"></i>
+                            Supervisor Feedback:
+                        </span>
+                        <div class="mt-1 p-3 <?php echo $is_rejected ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'; ?> rounded-lg">
+                            <p class="text-sm <?php echo $is_rejected ? 'text-red-800' : 'text-blue-800'; ?>">
+                                <?php echo nl2br(htmlspecialchars($task['feedback'])); ?>
+                            </p>
+                        </div>
+                        <?php if (!empty($task['reviewed_at'])): ?>
+                            <div class="mt-1 text-xs text-gray-500">
+                                Reviewed: <?php echo date('M j, Y \a\t g:i A', strtotime($task['reviewed_at'])); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
     </div>
 <?php endif; ?>
-                                            
-                                        <?php if (!empty($task['feedback'])): ?>
-                                            <div class="border-t border-gray-200 pt-3">
-                                                <span class="text-sm font-medium <?php echo $is_rejected ? 'text-red-600' : 'text-gray-600'; ?>">
-                                                    <i class="fas fa-comment mr-1"></i>
-                                                    Supervisor Feedback:
-                                                </span>
-                                                <div class="mt-1 p-3 <?php echo $is_rejected ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'; ?> rounded-lg">
-                                                    <p class="text-sm <?php echo $is_rejected ? 'text-red-800' : 'text-blue-800'; ?>">
-                                                        <?php echo nl2br(htmlspecialchars($task['feedback'])); ?>
-                                                    </p>
-                                                </div>
-                                                <?php if (!empty($task['reviewed_at'])): ?>
-                                                    <div class="mt-1 text-xs text-gray-500">
-                                                        Reviewed: <?php echo date('M j, Y \a\t g:i A', strtotime($task['reviewed_at'])); ?>
-                                                    </div>
-                                                <?php endif; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
@@ -972,7 +1220,8 @@ $status_classes = [
 
     <script>
         // Store tasks data for modal usage
-        const tasksData = <?php echo json_encode($tasks); ?>;
+          const tasksData = <?php echo json_encode($tasks); ?>;
+        const collaborativeSubmissions = <?php echo json_encode($collaborative_submissions); ?>;
 
         // Mobile menu functionality
         const mobileMenuBtn = document.getElementById('mobileMenuBtn');
@@ -1061,187 +1310,221 @@ $status_classes = [
         }
 
         // Task Details Modal
-        function openTaskDetailsModal(taskId) {
-            const task = tasksData.find(t => t.task_id == taskId);
-            if (!task) return;
+       // ============================================================================
+// HANAPIN MO SA STUDENTTASK.PHP yung function na ito (around line 1000-1100)
+// PALITAN MO YUNG BUONG FUNCTION with this complete updated version
+// ============================================================================
 
-            const modal = document.getElementById('taskDetailsModal');
-            const title = document.getElementById('taskDetailsTitle');
-            const content = document.getElementById('taskDetailsContent');
+// Task Details Modal
+function openTaskDetailsModal(taskId) {
+    const task = tasksData.find(t => t.task_id == taskId);
+    if (!task) return;
 
-            title.textContent = task.task_title;
-            
-            const isOverdue = task.status !== 'Completed' && new Date(task.due_date) < new Date();
-            const isRejected = task.submission_status === 'Rejected';
-            let statusDisplay = task.status;
-            
-            if (isRejected) {
-                statusDisplay = 'Rejected';
-            } else if (isOverdue) {
-                statusDisplay = 'Overdue';
-            }
-            
-            const statusClasses = {
-                'Pending': 'bg-gray-100 text-gray-800',
-                'In Progress': 'bg-yellow-100 text-yellow-800',
-                'Completed': 'bg-green-100 text-green-800',
-                'Rejected': 'bg-red-100 text-red-800',
-                'Overdue': 'bg-red-100 text-red-800'
-            };
-            
-            const priorityClasses = {
-                'Low': 'bg-blue-100 text-blue-800',
-                'Medium': 'bg-yellow-100 text-yellow-800',
-                'High': 'bg-red-100 text-red-800',
-                'Critical': 'bg-red-200 text-red-900'
-            };
+    const modal = document.getElementById('taskDetailsModal');
+    const title = document.getElementById('taskDetailsTitle');
+    const content = document.getElementById('taskDetailsContent');
 
-            // Create action buttons based on task status
-            let actionButtons = '';
-            if (task.status === 'Pending' && !isRejected) {
-                actionButtons = `
-                    <button onclick="closeTaskDetailsModal(); startTask(${task.task_id});"
-                            class="start-task-btn flex items-center px-4 py-2 text-white text-sm font-medium rounded-md transition-all duration-300">
-                        <i class="fas fa-play mr-2"></i>
-                        Start Task
-                    </button>
-                `;
-            } else if (task.status === 'In Progress' || isRejected) {
-                const buttonClass = isRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700';
-                const buttonText = isRejected ? 'Resubmit Task' : 'Submit Task';
-                const buttonIcon = isRejected ? 'redo' : 'upload';
-                
-                actionButtons = `
-                    <button onclick="closeTaskDetailsModal(); openSubmissionModal(${task.task_id}, '${task.task_title.replace(/'/g, "\\'")}', ${isRejected});"
-                            class="flex items-center px-4 py-2 ${buttonClass} text-white text-sm font-medium rounded-md transition-colors">
-                        <i class="fas fa-${buttonIcon} mr-2"></i>
-                        ${buttonText}
-                    </button>
-                `;
-            }
+    title.textContent = task.task_title;
+    
+    const isOverdue = task.status !== 'Completed' && new Date(task.due_date) < new Date();
+    const isRejected = task.submission_status === 'Rejected';
+    const isCollaborative = task.total_collaborators > 1; // ✅ BAGONG LINE ITO
+    
+    let statusDisplay = task.status;
+    
+    if (isRejected) {
+        statusDisplay = 'Rejected';
+    } else if (isOverdue) {
+        statusDisplay = 'Overdue';
+    }
+    
+    const statusClasses = {
+        'Pending': 'bg-gray-100 text-gray-800',
+        'In Progress': 'bg-yellow-100 text-yellow-800',
+        'Completed': 'bg-green-100 text-green-800',
+        'Rejected': 'bg-red-100 text-red-800',
+        'Overdue': 'bg-red-100 text-red-800'
+    };
+    
+    const priorityClasses = {
+        'Low': 'bg-blue-100 text-blue-800',
+        'Medium': 'bg-yellow-100 text-yellow-800',
+        'High': 'bg-red-100 text-red-800',
+        'Critical': 'bg-red-200 text-red-900'
+    };
 
-            // Add rejected task banner if applicable
-            let rejectedBanner = '';
-            if (isRejected) {
-                rejectedBanner = `
-                    <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                        <div class="flex items-center mb-2">
-                            <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
-                            <span class="font-semibold text-red-800">Task Submission Rejected</span>
-                        </div>
-                        <p class="text-red-700 text-sm">Your supervisor has rejected this task. Please review the feedback and resubmit with the required changes.</p>
+    // Create action buttons based on task status
+    let actionButtons = '';
+    if (task.status === 'Pending' && !isRejected) {
+        actionButtons = `
+            <button onclick="closeTaskDetailsModal(); startTask(${task.task_id});"
+                    class="start-task-btn flex items-center px-4 py-2 text-white text-sm font-medium rounded-md transition-all duration-300">
+                <i class="fas fa-play mr-2"></i>
+                Start Task
+            </button>
+        `;
+    } else if (task.status === 'In Progress' || isRejected) {
+        const buttonClass = isRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700';
+        const buttonText = isRejected ? 'Resubmit Task' : 'Submit Task';
+        const buttonIcon = isRejected ? 'redo' : 'upload';
+        
+        actionButtons = `
+            <button onclick="closeTaskDetailsModal(); openSubmissionModal(${task.task_id}, '${task.task_title.replace(/'/g, "\\'")}', ${isRejected});"
+                    class="flex items-center px-4 py-2 ${buttonClass} text-white text-sm font-medium rounded-md transition-colors">
+                <i class="fas fa-${buttonIcon} mr-2"></i>
+                ${buttonText}
+            </button>
+        `;
+    }
+
+    // Add rejected task banner if applicable
+    let rejectedBanner = '';
+    if (isRejected) {
+        rejectedBanner = `
+            <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div class="flex items-center mb-2">
+                    <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                    <span class="font-semibold text-red-800">Task Submission Rejected</span>
+                </div>
+                <p class="text-red-700 text-sm">Your supervisor has rejected this task. Please review the feedback and resubmit with the required changes.</p>
+            </div>
+        `;
+    }
+
+    // ✅ BAGONG SECTION - Collaborative Task Info
+    let collaborativeSection = '';
+    if (isCollaborative) {
+        collaborativeSection = `
+            <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="flex items-center mb-2">
+                    <i class="fas fa-users text-blue-600 mr-2"></i>
+                    <span class="font-semibold text-blue-800">Collaborative Task</span>
+                </div>
+                <p class="text-sm text-blue-700 mb-2">
+                    This task is assigned to ${task.total_collaborators} students: ${task.collaborators}
+                </p>
+                ${task.approved_submissions > 0 ? `
+                    <div class="flex items-center mt-2">
+                        <i class="fas fa-check-circle text-green-600 mr-2"></i>
+                        <p class="text-xs text-gray-700">
+                            ${task.approved_submissions} of ${task.total_collaborators} submissions approved
+                        </p>
                     </div>
-                `;
-            }
+                ` : ''}
+            </div>
+        `;
+    }
 
-            content.innerHTML = `
-                <div class="space-y-6">
-                    ${rejectedBanner}
-                    
-                    <!-- Task Status and Priority -->
-                    <div class="flex flex-wrap gap-3">
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusClasses[statusDisplay]}">
-                            ${statusDisplay}
-                        </span>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${priorityClasses[task.priority]}">
-                            ${task.priority} Priority
-                        </span>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                            ${task.task_category || 'General'}
-                        </span>
-                    </div>
+    content.innerHTML = `
+        <div class="space-y-6">
+            ${rejectedBanner}
+            
+            ${collaborativeSection}
+            
+            <!-- Task Status and Priority -->
+            <div class="flex flex-wrap gap-3">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusClasses[statusDisplay]}">
+                    ${statusDisplay}
+                </span>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${priorityClasses[task.priority]}">
+                    ${task.priority} Priority
+                </span>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+                    ${task.task_category || 'General'}
+                </span>
+            </div>
 
-                    <!-- Task Meta Information -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                        <div>
-                            <span class="text-sm font-medium text-gray-600">Assigned by:</span>
-                            <p class="text-sm text-gray-900">${task.supervisor_name || 'Not Assigned'}</p>
-                        </div>
-                        <div>
-                            <span class="text-sm font-medium text-gray-600">Position:</span>
-                            <p class="text-sm text-gray-900">${task.supervisor_position || 'N/A'}</p>
-                        </div>
-                        <div>
-                            <span class="text-sm font-medium text-gray-600">Due Date:</span>
-                            <p class="text-sm ${(isOverdue || isRejected) ? 'text-red-600 font-medium' : 'text-gray-900'}">
-                                ${new Date(task.due_date).toLocaleDateString('en-US', { 
-                                    year: 'numeric', 
-                                    month: 'long', 
-                                    day: 'numeric' 
-                                })}
-                                ${isOverdue ? ' (Overdue)' : ''}
-                            </p>
-                        </div>
-                        <div>
-                            <span class="text-sm font-medium text-gray-600">Created:</span>
-                            <p class="text-sm text-gray-900">
-                                ${new Date(task.created_at).toLocaleDateString('en-US', { 
-                                    year: 'numeric', 
-                                    month: 'long', 
-                                    day: 'numeric' 
-                                })}
-                            </p>
-                        </div>
-                    </div>
+            <!-- Task Meta Information -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                    <span class="text-sm font-medium text-gray-600">Assigned by:</span>
+                    <p class="text-sm text-gray-900">${task.supervisor_name || 'Not Assigned'}</p>
+                </div>
+                <div>
+                    <span class="text-sm font-medium text-gray-600">Position:</span>
+                    <p class="text-sm text-gray-900">${task.supervisor_position || 'N/A'}</p>
+                </div>
+                <div>
+                    <span class="text-sm font-medium text-gray-600">Due Date:</span>
+                    <p class="text-sm ${(isOverdue || isRejected) ? 'text-red-600 font-medium' : 'text-gray-900'}">
+                        ${new Date(task.due_date).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                        })}
+                        ${isOverdue ? ' (Overdue)' : ''}
+                    </p>
+                </div>
+                <div>
+                    <span class="text-sm font-medium text-gray-600">Created:</span>
+                    <p class="text-sm text-gray-900">
+                        ${new Date(task.created_at).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                        })}
+                    </p>
+                </div>
+            </div>
 
-                    <!-- Task Description -->
-                    <div>
-                        <h4 class="text-lg font-medium text-gray-900 mb-3">Description</h4>
-                        <div class="prose prose-sm max-w-none">
-                            <p class="text-gray-700 whitespace-pre-wrap">${task.task_description}</p>
-                        </div>
-                    </div>
+            <!-- Task Description -->
+            <div>
+                <h4 class="text-lg font-medium text-gray-900 mb-3">Description</h4>
+                <div class="prose prose-sm max-w-none">
+                    <p class="text-gray-700 whitespace-pre-wrap">${task.task_description}</p>
+                </div>
+            </div>
 
-                    <!-- Task Instructions -->
-                    ${task.instructions ? `
-                        <div>
-                            <h4 class="text-lg font-medium text-gray-900 mb-3">Instructions</h4>
-                            <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                <p class="text-blue-800 whitespace-pre-wrap">${task.instructions}</p>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <!-- Task Remarks -->
-                    ${task.remarks ? `
-                        <div>
-                            <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
-                            <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                                <p class="text-yellow-800 whitespace-pre-wrap">${task.remarks}</p>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <!-- Submission Feedback (if rejected) -->
-                    ${(isRejected && task.feedback) ? `
-                        <div>
-                            <h4 class="text-lg font-medium text-gray-900 mb-3">Supervisor Feedback</h4>
-                            <div class="p-4 bg-red-50 rounded-lg border border-red-200">
-                                <p class="text-red-800 whitespace-pre-wrap">${task.feedback}</p>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <!-- Action Buttons -->
-                    <div class="flex gap-3 pt-4 border-t border-gray-200">
-                        ${actionButtons}
-                        <button onclick="closeTaskDetailsModal()"
-                                class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 transition-colors">
-                            <i class="fas fa-times mr-2"></i>
-                            Close
-                        </button>
+            <!-- Task Instructions -->
+            ${task.instructions ? `
+                <div>
+                    <h4 class="text-lg font-medium text-gray-900 mb-3">Instructions</h4>
+                    <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <p class="text-blue-800 whitespace-pre-wrap">${task.instructions}</p>
                     </div>
                 </div>
-            `;
+            ` : ''}
 
-            modal.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
+            <!-- Task Remarks -->
+            ${task.remarks ? `
+                <div>
+                    <h4 class="text-lg font-medium text-gray-900 mb-3">Remarks</h4>
+                    <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                        <p class="text-yellow-800 whitespace-pre-wrap">${task.remarks}</p>
+                    </div>
+                </div>
+            ` : ''}
 
-        function closeTaskDetailsModal() {
-            document.getElementById('taskDetailsModal').classList.add('hidden');
-            document.body.style.overflow = 'auto';
-        }
+            <!-- Submission Feedback (if rejected) -->
+            ${(isRejected && task.feedback) ? `
+                <div>
+                    <h4 class="text-lg font-medium text-gray-900 mb-3">Supervisor Feedback</h4>
+                    <div class="p-4 bg-red-50 rounded-lg border border-red-200">
+                        <p class="text-red-800 whitespace-pre-wrap">${task.feedback}</p>
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- Action Buttons -->
+            <div class="flex gap-3 pt-4 border-t border-gray-200">
+                ${actionButtons}
+                <button onclick="closeTaskDetailsModal()"
+                        class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 transition-colors">
+                    <i class="fas fa-times mr-2"></i>
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeTaskDetailsModal() {
+    document.getElementById('taskDetailsModal').classList.add('hidden');
+    document.body.style.overflow = 'auto';
+}
 
         // Submission modal functionality
         function openSubmissionModal(taskId, taskTitle, isRejected = false) {

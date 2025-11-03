@@ -137,8 +137,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <h3 class="text-bulsu-gold font-semibold text-lg mb-2">Bulacan State University</h3>
                     <div class="w-24 h-1 bg-bulsu-gold mx-auto rounded"></div>
                 </div>
-                <div class="inline-block bg-gradient-to-r from-bulsu-gold to-yellow-500 text-bulsu-maroon px-4 py-2 rounded-full font-semibold mb-4">👨‍🏫 Academic Adviser Portal</div>
-                <h1 class="text-bulsu-maroon text-2xl md:text-3xl font-bold mb-2">Welcome Back, Adviser!</h1>
+                <div class="inline-block bg-gradient-to-r from-bulsu-gold to-yellow-500 text-bulsu-maroon px-4 py-2 rounded-full font-semibold mb-4">👨‍🏫 Faculty Handling Intership Portal</div>
+                <h1 class="text-bulsu-maroon text-2xl md:text-3xl font-bold mb-2">Welcome Back, Faculty Handling Intership!</h1>
                 <p class="text-gray-600">Access your dashboard to monitor student progress and manage academic requirements</p>
             </div>
 

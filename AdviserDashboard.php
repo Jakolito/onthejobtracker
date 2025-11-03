@@ -434,6 +434,10 @@ tailwind.config = {
                 <i class="fas fa-edit mr-3"></i>
                 Edit Document
             </a>
+             <a href="AcademicStudentEvaluation.php" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-bulsu-light-gold hover:text-white hover:bg-bulsu-gold hover:bg-opacity-20 rounded-md transition-all duration-200">
+                    <i class="fas fa-star mr-3"></i>
+                    Student Evaluation
+                </a>
             
             <!-- NEW: Academic Accounts - Only visible to coordinators -->
             <?php if ($adviser_role === 'coordinator'): ?>
@@ -475,7 +479,7 @@ tailwind.config = {
 
                 <!-- Header Title -->
                 <div class="flex-1 lg:ml-0 ml-4">
-                    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Academic Adviser Dashboard</h1>
+                    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Faculty Handling Intership Dashboard</h1>
                     <p class="text-sm sm:text-base text-gray-500 hidden sm:block">Monitoring OJT program and student progress</p>
                 </div>
                 

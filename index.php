@@ -258,6 +258,7 @@
                 <p>AI-Powered OJT Performance Monitoring Platform</p>
             </div>
             <p class="text-xs text-gray-400 mt-2">Developed in partnership with BULSU College of Information Technology</p>
+             <p class="text-xs text-gray-400 mt-2">Developed by Jonathan Bryan B. Damasco</p>
         </div>
     </footer>
 

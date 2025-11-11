@@ -778,8 +778,6 @@ if (!empty($adviser['year_level']) && !empty($form_data['year_level'])) {
                                 <select id="year_level" name="year_level" required
                                     class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-bulsu-gold transition">
                                     <option value="" <?php echo ($form_data['year_level'] == '') ? 'selected' : ''; ?>>Select year level</option>
-                                    <option value="1st Year" <?php echo ($form_data['year_level'] == '1st Year') ? 'selected' : ''; ?>>1st Year</option>
-                                    <option value="2nd Year" <?php echo ($form_data['year_level'] == '2nd Year') ? 'selected' : ''; ?>>2nd Year</option>
                                     <option value="3rd Year" <?php echo ($form_data['year_level'] == '3rd Year') ? 'selected' : ''; ?>>3rd Year</option>
                                     <option value="4th Year" <?php echo ($form_data['year_level'] == '4th Year') ? 'selected' : ''; ?>>4th Year</option>
                                 </select>
